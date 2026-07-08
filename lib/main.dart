@@ -1792,15 +1792,6 @@ class RouterReadyForPaymentPage extends StatelessWidget {
             ],
           ),
         ),
-        const BenefitTile(
-            icon: Icons.route,
-            title: 'Обычный интернет останется напрямую',
-            text: ''),
-        const BenefitTile(
-            icon: Icons.play_circle,
-            title:
-                'YouTube, Telegram, Instagram, WhatsApp и нейронки пойдут через VPN',
-            text: ''),
       ],
     );
   }
