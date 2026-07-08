@@ -112,6 +112,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
     await prefs.setBool('router1_configured', true);
     await prefs.setString('router1_router_model', router?.model ?? '');
     await prefs.setString('router1_client_phone', clientPhone);
+    await prefs.setString(
+        'router1_route_profile_kind', routerRouteProfileKind.name);
     if (mounted) openHome();
   }
 
@@ -163,6 +165,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
       setState(() {
         final savedModel = prefs.getString('router1_router_model') ?? '';
         final savedPhone = prefs.getString('router1_client_phone') ?? '';
+        final savedKind = prefs.getString('router1_route_profile_kind');
+        if (savedKind != null) {
+          routerRouteProfileKind = Router1RouteProfileKind.values.firstWhere(
+              (k) => k.name == savedKind,
+              orElse: () => Router1RouteProfileKind.goldStandard);
+        }
         if (savedPhone.isNotEmpty) clientPhone = savedPhone;
         if (savedModel.isNotEmpty) {
           router = KeeneticRouter(
@@ -192,6 +200,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
         router: router,
         clientPhone: clientPhone,
         paid: paid || clientPhone.isNotEmpty,
+        routeProfileKind: routerRouteProfileKind,
         onSetupRouter: startRouterSetupFromHome,
         onSetupGadget: startGadgetSetupFromHome,
         onPay: openPaymentFromHome,
@@ -476,6 +485,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
           router: router,
           clientPhone: clientPhone,
           paid: paid || clientPhone.isNotEmpty,
+          routeProfileKind: routerRouteProfileKind,
           onSetupRouter: startRouterSetupFromHome,
           onSetupGadget: startGadgetSetupFromHome,
           onPay: openPaymentFromHome,
@@ -740,10 +750,14 @@ class Router1Card extends StatelessWidget {
 
 class StatusOrb extends StatelessWidget {
   const StatusOrb(
-      {this.size = 230, this.text = 'Интернет\nработает', super.key});
+      {this.size = 230,
+      this.text = 'Интернет\nработает',
+      this.accent = Router1Theme.green,
+      super.key});
 
   final double size;
   final String text;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
@@ -753,13 +767,33 @@ class StatusOrb extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CustomPaint(size: Size.square(size), painter: _OrbPainter()),
-          Text(text,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 29,
-                  fontWeight: FontWeight.w900)),
+          Container(
+            width: size * 0.72,
+            height: size * 0.72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                    color: accent.withValues(alpha: 0.5),
+                    blurRadius: size * 0.32,
+                    spreadRadius: size * 0.02),
+              ],
+            ),
+          ),
+          Image.asset('assets/illustrations/globe.png',
+              width: size, height: size, fit: BoxFit.contain),
+          if (text.isNotEmpty)
+            Text(text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    height: 1.15,
+                    fontWeight: FontWeight.w900,
+                    shadows: [
+                      Shadow(color: Colors.black87, blurRadius: 12),
+                      Shadow(color: Colors.black54, blurRadius: 22),
+                    ])),
         ],
       ),
     );
@@ -4444,6 +4478,7 @@ class HomeScreen extends StatefulWidget {
     required this.onSetupRouter,
     required this.onSetupGadget,
     required this.onPay,
+    this.routeProfileKind = Router1RouteProfileKind.goldStandard,
     super.key,
   });
 
@@ -4453,6 +4488,7 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onSetupRouter;
   final VoidCallback onSetupGadget;
   final VoidCallback onPay;
+  final Router1RouteProfileKind routeProfileKind;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -4466,6 +4502,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late Future<Router1Snapshot> snapshot;
   var localMode = RouterMode.ai;
+  var refreshing = false;
 
   @override
   void initState() {
@@ -4474,11 +4511,25 @@ class _HomeScreenState extends State<HomeScreen> {
         value.demoMode ? Router1Snapshot.demo(mode: localMode) : value);
   }
 
-  void refresh() {
-    setState(() {
-      snapshot = api.snapshot().then((value) =>
-          value.demoMode ? Router1Snapshot.demo(mode: localMode) : value);
-    });
+  Future<void> refresh() async {
+    setState(() => refreshing = true);
+    final next = api.snapshot().then((value) =>
+        value.demoMode ? Router1Snapshot.demo(mode: localMode) : value);
+    setState(() => snapshot = next);
+    try {
+      await next;
+    } catch (_) {
+      // ошибка уже показана как demo-фолбэк в snapshot()
+    }
+    if (!mounted) return;
+    setState(() => refreshing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Проверка завершена'),
+        duration: Duration(seconds: 2),
+        backgroundColor: Router1Theme.panel2,
+      ),
+    );
   }
 
   @override
@@ -4495,6 +4546,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 router: widget.router,
                 clientPhone: widget.clientPhone,
                 paid: widget.paid,
+                routeProfileKind: widget.routeProfileKind,
+                refreshing: refreshing,
                 onRefresh: refresh,
                 onSetupRouter: widget.onSetupRouter,
                 onSetupGadget: widget.onSetupGadget,
@@ -4523,6 +4576,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+String routeModeShortTitle(Router1RouteProfileKind kind) {
+  return switch (kind) {
+    Router1RouteProfileKind.goldStandard => 'Standard',
+    Router1RouteProfileKind.ai => '+AI',
+    Router1RouteProfileKind.gamers => 'For Gamers',
+  };
+}
+
+String routeModeTagline(Router1RouteProfileKind kind) {
+  return switch (kind) {
+    Router1RouteProfileKind.goldStandard =>
+      'Обычный интернет + видеосервис + пару мессенджеров',
+    Router1RouteProfileKind.ai =>
+      'То же самое, плюс нейросети',
+    Router1RouteProfileKind.gamers =>
+      'То же самое, плюс игровые сервисы',
+  };
+}
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
     required this.snapshot,
@@ -4533,6 +4605,8 @@ class DashboardPage extends StatelessWidget {
     required this.onSetupRouter,
     required this.onSetupGadget,
     required this.onPay,
+    this.routeProfileKind = Router1RouteProfileKind.goldStandard,
+    this.refreshing = false,
     super.key,
   });
 
@@ -4544,6 +4618,8 @@ class DashboardPage extends StatelessWidget {
   final VoidCallback onSetupRouter;
   final VoidCallback onSetupGadget;
   final VoidCallback onPay;
+  final Router1RouteProfileKind routeProfileKind;
+  final bool refreshing;
 
   @override
   Widget build(BuildContext context) {
@@ -4580,31 +4656,36 @@ class DashboardPage extends StatelessWidget {
               ),
             ),
             IconButton(
-              onPressed: onRefresh,
+              onPressed: refreshing ? null : onRefresh,
               tooltip: 'Проверить сейчас',
-              icon: const Icon(Icons.refresh, color: Router1Theme.green),
+              icon: refreshing
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.4, color: Router1Theme.green),
+                    )
+                  : const Icon(Icons.refresh, color: Router1Theme.green),
             ),
           ],
         ),
         const SizedBox(height: 22),
         Router1Card(
           green: snapshot.connected,
-          child: const Column(
+          child: Column(
             children: [
-              StatusOrb(size: 190, text: 'Router1\nработает'),
-              SizedBox(height: 16),
-              HomeStatusLine(
-                  icon: Icons.public,
-                  title: 'Обычный интернет',
-                  value: 'напрямую'),
-              HomeStatusLine(
-                  icon: Icons.play_circle,
-                  title: 'YouTube, Telegram, Instagram, WhatsApp, AI',
-                  value: 'через VPN'),
-              HomeStatusLine(
-                  icon: Icons.account_balance,
-                  title: 'Госуслуги, банки и RU-сайты',
-                  value: 'напрямую'),
+              const StatusOrb(size: 190, text: 'Router1\nработает'),
+              const SizedBox(height: 18),
+              Text('Режим ${routeModeShortTitle(routeProfileKind)}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text(routeModeTagline(routeProfileKind),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Router1Theme.muted, fontSize: 14, height: 1.35)),
             ],
           ),
         ),
@@ -4613,11 +4694,6 @@ class DashboardPage extends StatelessWidget {
           child: Column(
             children: [
               HomeMetricLine(label: 'Сервер', value: serverName),
-              HomeMetricLine(
-                  label: 'VPN',
-                  value: snapshot.connected ? 'активен' : 'требует проверки'),
-              const HomeMetricLine(
-                  label: 'Маршруты', value: 'selective routing'),
               const HomeMetricLine(
                   label: 'Последняя проверка', value: 'сейчас'),
             ],
@@ -4669,7 +4745,7 @@ class DashboardPage extends StatelessWidget {
                 icon: Icons.router,
                 color: Router1Theme.green,
                 title: 'Обновить роутер',
-                text: 'Переустановить конфиг и маршруты',
+                text: 'Переустановить конфиг или сменить режим',
                 onTap: onSetupRouter,
               ),
             ),
@@ -4689,15 +4765,23 @@ class DashboardPage extends StatelessWidget {
         HomeWideAction(
           icon: Icons.health_and_safety,
           title: 'Проверить и исправить',
-          text: 'Диагностика сервера, VPN, маршрутов и доступности сервисов',
-          onTap: onRefresh,
+          text: 'Диагностика сервера и доступности сервисов',
+          onTap: refreshing ? () {} : onRefresh,
         ),
         const SizedBox(height: 12),
         HomeWideAction(
           icon: Icons.card_giftcard,
-          title: 'Реферальная программа',
-          text: 'Пригласите клиента и получите бонус после оплаты',
-          onTap: () {},
+          title: 'Поделиться приложением с другом',
+          text: 'Отправить ссылку на Router1',
+          onTap: () {
+            SharePlus.instance.share(
+              ShareParams(
+                subject: 'Router1 — умный интернет',
+                text:
+                    'Настрой домашний роутер за 5 минут с Router1: https://router1.tech/#download',
+              ),
+            );
+          },
         ),
       ],
     );
