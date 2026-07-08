@@ -24,6 +24,25 @@ void main() {
       expect(Router1RouteProfileKind.ai.includesAi, isTrue);
       expect(Router1RouteProfileKind.gamers.includesGames, isTrue);
     });
+
+    test('maps legacy router modes to product profiles', () {
+      expect(
+        Router1RouteProfileKind.fromRouterMode(RouterMode.normal),
+        Router1RouteProfileKind.goldStandard,
+      );
+      expect(
+        Router1RouteProfileKind.fromRouterMode(RouterMode.streaming),
+        Router1RouteProfileKind.goldStandard,
+      );
+      expect(
+        Router1RouteProfileKind.fromRouterMode(RouterMode.ai),
+        Router1RouteProfileKind.ai,
+      );
+      expect(
+        Router1RouteProfileKind.fromRouterMode(RouterMode.game),
+        Router1RouteProfileKind.gamers,
+      );
+    });
   });
 
   group('Router1RouteProfile', () {

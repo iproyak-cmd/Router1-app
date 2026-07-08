@@ -54,6 +54,14 @@ enum Router1RouteProfileKind {
       _ => Router1RouteProfileKind.goldStandard,
     };
   }
+
+  static Router1RouteProfileKind fromRouterMode(RouterMode mode) {
+    return switch (mode) {
+      RouterMode.ai => Router1RouteProfileKind.ai,
+      RouterMode.game => Router1RouteProfileKind.gamers,
+      _ => Router1RouteProfileKind.goldStandard,
+    };
+  }
 }
 
 class Router1Snapshot {
