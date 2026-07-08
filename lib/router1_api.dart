@@ -240,6 +240,52 @@ class Router1Order {
   }
 }
 
+class Router1RenewalOffer {
+  const Router1RenewalOffer({
+    required this.key,
+    required this.title,
+    required this.amount,
+    required this.periodDays,
+  });
+
+  final String key;
+  final String title;
+  final int amount;
+  final int periodDays;
+
+  factory Router1RenewalOffer.fromJson(Map<String, dynamic> json) {
+    return Router1RenewalOffer(
+      key: json['key']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      amount: (json['amount'] as num?)?.toInt() ?? 0,
+      periodDays: (json['period_days'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class Router1RenewalOrder {
+  const Router1RenewalOrder({
+    required this.paymentId,
+    required this.amount,
+    required this.paymentUrl,
+    required this.text,
+  });
+
+  final String paymentId;
+  final int amount;
+  final String paymentUrl;
+  final String text;
+
+  factory Router1RenewalOrder.fromJson(Map<String, dynamic> json) {
+    return Router1RenewalOrder(
+      paymentId: json['payment_id']?.toString() ?? '',
+      amount: (json['amount'] as num?)?.toInt() ?? 0,
+      paymentUrl: json['payment_url']?.toString() ?? '',
+      text: json['text']?.toString() ?? '',
+    );
+  }
+}
+
 class Router1OrderStatus {
   const Router1OrderStatus({
     required this.paid,
@@ -476,6 +522,31 @@ class Router1Api {
     final order = Router1Order.fromJson(data);
     if (order.orderId.isEmpty || order.paymentUrl.isEmpty) {
       throw const FormatException('Router1 returned incomplete order');
+    }
+    return order;
+  }
+
+  Future<List<Router1RenewalOffer>> renewalOffers() async {
+    final data = await _get('/app/renewal-offers');
+    final offers = data['offers'] as List? ?? const [];
+    return offers
+        .whereType<Map<String, dynamic>>()
+        .map(Router1RenewalOffer.fromJson)
+        .where((offer) => offer.key.isNotEmpty && offer.amount > 0)
+        .toList(growable: false);
+  }
+
+  Future<Router1RenewalOrder> createRenewalOrder({
+    required String phone,
+    required String offerKey,
+  }) async {
+    final data = await _post('/app/renewal-order', {
+      'phone': phone,
+      'offer_key': offerKey,
+    });
+    final order = Router1RenewalOrder.fromJson(data);
+    if (order.paymentId.isEmpty || order.paymentUrl.isEmpty) {
+      throw const FormatException('Router1 returned incomplete renewal order');
     }
     return order;
   }

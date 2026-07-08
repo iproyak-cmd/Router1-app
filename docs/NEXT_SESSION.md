@@ -44,7 +44,8 @@ cp build/app/outputs/flutter-apk/app-release.apk build-output/router1_app_mvp.ap
 - Test both buttons:
   - `Повторить поиск`
   - `Указать вручную`
-- Confirm the payment screen contains `Router1 Keenetics`, `2300 ₽`, all modes and locations, priority support, first month fee, and `Оплатить`.
+- Confirm the payment screen contains `Router1 для роутера`, `2300 ₽`,
+  first month included, monthly fee `300 ₽/мес`, and `Оплатить`.
 - Confirm Home looks like a commercial Router1 center screen, not an engineering dashboard.
 
 ## Product Work

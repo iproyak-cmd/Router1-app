@@ -66,7 +66,8 @@ Success criteria:
 - Router path keeps the approved sequence:
   Splash, First Run, Search, Found, Compatibility, Benefits, Payment, Home.
 - Keenetic Discovery logic is preserved.
-- Payment screen shows `Router1 Keenetics`, `2300 ₽`, all modes and locations, priority support, first month fee, and `Оплатить`.
+- Payment screen shows `Router1 для роутера`, `2300 ₽`, first month included,
+  monthly fee `300 ₽/мес`, and `Оплатить`.
 - Release APK is rebuilt and SHA256 is refreshed.
 
 Status:

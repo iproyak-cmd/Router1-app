@@ -7,7 +7,7 @@ backend, визуал и настройка роутера не расходил
 
 ## Профили
 
-### Gold Standard
+### Standard
 
 - ID API: `gold_standard`
 - Старый alias: `router-default`
@@ -22,9 +22,9 @@ backend, визуал и настройка роутера не расходил
 
 - ID API: `ai`
 - Назначение: расширенный режим, когда клиенту нужны нейронки.
-- Через туннель: Gold Standard + ChatGPT, Claude, Gemini, Perplexity и связанные
+- Через туннель: Standard + ChatGPT, Claude, Gemini, Perplexity и связанные
   endpoint.
-- Может быть медленнее Gold Standard.
+- Может быть медленнее Standard.
 - Этот режим требует отдельного тестирования, потому что ChatGPT/Claude зависят от
   Cloudflare, auth, challenge, DNS, IPv6 и MTU.
 
@@ -32,7 +32,7 @@ backend, визуал и настройка роутера не расходил
 
 - ID API: `gamers`
 - Назначение: игровые сервисы без нейронок.
-- Через туннель: Gold Standard + игровые домены.
+- Через туннель: Standard + игровые домены.
 - Нейронки: нет.
 - Первый набор игровых доменов: Discord, Steam, Epic, Battle.net, Activision,
   Riot, EA, Ubisoft, Xbox, PlayStation.
@@ -118,7 +118,7 @@ Claude:
 
 Текущие пользовательские названия:
 
-- `Gold Standard`
+- `Standard`
 - `+AI`
 - `For Gamers`
 

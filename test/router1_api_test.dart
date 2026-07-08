@@ -93,4 +93,20 @@ void main() {
       expect(profile.aiIpv4Routes.single.network, '104.16.0.0');
     });
   });
+
+  group('Router1RenewalOffer', () {
+    test('parses renewal tariff payload', () {
+      final offer = Router1RenewalOffer.fromJson({
+        'key': 'subscription_3m',
+        'title': '3 месяца',
+        'amount': 750,
+        'period_days': 90,
+      });
+
+      expect(offer.key, 'subscription_3m');
+      expect(offer.title, '3 месяца');
+      expect(offer.amount, 750);
+      expect(offer.periodDays, 90);
+    });
+  });
 }

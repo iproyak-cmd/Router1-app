@@ -142,8 +142,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
 
   void openPaymentFromHome() {
     setState(() {
-      path = FirstRunPath.router;
-      step = routerAccess == null ? 2 : 60;
+      if (clientPhone.trim().isEmpty) {
+        path = FirstRunPath.router;
+        step = routerAccess == null ? 2 : 60;
+      } else {
+        step = 70;
+      }
     });
   }
 
@@ -321,6 +325,13 @@ class _FirstRunShellState extends State<FirstRunShell> {
           });
         },
         onBack: () => goTo(1),
+      );
+    }
+    if (step == 70) {
+      return RenewalPage(
+        api: appApi,
+        initialPhone: clientPhone,
+        onBack: openHome,
       );
     }
     return buildRouterFlow();
@@ -709,7 +720,9 @@ class Router1Card extends StatelessWidget {
   Widget build(BuildContext context) {
     final highlighted = green || blue || accentColor != null;
     final borderColor = accentColor ??
-        (green ? Router1Theme.green : (blue ? Router1Theme.blue : Router1Theme.border));
+        (green
+            ? Router1Theme.green
+            : (blue ? Router1Theme.blue : Router1Theme.border));
     List<Color> gradientColors;
     if (green) {
       gradientColors = const [Color(0xCC0D5B2D), Color(0x6610212A)];
@@ -717,8 +730,8 @@ class Router1Card extends StatelessWidget {
       gradientColors = const [Color(0xAA0A2D74), Color(0x5510212A)];
     } else if (accentColor != null) {
       gradientColors = [
-        Color.alphaBlend(accentColor!.withValues(alpha: 0.34),
-            const Color(0xFF0A1218)),
+        Color.alphaBlend(
+            accentColor!.withValues(alpha: 0.34), const Color(0xFF0A1218)),
         const Color(0x6610212A),
       ];
     } else {
@@ -1703,7 +1716,13 @@ class CompatibilityPage extends StatelessWidget {
             title: 'Почему мы это проверяем?',
             subtitle:
                 'Это помогает убедиться, что ваш роутер\nготов к безопасной и стабильной работе.',
-            onTap: () {}),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text(
+                        'Router1 проверяет модель, доступ и готовность к установке.')),
+              );
+            }),
       ],
     );
   }
@@ -2146,7 +2165,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     return FlowScaffold(
       title: 'Оплата Router1',
       subtitle:
-          'После оплаты Router1 сам установит VPN на роутер и включит маршрутизацию: обычный интернет напрямую, YouTube, Telegram и нейросети через VPN.',
+          'Оплата включает настройку роутера и первый месяц доступа Router1.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
@@ -2161,7 +2180,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               ? pay
               : () => unawaited(checkPayment(manual: true)),
       children: [
-        const PricePanel(title: 'Router1 для роутера', price: '10 ₽'),
+        const PricePanel(title: 'Router1 для роутера', price: '2300 ₽'),
         const BenefitTile(
             icon: Icons.install_mobile,
             title: 'Если уже оплатили, новая оплата не нужна',
@@ -2351,6 +2370,189 @@ class _RouterAccessPageState extends State<RouterAccessPage> {
             ],
           ),
         ),
+      ],
+    );
+  }
+}
+
+class RenewalPage extends StatefulWidget {
+  const RenewalPage({
+    required this.api,
+    required this.initialPhone,
+    required this.onBack,
+    super.key,
+  });
+
+  final Router1Api api;
+  final String initialPhone;
+  final VoidCallback onBack;
+
+  @override
+  State<RenewalPage> createState() => _RenewalPageState();
+}
+
+class _RenewalPageState extends State<RenewalPage> {
+  late final TextEditingController phoneController;
+  late Future<List<Router1RenewalOffer>> offers;
+  String? status;
+  String? error;
+  String? paymentUrl;
+  String? selectedKey;
+  var loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    phoneController = TextEditingController(text: widget.initialPhone);
+    offers = widget.api.renewalOffers();
+  }
+
+  @override
+  void dispose() {
+    phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pay(Router1RenewalOffer offer) async {
+    final phone = phoneController.text.trim();
+    if (phone.replaceAll(RegExp(r'\D+'), '').length < 10) {
+      setState(() => error = 'Введите телефон активного клиента.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      selectedKey = offer.key;
+      error = null;
+      paymentUrl = null;
+      status = 'Создаём оплату продления...';
+    });
+    try {
+      final order = await widget.api.createRenewalOrder(
+        phone: phone,
+        offerKey: offer.key,
+      );
+      setState(() {
+        paymentUrl = order.paymentUrl;
+        status =
+            'Ссылка оплаты создана. После оплаты доступ продлится автоматически.';
+      });
+      final uri = Uri.tryParse(order.paymentUrl);
+      if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      setState(() {
+        error =
+            'Не удалось создать оплату. Проверьте телефон клиента и попробуйте ещё раз.';
+        status = null;
+      });
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FlowScaffold(
+      title: 'Продлить доступ',
+      subtitle: 'Выберите срок продления подписки Router1.',
+      onBack: widget.onBack,
+      primaryText: 'На главный экран',
+      onPrimary: widget.onBack,
+      children: [
+        Router1Card(
+          child: TextField(
+            controller: phoneController,
+            keyboardType: TextInputType.phone,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+            decoration: InputDecoration(
+              hintText: 'Телефон клиента',
+              hintStyle: const TextStyle(color: Router1Theme.muted),
+              filled: true,
+              fillColor: const Color(0x66112029),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+        FutureBuilder<List<Router1RenewalOffer>>(
+          future: offers,
+          builder: (context, state) {
+            final items = state.data ?? const <Router1RenewalOffer>[];
+            if (state.connectionState != ConnectionState.done) {
+              return const Router1Card(
+                child: StepTile(
+                    done: false,
+                    loading: true,
+                    title: 'Загружаем тарифы продления'),
+              );
+            }
+            if (items.isEmpty) {
+              return Router1Card(
+                child: Text(
+                  state.hasError
+                      ? 'Не удалось загрузить тарифы. Попробуйте позже.'
+                      : 'Тарифы продления пока недоступны.',
+                  style: const TextStyle(
+                      color: Router1Theme.muted, fontSize: 16, height: 1.3),
+                ),
+              );
+            }
+            return Column(
+              children: [
+                for (final offer in items) ...[
+                  Router1Card(
+                    green: selectedKey == offer.key,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(offer.title,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 6),
+                              Text('${offer.periodDays} дней доступа',
+                                  style: const TextStyle(
+                                      color: Router1Theme.muted,
+                                      fontSize: 14,
+                                      height: 1.3)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          onPressed:
+                              loading ? null : () => unawaited(pay(offer)),
+                          child: Text('${offer.amount} ₽'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ],
+            );
+          },
+        ),
+        if (error != null)
+          Text(error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFFFFB4B4), fontSize: 14)),
+        if (status != null)
+          Text(status!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Router1Theme.green,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700)),
+        if (paymentUrl != null)
+          SelectableText(paymentUrl!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Router1Theme.muted, fontSize: 13)),
       ],
     );
   }
@@ -3568,7 +3770,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     return FlowScaffold(
       title: 'Подключение ${widget.platform}',
       subtitle:
-          'После оплаты создадим персональный полный VPN-конфиг для всего устройства.',
+          'Оплата включает персональный конфиг и первый месяц доступа Router1.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
@@ -3587,12 +3789,12 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
             title: _isPhone
                 ? 'Router1 для смартфона'
                 : 'Router1 для ноутбука / ПК',
-            price: '5 ₽'),
+            price: '1300 ₽'),
         const BenefitTile(
             icon: Icons.vpn_key,
             title: 'Полный VPN для гаджета',
             text:
-                'Весь интернет этого устройства будет идти через VPN. Для умной маршрутизации нужен роутер.'),
+                'Конфиг работает на одном устройстве. Для всей домашней сети нужен роутер.'),
         if (existingConfigs.isNotEmpty)
           Router1Card(
             child: Column(
@@ -4050,7 +4252,8 @@ class PricePanel extends StatelessWidget {
           const SizedBox(height: 14),
           const CheckLine(text: 'Все режимы и локации'),
           const CheckLine(text: 'Приоритетная поддержка'),
-          const CheckLine(text: 'Первый месяц абонентской платы'),
+          const CheckLine(text: 'Первый месяц доступа включён'),
+          const CheckLine(text: 'Далее абонентская плата 300 ₽/мес'),
         ],
       ),
     );
@@ -5264,6 +5467,11 @@ class SupportPage extends StatelessWidget {
 
   final Router1Api api;
 
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -5275,22 +5483,24 @@ class SupportPage extends StatelessWidget {
             icon: Icons.health_and_safety,
             title: 'Проверить подключение',
             subtitle: 'Понять, всё ли работает на Keenetic',
-            onTap: () {}),
+            onTap: () => unawaited(api.restart())),
         ActionTile(
             icon: Icons.receipt_long,
             title: 'Отправить диагностику',
             subtitle: 'Передать логи и состояние Router1 в поддержку',
-            onTap: () {}),
+            onTap: () => _showMessage(
+                context, 'Диагностика отправляется после настройки роутера.')),
         ActionTile(
             icon: Icons.chat_bubble_outline,
             title: 'Написать в поддержку',
             subtitle: 'Получить помощь без технических объяснений',
-            onTap: () {}),
+            onTap: () => _showMessage(
+                context, 'Напишите в Telegram-бот Router1 из текущего чата.')),
         ActionTile(
             icon: Icons.restart_alt,
             title: 'Обновить подключение',
             subtitle: 'Мягко перезапустить соединение',
-            onTap: api.restart),
+            onTap: () => unawaited(api.restart())),
       ],
     );
   }
@@ -5300,6 +5510,11 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({required this.onRefresh, super.key});
 
   final VoidCallback onRefresh;
+
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5312,12 +5527,14 @@ class SettingsPage extends StatelessWidget {
             icon: Icons.router,
             title: 'Подключение к Keenetic',
             subtitle: 'Адрес роутера, токен и локальная диагностика',
-            onTap: () {}),
+            onTap: () => _showMessage(
+                context, 'Переустановите конфиг с главного экрана.')),
         ActionTile(
             icon: Icons.dns,
             title: 'Выбор сервера',
             subtitle: 'Автоматический или ручной выбор ноды',
-            onTap: () {}),
+            onTap: () => _showMessage(context,
+                'Автоматический выбор сервера будет в следующем этапе.')),
         ActionTile(
             icon: Icons.system_update_alt,
             title: 'Обновление',
