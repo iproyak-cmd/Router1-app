@@ -2792,9 +2792,8 @@ class RouterRoutingProfilePage extends StatelessWidget {
         _RouteModeCard(
           icon: Icons.workspace_premium_rounded,
           accent: Router1Theme.gold,
-          title: 'Gold Standard',
-          description:
-              'Telegram, WhatsApp и YouTube идут через VPN. Остальной интернет работает напрямую.',
+          title: 'Standard',
+          description: 'YouTube, Telegram, WhatsApp.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.goldStandard,
           onTap: () {
@@ -2807,8 +2806,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
           icon: Icons.auto_awesome_rounded,
           accent: Router1Theme.purple,
           title: '+AI',
-          description:
-              'Gold Standard плюс ChatGPT, Claude, Gemini и другие нейросети. Может быть медленнее.',
+          description: 'Standard + нейронки.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.ai,
           onTap: () {
@@ -2821,8 +2819,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
           icon: Icons.sports_esports_rounded,
           accent: Router1Theme.blue,
           title: 'For Gamers',
-          description:
-              'Gold Standard плюс игровые сервисы. Нейросети в этом режиме не добавляются.',
+          description: 'Standard + игровые сервисы.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.gamers,
           onTap: () {
@@ -4577,12 +4574,9 @@ String routeModeShortTitle(Router1RouteProfileKind kind) {
 
 String routeModeTagline(Router1RouteProfileKind kind) {
   return switch (kind) {
-    Router1RouteProfileKind.goldStandard =>
-      'Обычный интернет + видеосервис + пару мессенджеров',
-    Router1RouteProfileKind.ai =>
-      'То же самое, плюс нейросети',
-    Router1RouteProfileKind.gamers =>
-      'То же самое, плюс игровые сервисы',
+    Router1RouteProfileKind.goldStandard => 'YouTube, Telegram, WhatsApp',
+    Router1RouteProfileKind.ai => 'Standard + нейронки',
+    Router1RouteProfileKind.gamers => 'Standard + игровые сервисы',
   };
 }
 

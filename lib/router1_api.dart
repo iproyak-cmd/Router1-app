@@ -19,18 +19,18 @@ enum RouterMode {
 enum Router1RouteProfileKind {
   goldStandard(
     'gold_standard',
-    'Gold Standard',
+    'Standard',
     'Telegram, WhatsApp и YouTube через Router1, остальное напрямую.',
   ),
   ai(
     'ai',
     '+AI',
-    'Gold Standard плюс нейронки. Может быть медленнее.',
+    'Standard плюс нейронки. Может быть медленнее.',
   ),
   gamers(
     'gamers',
     'For Gamers',
-    'Gold Standard плюс игровые сервисы, без нейронок.',
+    'Standard плюс игровые сервисы, без нейронок.',
   );
 
   const Router1RouteProfileKind(this.id, this.title, this.description);
