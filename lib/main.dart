@@ -14,7 +14,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.42+45';
+const router1AppVersion = '0.1.43+46';
 
 void main() {
   runApp(const Router1App());
