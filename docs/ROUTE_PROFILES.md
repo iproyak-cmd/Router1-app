@@ -70,6 +70,34 @@ api.routerRouteProfile(profile: Router1RouteProfileKind.gamers);
 
 По умолчанию используется `Router1RouteProfileKind.goldStandard`.
 
+Для связывания старых UI-режимов с новыми продуктовыми профилями:
+
+```dart
+final profile = Router1RouteProfileKind.fromRouterMode(mode);
+```
+
+Текущий setup-flow уже вызывает `api.routerRouteProfile()` и поэтому по умолчанию
+ставит `gold_standard`.
+
+Чтобы UI реально включал `+AI` и `For Gamers`, Claude должен передать выбранный
+`Router1RouteProfileKind` из `main.dart` в виджет установки роутера и заменить
+внутри setup-flow:
+
+```dart
+routeProfile = await widget.api.routerRouteProfile();
+```
+
+на:
+
+```dart
+routeProfile = await widget.api.routerRouteProfile(
+  profile: widget.routeProfileKind,
+);
+```
+
+`keenetic_setup_service.dart` для первого этапа менять не нужно: он уже применяет
+тот `Router1RouteProfile`, который получает.
+
 ## Зоны ответственности
 
 Codex:
