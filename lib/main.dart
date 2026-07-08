@@ -84,6 +84,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
   String clientName = 'Клиент Router1';
   String clientPhone = '';
   RouterRoutingProfile routerRoutingProfile = RouterRoutingProfile.selective;
+  Router1RouteProfileKind routerRouteProfileKind =
+      Router1RouteProfileKind.goldStandard;
   var testPaymentMode = false;
   var paid = false;
   final setupService = KeeneticSetupService();
@@ -392,7 +394,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
         ),
       9 => RouterRoutingProfilePage(
           profile: routerRoutingProfile,
+          routeProfileKind: routerRouteProfileKind,
           onChanged: (value) => setState(() => routerRoutingProfile = value),
+          onRouteProfileChanged: (value) => setState(() {
+            routerRouteProfileKind = value;
+            routerRoutingProfile = RouterRoutingProfile.selective;
+          }),
           onNext: () => goTo(10),
           onBack: back,
         ),
@@ -401,6 +408,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
           awgConfig: awgConfig,
           paid: paid,
           routingProfile: routerRoutingProfile,
+          routeProfileKind: routerRouteProfileKind,
           api: appApi,
           service: setupService,
           logs: setupLogs,
@@ -756,8 +764,8 @@ class RouterIllustration extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: Image.asset('assets/illustrations/router.png',
-          fit: BoxFit.contain),
+      child:
+          Image.asset('assets/illustrations/router.png', fit: BoxFit.contain),
     );
   }
 }
@@ -770,8 +778,8 @@ class GadgetIllustration extends StatelessWidget {
     return SizedBox(
       width: 150,
       height: 150,
-      child: Image.asset('assets/illustrations/gadget.png',
-          fit: BoxFit.contain),
+      child:
+          Image.asset('assets/illustrations/gadget.png', fit: BoxFit.contain),
     );
   }
 }
@@ -2719,14 +2727,18 @@ class _PaidConfigLoadPageState extends State<PaidConfigLoadPage> {
 class RouterRoutingProfilePage extends StatelessWidget {
   const RouterRoutingProfilePage({
     required this.profile,
+    required this.routeProfileKind,
     required this.onChanged,
+    required this.onRouteProfileChanged,
     required this.onNext,
     required this.onBack,
     super.key,
   });
 
   final RouterRoutingProfile profile;
+  final Router1RouteProfileKind routeProfileKind;
   final ValueChanged<RouterRoutingProfile> onChanged;
+  final ValueChanged<Router1RouteProfileKind> onRouteProfileChanged;
   final VoidCallback onNext;
   final VoidCallback onBack;
 
@@ -2741,20 +2753,24 @@ class RouterRoutingProfilePage extends StatelessWidget {
       children: [
         InkWell(
           borderRadius: BorderRadius.circular(22),
-          onTap: () => onChanged(RouterRoutingProfile.selective),
+          onTap: () {
+            onChanged(RouterRoutingProfile.selective);
+            onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
+          },
           child: Router1Card(
-            green: profile == RouterRoutingProfile.selective,
+            green: profile == RouterRoutingProfile.selective &&
+                routeProfileKind == Router1RouteProfileKind.goldStandard,
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Скоростной режим',
+                Text('Gold Standard',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
                         fontWeight: FontWeight.w900)),
                 SizedBox(height: 8),
                 Text(
-                  'Обычный интернет, Госуслуги, банки и RU-сайты идут напрямую. YouTube, Telegram, Instagram, WhatsApp и нейросети идут через VPN.',
+                  'Telegram, WhatsApp и YouTube идут через VPN. Остальной интернет работает напрямую.',
                   style: TextStyle(
                       color: Router1Theme.muted, fontSize: 15, height: 1.35),
                 ),
@@ -2764,20 +2780,51 @@ class RouterRoutingProfilePage extends StatelessWidget {
         ),
         InkWell(
           borderRadius: BorderRadius.circular(22),
-          onTap: () => onChanged(RouterRoutingProfile.fullTunnel),
+          onTap: () {
+            onChanged(RouterRoutingProfile.selective);
+            onRouteProfileChanged(Router1RouteProfileKind.ai);
+          },
           child: Router1Card(
-            green: profile == RouterRoutingProfile.fullTunnel,
+            green: profile == RouterRoutingProfile.selective &&
+                routeProfileKind == Router1RouteProfileKind.ai,
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Full tunnel',
+                Text('+AI',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
                         fontWeight: FontWeight.w900)),
                 SizedBox(height: 8),
                 Text(
-                  'Экспериментально: весь интернет всех устройств пойдёт через VPN. Основной стабильный режим сейчас — скоростной.',
+                  'Gold Standard плюс ChatGPT, Claude, Gemini и другие нейросети. Может быть медленнее.',
+                  style: TextStyle(
+                      color: Router1Theme.muted, fontSize: 15, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ),
+        InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () {
+            onChanged(RouterRoutingProfile.selective);
+            onRouteProfileChanged(Router1RouteProfileKind.gamers);
+          },
+          child: Router1Card(
+            green: profile == RouterRoutingProfile.selective &&
+                routeProfileKind == Router1RouteProfileKind.gamers,
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('For Gamers',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900)),
+                SizedBox(height: 8),
+                Text(
+                  'Gold Standard плюс игровые сервисы. Нейросети в этом режиме не добавляются.',
                   style: TextStyle(
                       color: Router1Theme.muted, fontSize: 15, height: 1.35),
                 ),
@@ -2796,6 +2843,7 @@ class RouterSetupProgressPage extends StatefulWidget {
     required this.awgConfig,
     required this.paid,
     required this.routingProfile,
+    required this.routeProfileKind,
     required this.api,
     required this.service,
     required this.logs,
@@ -2809,6 +2857,7 @@ class RouterSetupProgressPage extends StatefulWidget {
   final String? awgConfig;
   final bool paid;
   final RouterRoutingProfile routingProfile;
+  final Router1RouteProfileKind routeProfileKind;
   final Router1Api api;
   final KeeneticSetupService service;
   final List<SetupLogEntry> logs;
@@ -2909,11 +2958,13 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
       if (value.handshakeOk) {
         if (widget.routingProfile == RouterRoutingProfile.selective) {
           try {
-            routeProfile = await widget.api.routerRouteProfile();
+            routeProfile = await widget.api.routerRouteProfile(
+              profile: widget.routeProfileKind,
+            );
             widget.onLog(SetupLogEntry(
                 title: 'Профиль маршрутов',
                 message:
-                    'Получен серверный профиль ${routeProfile.profileId} ${routeProfile.version}.',
+                    'Получен серверный профиль ${routeProfile.profileId} ${routeProfile.version}: ${widget.routeProfileKind.title}.',
                 level: SetupLogLevel.success,
                 time: DateTime.now()));
           } catch (_) {
@@ -2934,7 +2985,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
             title: 'Маршрутизация Router1',
             message: widget.routingProfile == RouterRoutingProfile.fullTunnel
                 ? 'Включен экспериментальный full tunnel: весь интернет идёт через VPN.'
-                : 'YouTube, Telegram, Instagram, WhatsApp и нейронки направлены через VPN через DNS и IP-маршруты.',
+                : '${widget.routeProfileKind.title}: ${widget.routeProfileKind.description}',
             level: SetupLogLevel.success,
             time: DateTime.now()));
         setState(() => routingApplied = true);
