@@ -145,7 +145,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   void initState() {
     super.initState();
     unawaited(loadInitialScreen());
-    splashTimer = Timer(const Duration(milliseconds: 1500), () {
+    splashTimer = Timer(const Duration(milliseconds: 3200), () {
       if (!mounted || step != 0) return;
       next();
     });
@@ -222,14 +222,13 @@ class _FirstRunShellState extends State<FirstRunShell> {
         children: [
           const Center(child: _CompactLogo()),
           const SizedBox(height: 34),
-          const Text('Что хотите подключить?',
+          const Text('Что хотите настроить?',
               textAlign: TextAlign.center, style: Router1Theme.title),
           const SizedBox(height: 26),
           ChoiceCard(
             icon: Icons.home_rounded,
             title: 'Роутер',
-            description:
-                'VPN с маршрутизацией: обычные сайты напрямую, нужные сервисы через VPN.',
+            description: 'Для дома, офиса, родителей или дачи.',
             button: 'Настроить роутер',
             onTap: () {
               path = FirstRunPath.router;
@@ -240,9 +239,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
           ChoiceCard(
             icon: Icons.phone_android_rounded,
             title: 'Гаджет',
-            description:
-                'Смартфон, ноутбук или компьютер. Полный VPN для всего устройства.',
-            button: 'Подключить устройство',
+            description: 'Смартфон, ноутбук или компьютер.',
+            button: 'Настроить гаджет / комп',
             onTap: () {
               path = FirstRunPath.gadget;
               next();
