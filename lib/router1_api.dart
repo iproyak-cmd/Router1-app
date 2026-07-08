@@ -17,14 +17,43 @@ enum RouterMode {
 }
 
 enum Router1RouteProfileKind {
-  goldStandard('gold_standard', 'Gold Standard'),
-  ai('ai', '+AI'),
-  gamers('gamers', 'For Gamers');
+  goldStandard(
+    'gold_standard',
+    'Gold Standard',
+    'Telegram, WhatsApp и YouTube через Router1, остальное напрямую.',
+  ),
+  ai(
+    'ai',
+    '+AI',
+    'Gold Standard плюс нейронки. Может быть медленнее.',
+  ),
+  gamers(
+    'gamers',
+    'For Gamers',
+    'Gold Standard плюс игровые сервисы, без нейронок.',
+  );
 
-  const Router1RouteProfileKind(this.id, this.title);
+  const Router1RouteProfileKind(this.id, this.title, this.description);
 
   final String id;
   final String title;
+  final String description;
+
+  bool get includesAi => this == Router1RouteProfileKind.ai;
+  bool get includesGames => this == Router1RouteProfileKind.gamers;
+
+  static Router1RouteProfileKind fromId(String? id) {
+    final normalized = (id ?? '').trim().toLowerCase().replaceAll('-', '_');
+    return switch (normalized) {
+      'ai' || '+ai' || 'plus_ai' => Router1RouteProfileKind.ai,
+      'gamers' ||
+      'gamer' ||
+      'game' ||
+      'for_gamers' =>
+        Router1RouteProfileKind.gamers,
+      _ => Router1RouteProfileKind.goldStandard,
+    };
+  }
 }
 
 class Router1Snapshot {
@@ -268,6 +297,10 @@ class Router1RouteProfile {
   final List<Router1Ipv4Route> aiIpv4Routes;
   final List<Router1Ipv4Route> telegramIpv4Routes;
   final List<String> telegramIpv6Routes;
+
+  Router1RouteProfileKind get kind => Router1RouteProfileKind.fromId(profileId);
+  bool get includesAi => kind.includesAi || aiDomains.isNotEmpty;
+  bool get includesGames => kind.includesGames;
 
   factory Router1RouteProfile.fromJson(Map<String, dynamic> json) {
     return Router1RouteProfile(
