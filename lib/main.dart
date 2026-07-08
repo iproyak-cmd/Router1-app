@@ -14,7 +14,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.37+40';
+const router1AppVersion = '0.1.39+42';
 
 void main() {
   runApp(const Router1App());
@@ -545,7 +545,12 @@ class FirstRunPage extends StatelessWidget {
                     ],
                   ),
                   SizedBox(height: betweenGap),
-                  StatusOrb(size: orbSize, text: ''),
+                  SizedBox(
+                    width: orbSize,
+                    height: orbSize,
+                    child: Image.asset('assets/illustrations/globe.png',
+                        fit: BoxFit.contain),
+                  ),
                   SizedBox(height: betweenGap),
                   Column(
                     children: [
