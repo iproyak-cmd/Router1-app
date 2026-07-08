@@ -16,6 +16,17 @@ enum RouterMode {
   final String title;
 }
 
+enum Router1RouteProfileKind {
+  goldStandard('gold_standard', 'Gold Standard'),
+  ai('ai', '+AI'),
+  gamers('gamers', 'For Gamers');
+
+  const Router1RouteProfileKind(this.id, this.title);
+
+  final String id;
+  final String title;
+}
+
 class Router1Snapshot {
   const Router1Snapshot({
     required this.connected,
@@ -442,8 +453,11 @@ class Router1Api {
     return text;
   }
 
-  Future<Router1RouteProfile> routerRouteProfile() async {
-    final data = await _get('/app/route-profile/router-default');
+  Future<Router1RouteProfile> routerRouteProfile({
+    Router1RouteProfileKind profile = Router1RouteProfileKind.goldStandard,
+  }) async {
+    final profileId = Uri.encodeComponent(profile.id);
+    final data = await _get('/app/route-profile/$profileId');
     return Router1RouteProfile.fromJson(data);
   }
 
