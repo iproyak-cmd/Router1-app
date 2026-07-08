@@ -1,0 +1,25 @@
+# Build & tooling
+/build/
+/build-output/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+# Android
+android/.gradle/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/key.properties
+# Backups & logs (git is history now)
+*.backup*
+*.backup_claude_*
+build_claude.log
+*.log
+# Artifacts & secrets
+*.apk
+*.aab
+.env
