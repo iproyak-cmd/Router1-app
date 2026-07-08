@@ -51,12 +51,16 @@ backend, визуал и настройка роутера не расходил
 
 Проверенное состояние production API:
 
-- `gold_standard`: `media_domains=45`, `ai_domains=0`, services:
-  `youtube`, `telegram`, `whatsapp`
-- `ai`: `media_domains=45`, `ai_domains=46`, services:
-  `youtube`, `telegram`, `whatsapp`, `ai`
-- `gamers`: `media_domains=72`, `ai_domains=0`, services:
-  `youtube`, `telegram`, `whatsapp`, `games`
+- version: `2026-07-08.3`
+- `gold_standard`: `media_domains=45`, `ai_domains=0`,
+  `media_resolved_hosts=14`, `media_ipv4_routes=133`, services: `youtube`,
+  `telegram`, `whatsapp`
+- `ai`: `media_domains=45`, `ai_domains=74`, `media_resolved_hosts=14`,
+  `ai_resolved_hosts=30`, `media_ipv4_routes=132`, `ai_ipv4_routes=65`,
+  services: `youtube`, `telegram`, `whatsapp`, `ai`
+- `gamers`: `media_domains=72`, `ai_domains=0`, `media_resolved_hosts=20`,
+  `media_ipv4_routes=144`, services: `youtube`, `telegram`, `whatsapp`,
+  `games`
 
 ## Flutter API
 
@@ -76,18 +80,8 @@ api.routerRouteProfile(profile: Router1RouteProfileKind.gamers);
 final profile = Router1RouteProfileKind.fromRouterMode(mode);
 ```
 
-Текущий setup-flow уже вызывает `api.routerRouteProfile()` и поэтому по умолчанию
-ставит `gold_standard`.
-
-Чтобы UI реально включал `+AI` и `For Gamers`, Claude должен передать выбранный
-`Router1RouteProfileKind` из `main.dart` в виджет установки роутера и заменить
-внутри setup-flow:
-
-```dart
-routeProfile = await widget.api.routerRouteProfile();
-```
-
-на:
+Текущий setup-flow передает выбранный `Router1RouteProfileKind` из `main.dart`
+в виджет установки роутера и вызывает:
 
 ```dart
 routeProfile = await widget.api.routerRouteProfile(
