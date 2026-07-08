@@ -3021,13 +3021,23 @@ class RouterRoutingProfilePage extends StatelessWidget {
           icon: Icons.sports_esports_rounded,
           accent: Router1Theme.blue,
           title: 'For Gamers',
-          description: 'Standard + игровые сервисы.',
+          description:
+              'В разработке. Режим для игровых серверов появится позже.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.gamers,
           onTap: () {
             onChanged(RouterRoutingProfile.selective);
             onRouteProfileChanged(Router1RouteProfileKind.gamers);
           },
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'Чтобы сменить режим, откройте состояние соединения и запустите настройку заново.',
+          style: TextStyle(
+            color: Router1Theme.muted,
+            fontSize: 13,
+            height: 1.35,
+          ),
         ),
       ],
     );
