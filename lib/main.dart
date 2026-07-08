@@ -3008,7 +3008,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
           icon: Icons.auto_awesome_rounded,
           accent: Router1Theme.purple,
           title: '+AI',
-          description: 'Standard + нейронки.',
+          description: 'Нейронки через full tunnel.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.ai,
           onTap: () {
@@ -3224,6 +3224,10 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
       });
 
       if (value.handshakeOk) {
+        final effectiveRoutingProfile =
+            widget.routeProfileKind == Router1RouteProfileKind.ai
+                ? RouterRoutingProfile.fullTunnel
+                : widget.routingProfile;
         if (widget.routingProfile == RouterRoutingProfile.selective) {
           try {
             routeProfile = await widget.api.routerRouteProfile(
@@ -3246,13 +3250,13 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
         }
         await widget.service.applyRoutingProfile(
           access,
-          widget.routingProfile,
+          effectiveRoutingProfile,
           routeProfile,
         );
         widget.onLog(SetupLogEntry(
             title: 'Маршрутизация Router1',
-            message: widget.routingProfile == RouterRoutingProfile.fullTunnel
-                ? 'Включен экспериментальный full tunnel: весь интернет идёт через VPN.'
+            message: effectiveRoutingProfile == RouterRoutingProfile.fullTunnel
+                ? '${widget.routeProfileKind.title}: включён full tunnel, весь интернет идёт через VPN.'
                 : '${widget.routeProfileKind.title}: ${widget.routeProfileKind.description}',
             level: SetupLogLevel.success,
             time: DateTime.now()));
@@ -3260,6 +3264,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
         await sendRouterDiagnostics(
           access: access,
           routeProfile: routeProfile,
+          routingProfile: effectiveRoutingProfile,
           stage: 'success',
         );
       }
@@ -3294,13 +3299,14 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
   Future<void> sendRouterDiagnostics({
     required KeeneticAccess access,
     required Router1RouteProfile? routeProfile,
+    RouterRoutingProfile? routingProfile,
     required String stage,
     String? error,
   }) async {
     try {
       final payload = await widget.service.collectDiagnostics(
         access,
-        routingProfile: widget.routingProfile,
+        routingProfile: routingProfile ?? widget.routingProfile,
         routeProfile: routeProfile,
         appVersion: router1AppVersion,
         stage: stage,
@@ -3329,7 +3335,9 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
     return FlowScaffold(
       title: done ? 'Интернет работает' : 'Настраиваем роутер',
       subtitle: done
-          ? 'Нужные сервисы идут через VPN, остальной интернет не перехвачен.'
+          ? widget.routeProfileKind == Router1RouteProfileKind.ai
+              ? 'AI-режим включён: весь интернет идёт через VPN.'
+              : 'Нужные сервисы идут через VPN, остальной интернет не перехвачен.'
           : 'Создаем подключение, проверяем туннель и применяем маршрутизацию.',
       onBack: widget.onBack,
       primaryText: done ? 'Открыть Router1' : 'Повторить проверку',
@@ -4778,7 +4786,7 @@ String routeModeShortTitle(Router1RouteProfileKind kind) {
 String routeModeTagline(Router1RouteProfileKind kind) {
   return switch (kind) {
     Router1RouteProfileKind.goldStandard => 'YouTube, Telegram, WhatsApp',
-    Router1RouteProfileKind.ai => 'Standard + нейронки',
+    Router1RouteProfileKind.ai => 'Full tunnel для нейронок',
     Router1RouteProfileKind.gamers => 'Standard + игровые сервисы',
   };
 }

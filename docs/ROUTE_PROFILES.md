@@ -22,8 +22,8 @@ backend, визуал и настройка роутера не расходил
 
 - ID API: `ai`
 - Назначение: расширенный режим, когда клиенту нужны нейронки.
-- Через туннель: Standard + ChatGPT, Claude, Gemini, Perplexity и связанные
-  endpoint.
+- Через туннель: весь интернет через VPN/full tunnel, чтобы ChatGPT, Claude,
+  Gemini, Perplexity и связанные endpoint не ломались на split-routing.
 - Может быть медленнее Standard.
 - Этот режим требует отдельного тестирования, потому что ChatGPT/Claude зависят от
   Cloudflare, auth, challenge, DNS, IPv6 и MTU.
