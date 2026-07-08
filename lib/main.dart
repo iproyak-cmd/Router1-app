@@ -28,6 +28,8 @@ class Router1Theme {
   static const green = Color(0xFF7BE33C);
   static const green2 = Color(0xFF28B84F);
   static const blue = Color(0xFF2F69FF);
+  static const purple = Color(0xFF9B6BFF);
+  static const gold = Color(0xFFD8A21C);
   static const muted = Color(0xFFA8B2BC);
   static const white = Color(0xFFF9FAFB);
 
@@ -683,40 +685,51 @@ class Router1Card extends StatelessWidget {
       {required this.child,
       this.green = false,
       this.blue = false,
+      this.accentColor,
       this.padding = const EdgeInsets.all(20),
       super.key});
 
   final Widget child;
   final bool green;
   final bool blue;
+  final Color? accentColor;
   final EdgeInsets padding;
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = green
-        ? Router1Theme.green
-        : (blue ? Router1Theme.blue : Router1Theme.border);
+    final highlighted = green || blue || accentColor != null;
+    final borderColor = accentColor ??
+        (green ? Router1Theme.green : (blue ? Router1Theme.blue : Router1Theme.border));
+    List<Color> gradientColors;
+    if (green) {
+      gradientColors = const [Color(0xCC0D5B2D), Color(0x6610212A)];
+    } else if (blue) {
+      gradientColors = const [Color(0xAA0A2D74), Color(0x5510212A)];
+    } else if (accentColor != null) {
+      gradientColors = [
+        Color.alphaBlend(accentColor!.withValues(alpha: 0.34),
+            const Color(0xFF0A1218)),
+        const Color(0x6610212A),
+      ];
+    } else {
+      gradientColors = const [Router1Theme.panel2, Color(0x88101C24)];
+    }
     return Container(
       padding: padding,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-            color: borderColor.withValues(alpha: green || blue ? 0.85 : 0.75),
-            width: green ? 1.7 : 1.0),
+            color: borderColor.withValues(alpha: highlighted ? 0.85 : 0.75),
+            width: highlighted ? 1.7 : 1.0),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: green
-              ? const [Color(0xCC0D5B2D), Color(0x6610212A)]
-              : blue
-                  ? const [Color(0xAA0A2D74), Color(0x5510212A)]
-                  : const [Router1Theme.panel2, Color(0x88101C24)],
+          colors: gradientColors,
         ),
-        boxShadow: green
+        boxShadow: highlighted
             ? [
                 BoxShadow(
-                    color: Router1Theme.green.withValues(alpha: 0.16),
-                    blurRadius: 28)
+                    color: borderColor.withValues(alpha: 0.16), blurRadius: 28)
               ]
             : const [BoxShadow(color: Colors.black38, blurRadius: 20)],
       ),
@@ -2751,88 +2764,119 @@ class RouterRoutingProfilePage extends StatelessWidget {
       primaryText: 'Применить настройку',
       onPrimary: onNext,
       children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(22),
+        _RouteModeCard(
+          icon: Icons.workspace_premium_rounded,
+          accent: Router1Theme.gold,
+          title: 'Gold Standard',
+          description:
+              'Telegram, WhatsApp и YouTube идут через VPN. Остальной интернет работает напрямую.',
+          selected: profile == RouterRoutingProfile.selective &&
+              routeProfileKind == Router1RouteProfileKind.goldStandard,
           onTap: () {
             onChanged(RouterRoutingProfile.selective);
             onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
           },
-          child: Router1Card(
-            green: profile == RouterRoutingProfile.selective &&
-                routeProfileKind == Router1RouteProfileKind.goldStandard,
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Gold Standard',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900)),
-                SizedBox(height: 8),
-                Text(
-                  'Telegram, WhatsApp и YouTube идут через VPN. Остальной интернет работает напрямую.',
-                  style: TextStyle(
-                      color: Router1Theme.muted, fontSize: 15, height: 1.35),
-                ),
-              ],
-            ),
-          ),
         ),
-        InkWell(
-          borderRadius: BorderRadius.circular(22),
+        const SizedBox(height: 16),
+        _RouteModeCard(
+          icon: Icons.auto_awesome_rounded,
+          accent: Router1Theme.purple,
+          title: '+AI',
+          description:
+              'Gold Standard плюс ChatGPT, Claude, Gemini и другие нейросети. Может быть медленнее.',
+          selected: profile == RouterRoutingProfile.selective &&
+              routeProfileKind == Router1RouteProfileKind.ai,
           onTap: () {
             onChanged(RouterRoutingProfile.selective);
             onRouteProfileChanged(Router1RouteProfileKind.ai);
           },
-          child: Router1Card(
-            green: profile == RouterRoutingProfile.selective &&
-                routeProfileKind == Router1RouteProfileKind.ai,
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('+AI',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900)),
-                SizedBox(height: 8),
-                Text(
-                  'Gold Standard плюс ChatGPT, Claude, Gemini и другие нейросети. Может быть медленнее.',
-                  style: TextStyle(
-                      color: Router1Theme.muted, fontSize: 15, height: 1.35),
-                ),
-              ],
-            ),
-          ),
         ),
-        InkWell(
-          borderRadius: BorderRadius.circular(22),
+        const SizedBox(height: 16),
+        _RouteModeCard(
+          icon: Icons.sports_esports_rounded,
+          accent: Router1Theme.blue,
+          title: 'For Gamers',
+          description:
+              'Gold Standard плюс игровые сервисы. Нейросети в этом режиме не добавляются.',
+          selected: profile == RouterRoutingProfile.selective &&
+              routeProfileKind == Router1RouteProfileKind.gamers,
           onTap: () {
             onChanged(RouterRoutingProfile.selective);
             onRouteProfileChanged(Router1RouteProfileKind.gamers);
           },
-          child: Router1Card(
-            green: profile == RouterRoutingProfile.selective &&
-                routeProfileKind == Router1RouteProfileKind.gamers,
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('For Gamers',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900)),
-                SizedBox(height: 8),
-                Text(
-                  'Gold Standard плюс игровые сервисы. Нейросети в этом режиме не добавляются.',
-                  style: TextStyle(
-                      color: Router1Theme.muted, fontSize: 15, height: 1.35),
-                ),
-              ],
-            ),
-          ),
         ),
       ],
+    );
+  }
+}
+
+class _RouteModeCard extends StatelessWidget {
+  const _RouteModeCard({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.description,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String description;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: Router1Card(
+        accentColor: selected ? accent : null,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: selected ? 0.22 : 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: accent, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(title,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800)),
+                      if (selected) ...[
+                        const SizedBox(width: 8),
+                        Icon(Icons.check_circle_rounded,
+                            color: accent, size: 18),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(description,
+                      style: const TextStyle(
+                          color: Router1Theme.muted,
+                          fontSize: 14,
+                          height: 1.35)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
