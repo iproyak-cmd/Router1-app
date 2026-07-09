@@ -1,7 +1,7 @@
 name: router1_app_mvp
 description: Router1 MVP app for Keenetic customers.
 publish_to: "none"
-version: 0.1.50+53
+version: 0.1.51+54
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

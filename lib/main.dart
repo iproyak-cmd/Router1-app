@@ -17,8 +17,8 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.50+53';
-final router1SupportUri = Uri.parse('https://t.me/router1_lk_bot');
+const router1AppVersion = '0.1.51+54';
+final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
 int get router1AppBuildNumber {
@@ -3953,16 +3953,19 @@ class GadgetInstructionPage extends StatelessWidget {
             ? rawName.substring(0, rawName.length - 5)
             : rawName;
     try {
-      await FileSaver.instance.saveFile(
+      final savedPath = await FileSaver.instance.saveAs(
         name: safeName,
         bytes: Uint8List.fromList(utf8.encode(configText)),
         ext: 'conf',
         mimeType: MimeType.other,
       );
+      if (savedPath == null) {
+        return;
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Файл .conf сохранён в Загрузки'),
+            content: Text('Файл .conf сохранён'),
           ),
         );
       }
@@ -4017,7 +4020,7 @@ class GadgetInstructionPage extends StatelessWidget {
   String get _importText {
     return switch (platform) {
       'Android' =>
-        'Нажмите «Скачать файл .conf» — файл сохранится в папку «Загрузки». Откройте AmneziaWG, нажмите «+» и импортируйте файл из Загрузок.',
+        'Нажмите «Скачать файл .conf», в открывшемся окне выберите папку «Загрузки» и нажмите «Сохранить». Затем откройте AmneziaWG, нажмите «+» и импортируйте файл из Загрузок.',
       'iPhone' =>
         'Нажмите «Скачать файл .conf». В меню iPhone выберите AmneziaWG. Если его нет в списке, сохраните файл в «Файлы», затем импортируйте его из AmneziaWG.',
       'Windows' =>
