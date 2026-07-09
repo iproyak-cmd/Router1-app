@@ -21,16 +21,16 @@ void main() {
 }
 
 class Router1Theme {
-  static const bg = Color(0xFF020B10);
-  static const panel = Color(0xCC07151D);
-  static const panel2 = Color(0xAA0A1E28);
-  static const border = Color(0xFF1B3340);
-  static const green = Color(0xFF7BE33C);
-  static const green2 = Color(0xFF28B84F);
-  static const blue = Color(0xFF2F69FF);
-  static const purple = Color(0xFF9B6BFF);
-  static const gold = Color(0xFFD8A21C);
-  static const muted = Color(0xFFA8B2BC);
+  static const bg = Color(0xFF0F2836);
+  static const panel = Color(0xCC0B222E);
+  static const panel2 = Color(0xAA0F2A38);
+  static const border = Color(0xFF1E4356);
+  static const green = Color(0xFF1CECD6);
+  static const green2 = Color(0xFF16B8AE);
+  static const blue = Color(0xFF186CC0);
+  static const purple = Color(0xFF186CC0);
+  static const gold = Color(0xFFFADC46);
+  static const muted = Color(0xFFA3B7C0);
   static const white = Color(0xFFF9FAFB);
 
   static const title = TextStyle(
@@ -527,7 +527,6 @@ class FirstRunPage extends StatelessWidget {
       builder: (context, constraints) {
         final height = constraints.maxHeight;
         final compact = height < 760;
-        final logoSize = compact ? 48.0 : 58.0;
         final orbSize = math.min(compact ? 230.0 : 310.0, height * 0.34);
         final topGap = compact ? 24.0 : 70.0;
         final betweenGap = compact ? 14.0 : 24.0;
@@ -543,43 +542,18 @@ class FirstRunPage extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   SizedBox(height: topGap),
-                  Column(
-                    children: [
-                      RichText(
-                        textAlign: TextAlign.center,
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                                text: 'Router',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: logoSize,
-                                    fontWeight: FontWeight.w900)),
-                            TextSpan(
-                                text: '1',
-                                style: TextStyle(
-                                    color: Router1Theme.green,
-                                    fontSize: logoSize,
-                                    fontWeight: FontWeight.w900)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('УМНЫЙ ИНТЕРНЕТ',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: Router1Theme.green,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                  SizedBox(height: betweenGap),
                   SizedBox(
                     width: orbSize,
-                    height: orbSize,
-                    child: Image.asset('assets/illustrations/globe.png',
+                    child: Image.asset('assets/illustrations/logo.png',
                         fit: BoxFit.contain),
                   ),
+                  const SizedBox(height: 4),
+                  const Text('УМНЫЙ ИНТЕРНЕТ',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Router1Theme.green,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700)),
                   SizedBox(height: betweenGap),
                   Column(
                     children: [
@@ -633,7 +607,7 @@ class Router1Background extends StatelessWidget {
         gradient: RadialGradient(
           center: Alignment(0, -0.2),
           radius: 1.0,
-          colors: [Color(0xFF08241F), Router1Theme.bg],
+          colors: [Color(0xFF2D5A6E), Router1Theme.bg],
         ),
       ),
       child: Stack(
@@ -723,15 +697,13 @@ class Router1Card extends StatelessWidget {
         (green
             ? Router1Theme.green
             : (blue ? Router1Theme.blue : Router1Theme.border));
+    final resolvedAccent =
+        accentColor ?? (green ? Router1Theme.green : (blue ? Router1Theme.blue : null));
     List<Color> gradientColors;
-    if (green) {
-      gradientColors = const [Color(0xCC0D5B2D), Color(0x6610212A)];
-    } else if (blue) {
-      gradientColors = const [Color(0xAA0A2D74), Color(0x5510212A)];
-    } else if (accentColor != null) {
+    if (resolvedAccent != null) {
       gradientColors = [
         Color.alphaBlend(
-            accentColor!.withValues(alpha: 0.34), const Color(0xFF0A1218)),
+            resolvedAccent.withValues(alpha: 0.30), const Color(0xFF0A1218)),
         const Color(0x6610212A),
       ];
     } else {
@@ -793,8 +765,8 @@ class StatusOrb extends StatelessWidget {
               ],
             ),
           ),
-          Image.asset('assets/illustrations/globe.png',
-              width: size, height: size, fit: BoxFit.contain),
+          Image.asset('assets/illustrations/logo_mark.png',
+              width: size * 0.82, height: size * 0.82, fit: BoxFit.contain),
           if (text.isNotEmpty)
             Text(text,
                 textAlign: TextAlign.center,
@@ -2993,7 +2965,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
       children: [
         _RouteModeCard(
           icon: Icons.workspace_premium_rounded,
-          accent: Router1Theme.gold,
+          accent: Router1Theme.green,
           title: 'Standard',
           description: 'YouTube, Telegram, WhatsApp.',
           selected: profile == RouterRoutingProfile.selective &&
@@ -3006,7 +2978,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
         const SizedBox(height: 16),
         _RouteModeCard(
           icon: Icons.auto_awesome_rounded,
-          accent: Router1Theme.purple,
+          accent: Router1Theme.blue,
           title: '+AI',
           description: 'Нейронки через full tunnel.',
           selected: profile == RouterRoutingProfile.selective &&
@@ -3019,7 +2991,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
         const SizedBox(height: 16),
         _RouteModeCard(
           icon: Icons.sports_esports_rounded,
-          accent: Router1Theme.blue,
+          accent: Router1Theme.gold,
           title: 'For Gamers',
           description:
               'В разработке. Режим для игровых серверов появится позже.',
@@ -4266,7 +4238,7 @@ class PricePanel extends StatelessWidget {
                   fontSize: 43,
                   fontWeight: FontWeight.w900)),
           const SizedBox(height: 24),
-          const Divider(color: Color(0x334CFF7C)),
+          const Divider(color: Color(0x331CECD6)),
           const SizedBox(height: 14),
           const CheckLine(text: 'Все режимы и локации'),
           const CheckLine(text: 'Приоритетная поддержка'),
@@ -4480,7 +4452,7 @@ class CompatibilityCard extends StatelessWidget {
             },
           ),
           const SizedBox(height: 20),
-          const Divider(color: Color(0x334CFF7C)),
+          const Divider(color: Color(0x331CECD6)),
           CheckLine(
               text: router.hasRealModel
                   ? 'Модель определена'
@@ -4959,7 +4931,7 @@ class DashboardPage extends StatelessWidget {
             Expanded(
               child: HomeActionCard(
                 icon: Icons.devices,
-                color: const Color(0xFF6EA8FF),
+                color: Router1Theme.blue,
                 title: 'Добавить гаджет',
                 text: 'Ноутбук, ПК или телефон',
                 onTap: onSetupGadget,
