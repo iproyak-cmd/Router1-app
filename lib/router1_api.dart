@@ -182,13 +182,20 @@ class Router1ClientConfig {
 class Router1ClientLookup {
   const Router1ClientLookup({
     required this.clientName,
+    required this.clientId,
     required this.recommendedConfigId,
     required this.configs,
   });
 
   final String clientName;
+  final int? clientId;
   final int? recommendedConfigId;
   final List<Router1ClientConfig> configs;
+
+  /// Персональный реферальный код клиента — та же формула, что и на сервере
+  /// (router1.db.referral_code_for): "R1" + id, дополненный нулями до 6 цифр.
+  String? get referralCode =>
+      clientId == null ? null : 'R1${clientId.toString().padLeft(6, '0')}';
 
   Router1ClientConfig? get recommendedConfig {
     for (final config in configs) {
@@ -214,6 +221,7 @@ class Router1ClientLookup {
       clientName: client['name']?.toString() ??
           client['full_name']?.toString() ??
           'Клиент Router1',
+      clientId: (client['id'] as num?)?.toInt(),
       recommendedConfigId: (json['recommended_config_id'] as num?)?.toInt(),
       configs: configsJson
           .whereType<Map<String, dynamic>>()
@@ -496,11 +504,14 @@ class Router1Api {
     required String name,
     required String phone,
     required bool testMode,
+    String? refCode,
   }) async {
     final data = await _post('/order', {
       'product': testMode ? 'router_test' : 'router',
       'name': name,
       'phone': phone,
+      if (refCode != null && refCode.trim().isNotEmpty)
+        'ref_code': refCode.trim(),
     });
     final order = Router1Order.fromJson(data);
     if (order.orderId.isEmpty || order.paymentUrl.isEmpty) {
@@ -513,11 +524,14 @@ class Router1Api {
     required String product,
     required String name,
     required String phone,
+    String? refCode,
   }) async {
     final data = await _post('/order', {
       'product': product,
       'name': name,
       'phone': phone,
+      if (refCode != null && refCode.trim().isNotEmpty)
+        'ref_code': refCode.trim(),
     });
     final order = Router1Order.fromJson(data);
     if (order.orderId.isEmpty || order.paymentUrl.isEmpty) {

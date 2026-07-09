@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
@@ -16,6 +17,13 @@ import 'services/keenetic_setup_service.dart';
 
 const router1AppVersion = '0.1.48+51';
 final router1SupportUri = Uri.parse('https://t.me/router1_lk_bot');
+const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
+
+int get router1AppBuildNumber {
+  final plusIndex = router1AppVersion.indexOf('+');
+  if (plusIndex == -1) return 0;
+  return int.tryParse(router1AppVersion.substring(plusIndex + 1)) ?? 0;
+}
 
 void main() {
   runApp(const Router1App());
@@ -1973,6 +1981,7 @@ class PaymentPage extends StatefulWidget {
 class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   late final TextEditingController nameController;
   late final TextEditingController phoneController;
+  late final TextEditingController promoController;
   Router1Order? order;
   String? error;
   String? status;
@@ -1986,6 +1995,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
+    promoController = TextEditingController();
   }
 
   @override
@@ -1994,6 +2004,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     pollTimer?.cancel();
     nameController.dispose();
     phoneController.dispose();
+    promoController.dispose();
     super.dispose();
   }
 
@@ -2042,6 +2053,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
         testMode: widget.testMode,
+        refCode: promoController.text,
       );
       setState(() {
         order = created;
@@ -2185,6 +2197,20 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
                 decoration: InputDecoration(
                   hintText: 'Телефон клиента',
                   errorText: error == null ? null : 'Ошибка ниже',
+                  hintStyle: const TextStyle(color: Router1Theme.muted),
+                  filled: true,
+                  fillColor: const Color(0x66112029),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: promoController,
+                textCapitalization: TextCapitalization.characters,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+                decoration: InputDecoration(
+                  hintText: 'Промокод (необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
@@ -3579,6 +3605,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     with WidgetsBindingObserver {
   late final TextEditingController nameController;
   late final TextEditingController phoneController;
+  late final TextEditingController promoController;
   Router1Order? order;
   String? error;
   String? status;
@@ -3598,6 +3625,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
+    promoController = TextEditingController();
   }
 
   @override
@@ -3605,6 +3633,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     WidgetsBinding.instance.removeObserver(this);
     pollTimer?.cancel();
     nameController.dispose();
+    promoController.dispose();
     phoneController.dispose();
     super.dispose();
   }
@@ -3651,6 +3680,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
         product: _product,
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
+        refCode: promoController.text,
       );
       setState(() {
         order = created;
@@ -3847,6 +3877,20 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                 style: const TextStyle(color: Colors.white, fontSize: 18),
                 decoration: InputDecoration(
                   hintText: 'Телефон клиента',
+                  hintStyle: const TextStyle(color: Router1Theme.muted),
+                  filled: true,
+                  fillColor: const Color(0x66112029),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: promoController,
+                textCapitalization: TextCapitalization.characters,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+                decoration: InputDecoration(
+                  hintText: 'Промокод (необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
@@ -4839,6 +4883,114 @@ String routeModeTagline(Router1RouteProfileKind kind) {
   };
 }
 
+class _UpdateBanner extends StatefulWidget {
+  const _UpdateBanner();
+
+  @override
+  State<_UpdateBanner> createState() => _UpdateBannerState();
+}
+
+class _UpdateBannerState extends State<_UpdateBanner> {
+  int? _newBuild;
+  String? _newVersion;
+  String? _downloadUrl;
+  bool _dismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_check());
+  }
+
+  Future<void> _check() async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+      final request =
+          await client.getUrl(Uri.parse(router1VersionCheckUrl));
+      final response = await request.close().timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return;
+      final body = await response.transform(utf8.decoder).join();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      final build = (data['build'] as num?)?.toInt() ?? 0;
+      if (build <= router1AppBuildNumber) return;
+      final prefs = await SharedPreferences.getInstance();
+      final dismissedBuild = prefs.getInt('router1_update_dismissed_build') ?? 0;
+      if (dismissedBuild >= build) return;
+      if (!mounted) return;
+      setState(() {
+        _newBuild = build;
+        _newVersion = data['version']?.toString();
+        _downloadUrl = data['url']?.toString() ?? router1VersionCheckUrl;
+      });
+    } catch (_) {
+      // тихо игнорируем — обновление не критично для работы приложения
+    }
+  }
+
+  Future<void> _dismiss() async {
+    final build = _newBuild;
+    if (build != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('router1_update_dismissed_build', build);
+    }
+    if (mounted) setState(() => _dismissed = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed || _newBuild == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Router1Card(
+        accentColor: Router1Theme.blue,
+        padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
+        child: Row(
+          children: [
+            const Icon(Icons.system_update_rounded,
+                color: Router1Theme.blue, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      _newVersion != null
+                          ? 'Доступна версия $_newVersion'
+                          : 'Доступно обновление',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  const Text('Обновите, чтобы получить новые функции и фиксы.',
+                      style: TextStyle(
+                          color: Router1Theme.muted, fontSize: 12.5)),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                final url = _downloadUrl;
+                if (url != null) launchUrl(Uri.parse(url));
+              },
+              child: const Text('Обновить',
+                  style: TextStyle(
+                      color: Router1Theme.blue, fontWeight: FontWeight.w800)),
+            ),
+            IconButton(
+              onPressed: _dismiss,
+              icon: const Icon(Icons.close, color: Router1Theme.muted, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
     required this.snapshot,
@@ -4878,6 +5030,7 @@ class DashboardPage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(22, 22, 22, 30),
       children: [
+        const _UpdateBanner(),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -5016,13 +5169,30 @@ class DashboardPage extends StatelessWidget {
         HomeWideAction(
           icon: Icons.card_giftcard,
           title: 'Поделиться приложением с другом',
-          text: 'Отправить ссылку на Router1',
-          onTap: () {
+          text: 'Друг подключится — вам +15 дней подписки',
+          onTap: () async {
+            var shareText =
+                'Настрой домашний роутер за 5 минут с Router1: https://router1.tech/#download';
+            try {
+              final api = Router1Api(
+                baseUrl: 'https://router1.tech/api',
+                token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
+              );
+              final lookup = await api.findClientByPhone(clientPhone);
+              final code = lookup.referralCode;
+              if (code != null) {
+                shareText =
+                    'Настрой домашний роутер за 5 минут с Router1.\n'
+                    'Переходи по моей ссылке — оба получим бонус:\n'
+                    'https://t.me/router1_lk_bot?start=REF_$code';
+              }
+            } catch (_) {
+              // используем текст-фолбэк без реферального кода
+            }
             SharePlus.instance.share(
               ShareParams(
                 subject: 'Router1 — умный интернет',
-                text:
-                    'Настрой домашний роутер за 5 минут с Router1: https://router1.tech/#download',
+                text: shareText,
               ),
             );
           },
