@@ -257,7 +257,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
           ChoiceCard(
             icon: Icons.phone_android_rounded,
             title: 'Гаджет',
-            description: 'Смартфон /\nНоутбук /\nПК.',
+            description: 'Смартфон\nНоутбук\nПК',
             button: 'Настроить гаджет / комп',
             onTap: () {
               path = FirstRunPath.gadget;
