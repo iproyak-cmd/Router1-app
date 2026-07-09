@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,7 +17,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.49+52';
+const router1AppVersion = '0.1.50+53';
 final router1SupportUri = Uri.parse('https://t.me/router1_lk_bot');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -3942,20 +3944,40 @@ class GadgetInstructionPage extends StatelessWidget {
   final String filename;
   final VoidCallback onBack;
 
-  Future<void> _shareConfigFile(BuildContext context) async {
-    final dir = await getTemporaryDirectory();
-    final safeName = filename.trim().isEmpty
-        ? 'router1.conf'
+  Future<void> _downloadConfigFile(BuildContext context) async {
+    final rawName = filename.trim().isEmpty
+        ? 'router1'
         : filename.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]+'), '_');
-    final file = File('${dir.path}/$safeName');
-    await file.writeAsString(configText, flush: true);
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, mimeType: 'application/octet-stream')],
-        subject: 'Router1 AmneziaWG config',
-        text: 'Откройте файл в приложении для AmneziaWG: импорт из файла.',
-      ),
-    );
+    final safeName =
+        rawName.toLowerCase().endsWith('.conf')
+            ? rawName.substring(0, rawName.length - 5)
+            : rawName;
+    try {
+      await FileSaver.instance.saveFile(
+        name: safeName,
+        bytes: Uint8List.fromList(utf8.encode(configText)),
+        ext: 'conf',
+        mimeType: MimeType.other,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Файл .conf сохранён в Загрузки'),
+          ),
+        );
+      }
+    } catch (_) {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$safeName.conf');
+      await file.writeAsString(configText, flush: true);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/octet-stream')],
+          subject: 'Router1 AmneziaWG config',
+          text: 'Откройте файл в приложении для AmneziaWG: импорт из файла.',
+        ),
+      );
+    }
   }
 
   String get _clientAppName {
@@ -3995,7 +4017,7 @@ class GadgetInstructionPage extends StatelessWidget {
   String get _importText {
     return switch (platform) {
       'Android' =>
-        'Нажмите «Скачать файл .conf». В меню телефона выберите AmneziaWG. Если приложение не появилось, сохраните файл и импортируйте его внутри AmneziaWG.',
+        'Нажмите «Скачать файл .conf» — файл сохранится в папку «Загрузки». Откройте AmneziaWG, нажмите «+» и импортируйте файл из Загрузок.',
       'iPhone' =>
         'Нажмите «Скачать файл .conf». В меню iPhone выберите AmneziaWG. Если его нет в списке, сохраните файл в «Файлы», затем импортируйте его из AmneziaWG.',
       'Windows' =>
@@ -4020,7 +4042,7 @@ class GadgetInstructionPage extends StatelessWidget {
           'Сначала установите $_clientAppName, затем импортируйте файл .conf.',
       onBack: onBack,
       primaryText: 'Скачать файл .conf',
-      onPrimary: () => unawaited(_shareConfigFile(context)),
+      onPrimary: () => unawaited(_downloadConfigFile(context)),
       secondaryText: 'Установить приложение',
       onSecondary: () =>
           launchUrl(_clientAppUri, mode: LaunchMode.externalApplication),
