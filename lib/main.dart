@@ -256,7 +256,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
           ChoiceCard(
             icon: Icons.phone_android_rounded,
             title: 'Гаджет',
-            description: 'Смартфон, ноутбук или компьютер.',
+            description: 'Смартфон /\nНоутбук /\nПК.',
             button: 'Настроить гаджет / комп',
             onTap: () {
               path = FirstRunPath.gadget;
@@ -746,41 +746,44 @@ class StatusOrb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: size * 0.72,
-            height: size * 0.72,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                    color: accent.withValues(alpha: 0.5),
-                    blurRadius: size * 0.32,
-                    spreadRadius: size * 0.02),
-              ],
-            ),
-          ),
-          Image.asset('assets/illustrations/logo_mark.png',
-              width: size * 0.82, height: size * 0.82, fit: BoxFit.contain),
-          if (text.isNotEmpty)
-            Text(text,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    height: 1.15,
-                    fontWeight: FontWeight.w900,
-                    shadows: [
-                      Shadow(color: Colors.black87, blurRadius: 12),
-                      Shadow(color: Colors.black54, blurRadius: 22),
-                    ])),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (text.isNotEmpty) ...[
+          Text(text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  height: 1.2,
+                  fontWeight: FontWeight.w900)),
+          SizedBox(height: size * 0.04),
         ],
-      ),
+        SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: size * 0.72,
+                height: size * 0.72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                        color: accent.withValues(alpha: 0.5),
+                        blurRadius: size * 0.32,
+                        spreadRadius: size * 0.02),
+                  ],
+                ),
+              ),
+              Image.asset('assets/illustrations/logo_mark.png',
+                  width: size * 0.82, height: size * 0.82, fit: BoxFit.contain),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
