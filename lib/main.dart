@@ -15,6 +15,7 @@ import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
 const router1AppVersion = '0.1.47+50';
+final router1SupportUri = Uri.parse('https://t.me/router1_lk_bot');
 
 void main() {
   runApp(const Router1App());
@@ -697,8 +698,8 @@ class Router1Card extends StatelessWidget {
         (green
             ? Router1Theme.green
             : (blue ? Router1Theme.blue : Router1Theme.border));
-    final resolvedAccent =
-        accentColor ?? (green ? Router1Theme.green : (blue ? Router1Theme.blue : null));
+    final resolvedAccent = accentColor ??
+        (green ? Router1Theme.green : (blue ? Router1Theme.blue : null));
     List<Color> gradientColors;
     if (resolvedAccent != null) {
       gradientColors = [
@@ -3908,57 +3909,119 @@ class GadgetInstructionPage extends StatelessWidget {
       ShareParams(
         files: [XFile(file.path, mimeType: 'application/octet-stream')],
         subject: 'Router1 AmneziaWG config',
-        text: 'Откройте файл в AmneziaVPN: импорт из файла.',
+        text: 'Откройте файл в приложении для AmneziaWG: импорт из файла.',
       ),
     );
   }
 
+  String get _clientAppName {
+    return switch (platform) {
+      'Android' || 'iPhone' => 'AmneziaWG',
+      _ => 'AmneziaVPN',
+    };
+  }
+
   Uri get _clientAppUri {
-    return Uri.parse('https://amnezia.org/downloads');
+    return switch (platform) {
+      'Android' => Uri.parse(
+          'https://play.google.com/store/apps/details?id=org.amnezia.awg'),
+      'iPhone' =>
+        Uri.parse('https://apps.apple.com/us/app/amneziawg/id6478942365'),
+      _ => Uri.parse('https://amnezia.org/downloads'),
+    };
+  }
+
+  String get _installText {
+    return switch (platform) {
+      'Android' =>
+        'Нажмите «Установить приложение», откроется Google Play с AmneziaWG. Установите приложение и вернитесь в Router1.',
+      'iPhone' =>
+        'Нажмите «Установить приложение», откроется App Store с AmneziaWG. Если приложение недоступно в вашем регионе, нажмите «Нужна помощь».',
+      'Windows' =>
+        'Нажмите «Установить приложение», скачайте AmneziaVPN для Windows с официального сайта и установите его.',
+      'macOS' =>
+        'Нажмите «Установить приложение», скачайте AmneziaVPN для macOS с официального сайта и установите его.',
+      'Linux' =>
+        'Нажмите «Установить приложение», откройте раздел Linux на официальном сайте Amnezia. Если не хотите настраивать сами, нажмите «Нужна помощь».',
+      _ =>
+        'Установите приложение Amnezia с официального сайта и вернитесь в Router1.',
+    };
+  }
+
+  String get _importText {
+    return switch (platform) {
+      'Android' =>
+        'Нажмите «Скачать файл .conf». В меню телефона выберите AmneziaWG. Если приложение не появилось, сохраните файл и импортируйте его внутри AmneziaWG.',
+      'iPhone' =>
+        'Нажмите «Скачать файл .conf». В меню iPhone выберите AmneziaWG. Если его нет в списке, сохраните файл в «Файлы», затем импортируйте его из AmneziaWG.',
+      'Windows' =>
+        'Нажмите «Скачать файл .conf» и сохраните файл. В AmneziaVPN выберите импорт конфигурации из файла и укажите скачанный .conf.',
+      'macOS' =>
+        'Нажмите «Скачать файл .conf» и сохраните файл. В AmneziaVPN выберите импорт конфигурации из файла и укажите скачанный .conf.',
+      'Linux' =>
+        'Скачайте файл .conf. В AmneziaVPN импортируйте конфигурацию из файла. Если интерфейс отличается, напишите в поддержку.',
+      _ => 'Скачайте файл .conf и импортируйте его в приложение Amnezia.',
+    };
+  }
+
+  Future<void> _openSupport() async {
+    await launchUrl(router1SupportUri, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
       title: 'Конфиг готов',
-      subtitle: 'Сначала установите AmneziaVPN, затем импортируйте файл .conf.',
+      subtitle:
+          'Сначала установите $_clientAppName, затем импортируйте файл .conf.',
       onBack: onBack,
       primaryText: 'Скачать файл .conf',
       onPrimary: () => unawaited(_shareConfigFile(context)),
-      secondaryText: 'Установить AmneziaVPN',
+      secondaryText: 'Установить приложение',
       onSecondary: () =>
           launchUrl(_clientAppUri, mode: LaunchMode.externalApplication),
       children: [
         PricePanel(title: filename, price: 'оплачено'),
-        const BenefitTile(
+        BenefitTile(
             icon: Icons.install_mobile,
-            title: 'Установите AmneziaVPN',
-            text: 'Нажмите кнопку ниже, если приложение ещё не установлено.'),
-        const BenefitTile(
+            title: '1. Установите $_clientAppName',
+            text: _installText),
+        BenefitTile(
             icon: Icons.description,
-            title: 'Импортируйте файл',
-            text:
-                'В AmneziaVPN выберите импорт из файла и откройте скачанный .conf.'),
+            title: '2. Импортируйте файл',
+            text: _importText),
         const BenefitTile(
             icon: Icons.power_settings_new,
-            title: 'Включите подключение',
-            text: 'После импорта включите новый туннель Router1.'),
+            title: '3. Включите Router1',
+            text:
+                'После импорта откройте новый туннель Router1 и нажмите кнопку включения.'),
+        const BenefitTile(
+            icon: Icons.warning_amber_rounded,
+            title: 'Один конфиг — одно устройство',
+            text:
+                'Не ставьте этот файл на два устройства одновременно: соединение будет работать нестабильно.'),
         Router1Card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Технически',
+              const Text('Если что-то не получилось',
                   style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
               const Text(
-                'Если файл не открылся автоматически, скачайте его кнопкой выше и выберите AmneziaVPN вручную.',
+                'Нажмите «Нужна помощь», если не хотите настраивать самостоятельно или приложение не открывает файл .conf.',
                 style: TextStyle(
                     color: Router1Theme.muted, fontSize: 14, height: 1.3),
               ),
               const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => unawaited(_openSupport()),
+                icon: const Icon(Icons.support_agent),
+                label: const Text('Нужна помощь специалиста'),
+              ),
+              const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: configText));
@@ -5487,8 +5550,8 @@ class SupportPage extends StatelessWidget {
             icon: Icons.chat_bubble_outline,
             title: 'Написать в поддержку',
             subtitle: 'Получить помощь без технических объяснений',
-            onTap: () => _showMessage(
-                context, 'Напишите в Telegram-бот Router1 из текущего чата.')),
+            onTap: () => unawaited(launchUrl(router1SupportUri,
+                mode: LaunchMode.externalApplication))),
         ActionTile(
             icon: Icons.restart_alt,
             title: 'Обновить подключение',
