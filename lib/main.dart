@@ -15,7 +15,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.48+51';
+const router1AppVersion = '0.1.49+52';
 final router1SupportUri = Uri.parse('https://t.me/router1_lk_bot');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
