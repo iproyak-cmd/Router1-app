@@ -411,9 +411,29 @@ class KeeneticSetupService {
       await _runCliCommands(access, ['components install wireguard']);
       await _runCliCommands(access, ['components commit']);
     } on KeeneticSetupException catch (e) {
-      throw KeeneticSetupException(
-        'Автоустановка WireGuard не выполнена: ${e.message}. Откройте веб-интерфейс Keenetic -> Системные настройки -> Изменить набор компонентов -> WireGuard VPN.',
-      );
+      // Keenetic отвечает "commit without a component list", когда шаг
+      // install ничего не поставил в очередь — обычно это значит, что
+      // компонент уже установлен (ставить нечего). Не считаем это фатальной
+      // ошибкой, а проверяем реальное состояние ниже вместо ре-throw.
+      final nothingToCommit = e.message.toLowerCase().contains('component list');
+      if (!nothingToCommit) {
+        throw KeeneticSetupException(
+          'Автоустановка WireGuard не выполнена: ${e.message}. Откройте веб-интерфейс Keenetic -> Системные настройки -> Изменить набор компонентов -> WireGuard VPN.',
+        );
+      }
+      try {
+        final status = await checkWireGuardComponent(access);
+        if (status.installed) {
+          return const WireGuardComponentStatus(
+            available: true,
+            installed: true,
+            canInstall: false,
+            message: 'Компонент WireGuard уже установлен.',
+          );
+        }
+      } catch (_) {
+        // Продолжаем к обычному циклу опроса ниже.
+      }
     }
 
     for (var attempt = 0; attempt < 8; attempt++) {
@@ -1079,9 +1099,19 @@ class KeeneticSetupService {
         .map((item) => item.trim().toLowerCase())
         .where((item) => item.isNotEmpty)
         .toSet();
-    return normalized.contains('wireguard') ||
+    if (normalized.contains('wireguard') ||
         normalized.contains('awg') ||
-        normalized.contains('amneziawg');
+        normalized.contains('amneziawg')) {
+      return true;
+    }
+    // Некоторые прошивки Keenetic отдают components в другом формате
+    // (JSON-массив, другие разделители, кавычки/скобки вокруг имён) —
+    // строгое разбиение на токены выше может не сматчить. Подстраховка:
+    // ищем подстроку прямо в исходной (уже lowercase) строке.
+    final raw = components.toLowerCase();
+    return raw.contains('wireguard') ||
+        raw.contains('amneziawg') ||
+        raw.contains('awg');
   }
 
   bool _hasWireGuardInterface(Object? interfaces) {
