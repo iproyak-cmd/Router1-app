@@ -17,7 +17,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.53+56';
+const router1AppVersion = '0.1.54+57';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -100,6 +100,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   Router1RouteProfileKind routerRouteProfileKind =
       Router1RouteProfileKind.goldStandard;
   var testPaymentMode = false;
+  var isTestRouterPurchase = false;
   var paid = false;
   final setupService = KeeneticSetupService();
   final appApi = Router1Api(
@@ -136,6 +137,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
       awgConfig = null;
       paidOrderId = null;
       paid = false;
+      isTestRouterPurchase = false;
       setupLogs.clear();
       discoveryLogs.clear();
       step = 2;
@@ -397,11 +399,15 @@ class _FirstRunShellState extends State<FirstRunShell> {
             paid = true;
             goTo(7);
           },
-          onPaid: (name, phone, orderId) {
+          onPaid: (name, phone, orderId, isTestPurchase) {
             clientName = name;
             clientPhone = phone;
             paidOrderId = orderId;
             paid = true;
+            isTestRouterPurchase = isTestPurchase;
+            if (isTestPurchase) {
+              routerRouteProfileKind = Router1RouteProfileKind.goldStandard;
+            }
             goTo(7);
           },
           onBack: back,
@@ -428,6 +434,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
       9 => RouterRoutingProfilePage(
           profile: routerRoutingProfile,
           routeProfileKind: routerRouteProfileKind,
+          isTestPurchase: isTestRouterPurchase,
           onChanged: (value) => setState(() => routerRoutingProfile = value),
           onRouteProfileChanged: (value) => setState(() {
             routerRouteProfileKind = value;
@@ -462,11 +469,15 @@ class _FirstRunShellState extends State<FirstRunShell> {
             paid = true;
             goTo(7);
           },
-          onPaid: (name, phone, orderId) {
+          onPaid: (name, phone, orderId, isTestPurchase) {
             clientName = name;
             clientPhone = phone;
             paidOrderId = orderId;
             paid = true;
+            isTestRouterPurchase = isTestPurchase;
+            if (isTestPurchase) {
+              routerRouteProfileKind = Router1RouteProfileKind.goldStandard;
+            }
             goTo(7);
           },
           onBack: back,
@@ -1973,7 +1984,8 @@ class PaymentPage extends StatefulWidget {
   final ValueChanged<bool>? onTestModeChanged;
   final void Function(String name, String phone, String configText)
       onExistingConfig;
-  final void Function(String name, String phone, String orderId) onPaid;
+  final void Function(String name, String phone, String orderId, bool isTestPurchase)
+      onPaid;
   final VoidCallback onBack;
 
   @override
@@ -1988,6 +2000,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   String? error;
   String? status;
   var loading = false;
+  var _isTestPurchase = false;
   Timer? pollTimer;
 
   @override
@@ -1997,7 +2010,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
-    promoController = TextEditingController();
+    promoController = TextEditingController(text: 'ROUTER30');
   }
 
   @override
@@ -2054,7 +2067,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
       final created = await widget.api.createRouterOrder(
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
-        testMode: widget.testMode,
+        testMode: widget.testMode || _isTestPurchase,
         refCode: promoController.text,
       );
       setState(() {
@@ -2131,6 +2144,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               : nameController.text.trim(),
           phoneController.text.trim(),
           current.orderId,
+          _isTestPurchase,
         );
         return;
       }
@@ -2170,7 +2184,86 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               ? pay
               : () => unawaited(checkPayment(manual: true)),
       children: [
-        const PricePanel(title: 'Router1 для роутера', price: '2300 ₽'),
+        PricePanel(
+          title: _isTestPurchase ? 'Router1 — тест на сутки' : 'Router1 для роутера',
+          price: _isTestPurchase ? '20 ₽' : '2000 ₽ → 1200 ₽',
+        ),
+        if (!_isTestPurchase)
+          const Padding(
+            padding: EdgeInsets.only(top: 6, bottom: 2),
+            child: Text(
+              'Скидка 40% до 15 июля уже учтена (промокод ROUTER30 подставлен ниже).\n'
+              'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Router1Theme.green, fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
+            ),
+          ),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _isTestPurchase = false),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: !_isTestPurchase
+                        ? Router1Theme.green.withValues(alpha: 0.22)
+                        : const Color(0x33112029),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: !_isTestPurchase
+                            ? Router1Theme.green
+                            : Colors.transparent,
+                        width: 1.5),
+                  ),
+                  child: const Text('Полная настройка',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _isTestPurchase = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: _isTestPurchase
+                        ? Router1Theme.green.withValues(alpha: 0.22)
+                        : const Color(0x33112029),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: _isTestPurchase
+                            ? Router1Theme.green
+                            : Colors.transparent,
+                        width: 1.5),
+                  ),
+                  child: const Text('Тест на сутки — 20 ₽',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (_isTestPurchase)
+          const BenefitTile(
+              icon: Icons.timer,
+              title: 'Тест на сутки — режим Standard',
+              text:
+                  'YouTube, Telegram, Instagram, WhatsApp — через VPN, остальные сайты напрямую. '
+                  'Через 24 часа VPN отключится автоматически, без потери обычного интернета. '
+                  'Если потом оплатите полную версию — этот же конфиг оживёт сам, переустанавливать не нужно. '
+                  'Для режима +AI или Gamers после теста нужно будет настроить роутер заново.'),
         const BenefitTile(
             icon: Icons.install_mobile,
             title: 'Если уже оплатили, новая оплата не нужна',
@@ -2976,6 +3069,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
     required this.onRouteProfileChanged,
     required this.onNext,
     required this.onBack,
+    this.isTestPurchase = false,
     super.key,
   });
 
@@ -2985,6 +3079,7 @@ class RouterRoutingProfilePage extends StatelessWidget {
   final ValueChanged<Router1RouteProfileKind> onRouteProfileChanged;
   final VoidCallback onNext;
   final VoidCallback onBack;
+  final bool isTestPurchase;
 
   @override
   Widget build(BuildContext context) {
@@ -3008,41 +3103,62 @@ class RouterRoutingProfilePage extends StatelessWidget {
           },
         ),
         const SizedBox(height: 16),
-        _RouteModeCard(
-          icon: Icons.auto_awesome_rounded,
-          accent: Router1Theme.blue,
-          title: '+AI',
-          description: 'Нейронки через full tunnel.',
-          selected: profile == RouterRoutingProfile.selective &&
-              routeProfileKind == Router1RouteProfileKind.ai,
-          onTap: () {
-            onChanged(RouterRoutingProfile.selective);
-            onRouteProfileChanged(Router1RouteProfileKind.ai);
-          },
-        ),
-        const SizedBox(height: 16),
-        _RouteModeCard(
-          icon: Icons.sports_esports_rounded,
-          accent: Router1Theme.gold,
-          title: 'For Gamers',
-          description:
-              'В разработке. Режим для игровых серверов появится позже.',
-          selected: profile == RouterRoutingProfile.selective &&
-              routeProfileKind == Router1RouteProfileKind.gamers,
-          onTap: () {
-            onChanged(RouterRoutingProfile.selective);
-            onRouteProfileChanged(Router1RouteProfileKind.gamers);
-          },
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          'Чтобы сменить режим, откройте состояние соединения и запустите настройку заново.',
-          style: TextStyle(
-            color: Router1Theme.muted,
-            fontSize: 13,
-            height: 1.35,
+        Opacity(
+          opacity: isTestPurchase ? 0.4 : 1.0,
+          child: _RouteModeCard(
+            icon: Icons.auto_awesome_rounded,
+            accent: Router1Theme.blue,
+            title: '+AI',
+            description: 'Нейронки через full tunnel.',
+            selected: profile == RouterRoutingProfile.selective &&
+                routeProfileKind == Router1RouteProfileKind.ai,
+            onTap: isTestPurchase
+                ? () {}
+                : () {
+                    onChanged(RouterRoutingProfile.selective);
+                    onRouteProfileChanged(Router1RouteProfileKind.ai);
+                  },
           ),
         ),
+        const SizedBox(height: 16),
+        Opacity(
+          opacity: isTestPurchase ? 0.4 : 1.0,
+          child: _RouteModeCard(
+            icon: Icons.sports_esports_rounded,
+            accent: Router1Theme.gold,
+            title: 'For Gamers',
+            description:
+                'В разработке. Режим для игровых серверов появится позже.',
+            selected: profile == RouterRoutingProfile.selective &&
+                routeProfileKind == Router1RouteProfileKind.gamers,
+            onTap: isTestPurchase
+                ? () {}
+                : () {
+                    onChanged(RouterRoutingProfile.selective);
+                    onRouteProfileChanged(Router1RouteProfileKind.gamers);
+                  },
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (isTestPurchase)
+          const Text(
+            'В тестовом периоде доступен только режим Standard. Режимы +AI и Gamers '
+            'откроются после оплаты полной версии — потребуется настроить роутер заново.',
+            style: TextStyle(
+              color: Router1Theme.green,
+              fontSize: 13,
+              height: 1.35,
+            ),
+          )
+        else
+          const Text(
+            'Чтобы сменить режим, откройте состояние соединения и запустите настройку заново.',
+            style: TextStyle(
+              color: Router1Theme.muted,
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
       ],
     );
   }
@@ -3614,11 +3730,15 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
   List<Router1ClientConfig> existingConfigs = const [];
   var buyNewConfirmed = false;
   var loading = false;
+  var _isTestPurchase = false;
   Timer? pollTimer;
 
   bool get _isPhone =>
       widget.platform == 'Android' || widget.platform == 'iPhone';
-  String get _product => _isPhone ? 'smartphone' : 'laptop';
+  String get _product {
+    if (_isTestPurchase) return _isPhone ? 'smartphone_test' : 'laptop_test';
+    return _isPhone ? 'smartphone' : 'laptop';
+  }
 
   @override
   void initState() {
@@ -3627,7 +3747,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
-    promoController = TextEditingController();
+    promoController = TextEditingController(text: 'ROUTER30');
   }
 
   @override
@@ -3812,10 +3932,76 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
               : () => unawaited(checkPayment(manual: true)),
       children: [
         PricePanel(
-            title: _isPhone
-                ? 'Router1 для смартфона'
-                : 'Router1 для ноутбука / ПК',
-            price: '1300 ₽'),
+            title: _isTestPurchase
+                ? (_isPhone ? 'Смартфон — тест на сутки' : 'Ноутбук / ПК — тест на сутки')
+                : (_isPhone ? 'Router1 для смартфона' : 'Router1 для ноутбука / ПК'),
+            price: _isTestPurchase ? '20 ₽' : '1000 ₽ → 600 ₽'),
+        if (!_isTestPurchase)
+          const Padding(
+            padding: EdgeInsets.only(top: 6, bottom: 2),
+            child: Text(
+              'Скидка 40% до 15 июля уже учтена (промокод ROUTER30 подставлен ниже).\n'
+              'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Router1Theme.green, fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
+            ),
+          ),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _isTestPurchase = false),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: !_isTestPurchase
+                        ? Router1Theme.green.withValues(alpha: 0.22)
+                        : const Color(0x33112029),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: !_isTestPurchase ? Router1Theme.green : Colors.transparent,
+                        width: 1.5),
+                  ),
+                  child: const Text('Полная настройка',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _isTestPurchase = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: _isTestPurchase
+                        ? Router1Theme.green.withValues(alpha: 0.22)
+                        : const Color(0x33112029),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: _isTestPurchase ? Router1Theme.green : Colors.transparent,
+                        width: 1.5),
+                  ),
+                  child: const Text('Тест на сутки — 20 ₽',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (_isTestPurchase)
+          const BenefitTile(
+              icon: Icons.timer,
+              title: 'Тест на сутки',
+              text:
+                  'Полный доступ на 24 часа. Через сутки VPN отключится автоматически. '
+                  'Если потом оплатите полную версию — этот же конфиг оживёт сам.'),
         const BenefitTile(
             icon: Icons.vpn_key,
             title: 'Полный VPN для гаджета',

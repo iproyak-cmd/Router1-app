@@ -138,6 +138,7 @@ class Router1ClientConfig {
     required this.filename,
     required this.recommended,
     required this.routerCandidate,
+    required this.isTest,
   });
 
   final int id;
@@ -150,10 +151,12 @@ class Router1ClientConfig {
   final String filename;
   final bool recommended;
   final bool routerCandidate;
+  final bool isTest;
 
   bool get gadgetCandidate {
     final product = productType.toLowerCase();
     return !routerCandidate &&
+        !isTest &&
         hasConfig &&
         (product == 'vpn_config' ||
             product == 'smartphone' ||
@@ -175,6 +178,7 @@ class Router1ClientConfig {
       filename: json['filename']?.toString() ?? '',
       recommended: json['recommended'] == true,
       routerCandidate: json['router_candidate'] == true,
+      isTest: json['is_test'] == true,
     );
   }
 }
@@ -197,16 +201,22 @@ class Router1ClientLookup {
   String? get referralCode =>
       clientId == null ? null : 'R1${clientId.toString().padLeft(6, '0')}';
 
+  // Тестовые конфиги (20₽/1 день) намеренно исключены из "уже оплаченного" распознавания:
+  // иначе клиент с ещё живым тестом при попытке купить полную версию получил бы её бесплатно,
+  // т.к. эта функция используется для решения "пропустить оплату, конфиг уже есть".
   Router1ClientConfig? get recommendedConfig {
     for (final config in configs) {
       if ((config.id == recommendedConfigId || config.recommended) &&
           config.routerCandidate &&
+          !config.isTest &&
           config.hasConfig) {
         return config;
       }
     }
     for (final config in configs) {
-      if (config.routerCandidate && config.hasConfig) return config;
+      if (config.routerCandidate && !config.isTest && config.hasConfig) {
+        return config;
+      }
     }
     return null;
   }
