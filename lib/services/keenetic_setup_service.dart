@@ -412,28 +412,24 @@ class KeeneticSetupService {
       await _runCliCommands(access, ['components commit']);
     } on KeeneticSetupException catch (e) {
       // Keenetic отвечает "commit without a component list", когда шаг
-      // install ничего не поставил в очередь — обычно это значит, что
-      // компонент уже установлен (ставить нечего). Не считаем это фатальной
-      // ошибкой, а проверяем реальное состояние ниже вместо ре-throw.
+      // install ничего не поставил в очередь — это значит компонент уже
+      // физически установлен (ставить нечего). Это прямой, авторитетный
+      // ответ самого Keenetic — доверяем ему сразу, НЕ перепроверяя через
+      // checkWireGuardComponent() (её парсинг components/interface может
+      // быть ненадёжен на некоторых прошивках и снова сказать "не найден",
+      // хотя Keenetic только что своим ответом подтвердил обратное).
       final nothingToCommit = e.message.toLowerCase().contains('component list');
       if (!nothingToCommit) {
         throw KeeneticSetupException(
           'Автоустановка WireGuard не выполнена: ${e.message}. Откройте веб-интерфейс Keenetic -> Системные настройки -> Изменить набор компонентов -> WireGuard VPN.',
         );
       }
-      try {
-        final status = await checkWireGuardComponent(access);
-        if (status.installed) {
-          return const WireGuardComponentStatus(
-            available: true,
-            installed: true,
-            canInstall: false,
-            message: 'Компонент WireGuard уже установлен.',
-          );
-        }
-      } catch (_) {
-        // Продолжаем к обычному циклу опроса ниже.
-      }
+      return const WireGuardComponentStatus(
+        available: true,
+        installed: true,
+        canInstall: false,
+        message: 'Компонент WireGuard уже установлен.',
+      );
     }
 
     for (var attempt = 0; attempt < 8; attempt++) {
