@@ -17,7 +17,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.54+57';
+const router1AppVersion = '0.1.55+58';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -2010,7 +2010,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
-    promoController = TextEditingController(text: 'ROUTER30');
+    promoController = TextEditingController();
   }
 
   @override
@@ -2192,7 +2192,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
             child: Text(
-              'Скидка 40% до 15 июля уже учтена (промокод ROUTER30 подставлен ниже).\n'
+              'Скидка 40% до 15 июля уже включена в цену — вводить код не нужно.\n'
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -2305,7 +2305,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
                 textCapitalization: TextCapitalization.characters,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
                 decoration: InputDecoration(
-                  hintText: 'Промокод (необязательно)',
+                  hintText: 'Код блогера (если есть, необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
@@ -3747,7 +3747,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
-    promoController = TextEditingController(text: 'ROUTER30');
+    promoController = TextEditingController();
   }
 
   @override
@@ -3940,7 +3940,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
             child: Text(
-              'Скидка 40% до 15 июля уже учтена (промокод ROUTER30 подставлен ниже).\n'
+              'Скидка 40% до 15 июля уже включена в цену — вводить код не нужно.\n'
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -4078,7 +4078,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                 textCapitalization: TextCapitalization.characters,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
                 decoration: InputDecoration(
-                  hintText: 'Промокод (необязательно)',
+                  hintText: 'Код блогера (если есть, необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
