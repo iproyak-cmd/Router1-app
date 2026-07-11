@@ -16,7 +16,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.58+61';
+const router1AppVersion = '0.1.59+62';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -2800,6 +2800,7 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
   WireGuardComponentStatus? status;
   var loading = true;
   String? error;
+  String progressMessage = 'Подключаемся к Keenetic...';
 
   @override
   void initState() {
@@ -2813,6 +2814,7 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
     setState(() {
       loading = true;
       error = null;
+      progressMessage = 'Проверяем установленные компоненты...';
     });
     try {
       final value = await widget.service.checkWireGuardComponent(access);
@@ -2839,15 +2841,33 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
   Future<void> install() async {
     final access = widget.access;
     if (access == null) return;
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      error = null;
+      progressMessage = 'Начинаем установку WireGuard...';
+    });
     try {
-      final value = await widget.service.installWireGuardComponent(access);
+      final value = await widget.service.installWireGuardComponent(
+        access,
+        onProgress: (message) {
+          if (!mounted) return;
+          setState(() => progressMessage = message);
+          widget.onLog(SetupLogEntry(
+            title: 'Установка WireGuard',
+            message: message,
+            level: SetupLogLevel.info,
+            time: DateTime.now(),
+          ));
+        },
+      );
       widget.onLog(SetupLogEntry(
           title: 'WireGuard',
           message: value.message,
           level: SetupLogLevel.success,
           time: DateTime.now()));
       setState(() => status = value);
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (mounted) widget.onReady();
     } catch (e) {
       final message = e is KeeneticSetupException ? e.message : e.toString();
       widget.onLog(SetupLogEntry(
@@ -2892,6 +2912,28 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
               StepTile(
                   done: item?.installed == true,
                   title: item?.message ?? 'Ожидаем ответ роутера'),
+              if (loading) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+                const SizedBox(height: 12),
+                Text(
+                  progressMessage,
+                  style: const TextStyle(
+                    color: Router1Theme.muted,
+                    fontSize: 15,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Не закрывайте приложение. Роутер может временно пропасть из сети — это нормально.',
+                  style: TextStyle(
+                    color: Router1Theme.muted,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(error!,
@@ -3585,6 +3627,24 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
   @override
   Widget build(BuildContext context) {
     final done = tunnel?.handshakeOk == true && routingApplied;
+    final completedSteps = [
+      widget.paid,
+      imported,
+      created,
+      startedTunnel,
+      routingApplied,
+    ].where((value) => value).length;
+    final currentAction = error != null
+        ? 'Настройка остановлена — ниже указана причина.'
+        : !imported
+            ? 'Проверяем и подготавливаем конфиг...'
+            : !created
+                ? 'Создаём подключение на роутере...'
+                : !startedTunnel
+                    ? 'Запускаем туннель и ждём handshake...'
+                    : !routingApplied
+                        ? 'Применяем маршруты Router1...'
+                        : 'Настройка завершена.';
     return FlowScaffold(
       title: done ? 'Интернет работает' : 'Настраиваем роутер',
       subtitle: done
@@ -3600,6 +3660,18 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
           green: done,
           child: Column(
             children: [
+              LinearProgressIndicator(value: completedSteps / 5),
+              const SizedBox(height: 12),
+              Text(
+                currentAction,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Router1Theme.muted,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 14),
               StepTile(done: widget.paid, title: 'Оплата получена'),
               StepTile(
                   done: imported,

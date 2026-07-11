@@ -395,7 +395,9 @@ class KeeneticSetupService {
   }
 
   Future<WireGuardComponentStatus> installWireGuardComponent(
-      KeeneticAccess access) async {
+    KeeneticAccess access, {
+    void Function(String message)? onProgress,
+  }) async {
     if (access.testMode) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const WireGuardComponentStatus(
@@ -407,8 +409,11 @@ class KeeneticSetupService {
     }
 
     try {
+      onProgress?.call('Обновляем список компонентов Keenetic...');
       await _runCliCommands(access, ['components sync'], ignoreErrors: true);
+      onProgress?.call('Отправляем WireGuard на установку...');
       await _runCliCommands(access, ['components install wireguard']);
+      onProgress?.call('Keenetic применяет изменения...');
       await _runCliCommands(access, ['components commit']);
     } on KeeneticSetupException catch (e) {
       // Keenetic отвечает "commit without a component list", когда шаг
@@ -418,12 +423,14 @@ class KeeneticSetupService {
       // checkWireGuardComponent() (её парсинг components/interface может
       // быть ненадёжен на некоторых прошивках и снова сказать "не найден",
       // хотя Keenetic только что своим ответом подтвердил обратное).
-      final nothingToCommit = e.message.toLowerCase().contains('component list');
+      final nothingToCommit =
+          e.message.toLowerCase().contains('component list');
       if (!nothingToCommit) {
         throw KeeneticSetupException(
           'Автоустановка WireGuard не выполнена: ${e.message}. Откройте веб-интерфейс Keenetic -> Системные настройки -> Изменить набор компонентов -> WireGuard VPN.',
         );
       }
+      onProgress?.call('WireGuard уже установлен. Продолжаем настройку...');
       return const WireGuardComponentStatus(
         available: true,
         installed: true,
@@ -432,11 +439,17 @@ class KeeneticSetupService {
       );
     }
 
-    for (var attempt = 0; attempt < 8; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 8));
+    const attempts = 18;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      final elapsed = (attempt + 1) * 10;
+      onProgress?.call(
+        'Keenetic устанавливает компонент. Проверка ${attempt + 1} из $attempts, прошло около $elapsed сек...',
+      );
+      await Future<void>.delayed(const Duration(seconds: 10));
       try {
         final status = await checkWireGuardComponent(access);
         if (status.installed) {
+          onProgress?.call('WireGuard установлен. Продолжаем настройку...');
           return const WireGuardComponentStatus(
             available: true,
             installed: true,
@@ -450,7 +463,7 @@ class KeeneticSetupService {
     }
 
     throw const KeeneticSetupException(
-      'WireGuard отправлен на установку, но Keenetic не подтвердил готовность. Подождите 1-2 минуты и повторите проверку.',
+      'Keenetic не подтвердил установку WireGuard за 3 минуты. Проверьте доступ роутера к интернету и повторите установку.',
     );
   }
 
