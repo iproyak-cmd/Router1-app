@@ -109,4 +109,20 @@ void main() {
       expect(offer.periodDays, 90);
     });
   });
+
+  group('Router1Order', () {
+    test('parses locked free trial mode', () {
+      final order = Router1Order.fromJson({
+        'order_id': 'trial-order',
+        'payment_url': 'https://router1.tech/success.html',
+        'free_trial': true,
+        'trial_mode': 'ai',
+        'mode_locked': true,
+      });
+
+      expect(order.freeTrial, isTrue);
+      expect(order.trialMode, Router1RouteProfileKind.ai);
+      expect(order.modeLocked, isTrue);
+    });
+  });
 }

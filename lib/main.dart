@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +16,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.55+58';
+const router1AppVersion = '0.1.56+59';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -252,8 +251,14 @@ class _FirstRunShellState extends State<FirstRunShell> {
         children: [
           const Center(child: _CompactLogo()),
           const SizedBox(height: 34),
-          const Text('Что хотите настроить?',
+          const Text('Попробуйте Router1 бесплатно — 3 дня',
               textAlign: TextAlign.center, style: Router1Theme.title),
+          const SizedBox(height: 10),
+          const Text(
+            'Выберите устройство. Карта и оплата не нужны.',
+            textAlign: TextAlign.center,
+            style: Router1Theme.subtitle,
+          ),
           const SizedBox(height: 26),
           ChoiceCard(
             icon: Icons.home_rounded,
@@ -268,12 +273,25 @@ class _FirstRunShellState extends State<FirstRunShell> {
           const SizedBox(height: 22),
           ChoiceCard(
             icon: Icons.phone_android_rounded,
-            title: 'Гаджет',
-            description: 'Смартфон\nНоутбук\nПК',
-            button: 'Настроить гаджет / комп',
+            title: 'Смартфон',
+            description: 'Полный доступ: весь трафик через Router1.',
+            button: 'Подключить смартфон',
             onTap: () {
               path = FirstRunPath.gadget;
-              next();
+              platform = 'Android';
+              goTo(3);
+            },
+          ),
+          const SizedBox(height: 22),
+          ChoiceCard(
+            icon: Icons.laptop_rounded,
+            title: 'Ноутбук / ПК',
+            description: 'Полный доступ: весь трафик через Router1.',
+            button: 'Подключить ноутбук / ПК',
+            onTap: () {
+              path = FirstRunPath.gadget;
+              platform = 'Windows';
+              goTo(3);
             },
           ),
           const SizedBox(height: 30),
@@ -392,21 +410,25 @@ class _FirstRunShellState extends State<FirstRunShell> {
           initialName: clientName,
           initialPhone: clientPhone,
           onTestModeChanged: null,
-          onExistingConfig: (name, phone, configText) {
+          onExistingConfig: (name, phone, configText, trialMode) {
             clientName = name;
             clientPhone = phone;
             awgConfig = configText;
             paid = true;
+            if (trialMode != null) {
+              isTestRouterPurchase = true;
+              routerRouteProfileKind = trialMode;
+            }
             goTo(7);
           },
-          onPaid: (name, phone, orderId, isTestPurchase) {
+          onPaid: (name, phone, orderId, isTestPurchase, trialMode) {
             clientName = name;
             clientPhone = phone;
             paidOrderId = orderId;
             paid = true;
             isTestRouterPurchase = isTestPurchase;
             if (isTestPurchase) {
-              routerRouteProfileKind = Router1RouteProfileKind.goldStandard;
+              routerRouteProfileKind = trialMode;
             }
             goTo(7);
           },
@@ -462,21 +484,25 @@ class _FirstRunShellState extends State<FirstRunShell> {
           initialName: clientName,
           initialPhone: clientPhone,
           onTestModeChanged: null,
-          onExistingConfig: (name, phone, configText) {
+          onExistingConfig: (name, phone, configText, trialMode) {
             clientName = name;
             clientPhone = phone;
             awgConfig = configText;
             paid = true;
+            if (trialMode != null) {
+              isTestRouterPurchase = true;
+              routerRouteProfileKind = trialMode;
+            }
             goTo(7);
           },
-          onPaid: (name, phone, orderId, isTestPurchase) {
+          onPaid: (name, phone, orderId, isTestPurchase, trialMode) {
             clientName = name;
             clientPhone = phone;
             paidOrderId = orderId;
             paid = true;
             isTestRouterPurchase = isTestPurchase;
             if (isTestPurchase) {
-              routerRouteProfileKind = Router1RouteProfileKind.goldStandard;
+              routerRouteProfileKind = trialMode;
             }
             goTo(7);
           },
@@ -856,6 +882,7 @@ class _StarGlowPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// ignore: unused_element
 class _OrbPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -884,6 +911,7 @@ class _OrbPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+// ignore: unused_element
 class _RouterPainter extends CustomPainter {
   _RouterPainter({required this.light});
 
@@ -1982,10 +2010,19 @@ class PaymentPage extends StatefulWidget {
   final String initialName;
   final String initialPhone;
   final ValueChanged<bool>? onTestModeChanged;
-  final void Function(String name, String phone, String configText)
-      onExistingConfig;
-  final void Function(String name, String phone, String orderId, bool isTestPurchase)
-      onPaid;
+  final void Function(
+    String name,
+    String phone,
+    String configText,
+    Router1RouteProfileKind? trialMode,
+  ) onExistingConfig;
+  final void Function(
+    String name,
+    String phone,
+    String orderId,
+    bool isTestPurchase,
+    Router1RouteProfileKind trialMode,
+  ) onPaid;
   final VoidCallback onBack;
 
   @override
@@ -2000,7 +2037,8 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   String? error;
   String? status;
   var loading = false;
-  var _isTestPurchase = false;
+  var _isTestPurchase = true;
+  var _trialMode = Router1RouteProfileKind.goldStandard;
   Timer? pollTimer;
 
   @override
@@ -2045,21 +2083,55 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     try {
       try {
         final lookup = await widget.api.findClientByPhone(phone);
-        final config = lookup.recommendedConfig;
-        if (config != null) {
-          final text = await widget.api
-              .fetchClientConfigText(phone: phone, deviceId: config.id);
-          widget.onExistingConfig(
-            lookup.clientName.isEmpty
-                ? (name.isEmpty ? 'Клиент Router1' : name)
-                : lookup.clientName,
-            phone,
-            text,
-          );
-          return;
+        if (_isTestPurchase) {
+          final config = lookup.activeTrialConfig(router: true);
+          if (config != null) {
+            final text = await widget.api
+                .fetchClientConfigText(phone: phone, deviceId: config.id);
+            widget.onExistingConfig(
+              lookup.clientName.isEmpty
+                  ? (name.isEmpty ? 'Клиент Router1' : name)
+                  : lookup.clientName,
+              phone,
+              text,
+              lookup.trial?.mode,
+            );
+            return;
+          }
+          final trial = lookup.trial;
+          if (trial != null && trial.active && trial.orderId.isNotEmpty) {
+            setState(() {
+              _trialMode = trial.mode;
+              order = Router1Order(
+                orderId: trial.orderId,
+                paymentUrl: '',
+                freeTrial: true,
+                trialMode: trial.mode,
+                modeLocked: true,
+              );
+              status = 'Восстанавливаем бесплатный доступ. Готовим конфиг...';
+            });
+            startPolling();
+            return;
+          }
+        } else {
+          final config = lookup.recommendedConfig;
+          if (config != null) {
+            final text = await widget.api
+                .fetchClientConfigText(phone: phone, deviceId: config.id);
+            widget.onExistingConfig(
+              lookup.clientName.isEmpty
+                  ? (name.isEmpty ? 'Клиент Router1' : name)
+                  : lookup.clientName,
+              phone,
+              text,
+              null,
+            );
+            return;
+          }
         }
       } catch (_) {
-        // No active config found, continue with a new payment.
+        // Новый клиент или временно недоступный lookup: продолжаем создание.
       }
       if (mounted) {
         setState(() => status = 'Активный конфиг не найден. Создаём оплату...');
@@ -2068,13 +2140,19 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
         testMode: widget.testMode || _isTestPurchase,
+        trialMode: _trialMode,
         refCode: promoController.text,
       );
       setState(() {
         order = created;
-        status =
-            'Оплатите в браузере, вернитесь сюда и нажмите «Я оплатил — продолжить».';
+        status = created.freeTrial
+            ? 'Бесплатный доступ создан. Готовим конфиг...'
+            : 'Оплатите в браузере, вернитесь сюда и нажмите «Я оплатил — продолжить».';
       });
+      if (created.freeTrial) {
+        startPolling();
+        return;
+      }
       final uri = Uri.tryParse(created.paymentUrl);
       if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
         setState(() {
@@ -2106,10 +2184,16 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         }
       }
       startPolling();
+    } on Router1ApiException catch (exc) {
+      setState(() {
+        error = exc.statusCode == 409
+            ? 'Бесплатные 3 дня уже активированы для этого номера. Повторите вход — Router1 восстановит конфиг.'
+            : 'Сервис временно недоступен: ${exc.message}';
+      });
     } catch (_) {
       setState(() {
         error =
-            'Не удалось создать оплату. Проверьте интернет и попробуйте ещё раз.';
+            'Не удалось создать доступ. Проверьте интернет и попробуйте ещё раз.';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -2145,6 +2229,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
           phoneController.text.trim(),
           current.orderId,
           _isTestPurchase,
+          _trialMode,
         );
         return;
       }
@@ -2167,16 +2252,19 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
-      title: 'Оплата Router1',
-      subtitle:
-          'Оплата включает настройку роутера и первый месяц доступа Router1.',
+      title: _isTestPurchase ? '3 дня бесплатно' : 'Оплата Router1',
+      subtitle: _isTestPurchase
+          ? 'Выберите режим, укажите телефон и начните без карты и оплаты.'
+          : 'Оплата включает настройку роутера и первый месяц доступа Router1.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
               ? 'Проверяем...'
               : 'Проверяем оплату...'
           : order == null
-              ? 'Проверить оплату или оплатить'
+              ? (_isTestPurchase
+                  ? 'Начать бесплатно'
+                  : 'Проверить оплату или оплатить')
               : 'Я оплатил — продолжить',
       onPrimary: loading
           ? () {}
@@ -2185,8 +2273,10 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               : () => unawaited(checkPayment(manual: true)),
       children: [
         PricePanel(
-          title: _isTestPurchase ? 'Router1 — тест на сутки' : 'Router1 для роутера',
-          price: _isTestPurchase ? '20 ₽' : '2000 ₽ → 1200 ₽',
+          title: _isTestPurchase
+              ? 'Router1 для роутера — 3 дня'
+              : 'Router1 для роутера',
+          price: _isTestPurchase ? 'Бесплатно' : '2000 ₽ → 1200 ₽',
         ),
         if (!_isTestPurchase)
           const Padding(
@@ -2196,7 +2286,10 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Router1Theme.green, fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
+                  color: Router1Theme.green,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3),
             ),
           ),
         Row(
@@ -2243,7 +2336,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
                             : Colors.transparent,
                         width: 1.5),
                   ),
-                  child: const Text('Тест на сутки — 20 ₽',
+                  child: const Text('3 дня бесплатно',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           color: Colors.white,
@@ -2258,12 +2351,39 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         if (_isTestPurchase)
           const BenefitTile(
               icon: Icons.timer,
-              title: 'Тест на сутки — режим Standard',
+              title: '72 часа без оплаты',
               text:
-                  'YouTube, Telegram, Instagram, WhatsApp — через VPN, остальные сайты напрямую. '
-                  'Через 24 часа VPN отключится автоматически, без потери обычного интернета. '
-                  'Если потом оплатите полную версию — этот же конфиг оживёт сам, переустанавливать не нужно. '
-                  'Для режима +AI или Gamers после теста нужно будет настроить роутер заново.'),
+                  'Выберите Standard или AI+. Режим фиксируется на все 3 дня и отключится автоматически. '
+                  'Если потом оплатите полную версию — этот же конфиг можно использовать дальше.'),
+        if (_isTestPurchase) ...[
+          _RouteModeCard(
+            icon: Icons.workspace_premium_rounded,
+            accent: Router1Theme.green,
+            title: 'Standard',
+            description: 'YouTube, Telegram, WhatsApp и основные сервисы.',
+            selected: _trialMode == Router1RouteProfileKind.goldStandard,
+            onTap: () => setState(
+                () => _trialMode = Router1RouteProfileKind.goldStandard),
+          ),
+          const SizedBox(height: 12),
+          _RouteModeCard(
+            icon: Icons.auto_awesome_rounded,
+            accent: Router1Theme.blue,
+            title: 'AI+',
+            description: 'Standard плюс нейросети.',
+            selected: _trialMode == Router1RouteProfileKind.ai,
+            onTap: () =>
+                setState(() => _trialMode = Router1RouteProfileKind.ai),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 10),
+            child: Text(
+              'После активации изменить режим до окончания теста нельзя.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Router1Theme.muted, fontSize: 13),
+            ),
+          ),
+        ],
         const BenefitTile(
             icon: Icons.install_mobile,
             title: 'Если уже оплатили, новая оплата не нужна',
@@ -3097,14 +3217,19 @@ class RouterRoutingProfilePage extends StatelessWidget {
           description: 'YouTube, Telegram, WhatsApp.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.goldStandard,
-          onTap: () {
-            onChanged(RouterRoutingProfile.selective);
-            onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
-          },
+          onTap: isTestPurchase
+              ? () {}
+              : () {
+                  onChanged(RouterRoutingProfile.selective);
+                  onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
+                },
         ),
         const SizedBox(height: 16),
         Opacity(
-          opacity: isTestPurchase ? 0.4 : 1.0,
+          opacity:
+              isTestPurchase && routeProfileKind != Router1RouteProfileKind.ai
+                  ? 0.7
+                  : 1.0,
           child: _RouteModeCard(
             icon: Icons.auto_awesome_rounded,
             accent: Router1Theme.blue,
@@ -3141,10 +3266,9 @@ class RouterRoutingProfilePage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         if (isTestPurchase)
-          const Text(
-            'В тестовом периоде доступен только режим Standard. Режимы +AI и Gamers '
-            'откроются после оплаты полной версии — потребуется настроить роутер заново.',
-            style: TextStyle(
+          Text(
+            'Режим ${routeProfileKind.title} выбран при активации и зафиксирован до окончания 3 дней.',
+            style: const TextStyle(
               color: Router1Theme.green,
               fontSize: 13,
               height: 1.35,
@@ -3730,7 +3854,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
   List<Router1ClientConfig> existingConfigs = const [];
   var buyNewConfirmed = false;
   var loading = false;
-  var _isTestPurchase = false;
+  var _isTestPurchase = true;
   Timer? pollTimer;
 
   bool get _isPhone =>
@@ -3785,8 +3909,41 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
       if (!buyNewConfirmed) {
         try {
           final lookup = await widget.api.findClientByPhone(phone);
+          if (_isTestPurchase) {
+            final trialConfig = lookup.activeTrialConfig(router: false);
+            if (trialConfig != null) {
+              final configText = await widget.api.fetchClientConfigText(
+                phone: phone,
+                deviceId: trialConfig.id,
+              );
+              widget.onPaid(
+                name.isEmpty ? 'Клиент Router1' : name,
+                phone,
+                configText,
+                trialConfig.filename.isEmpty
+                    ? 'router1-${trialConfig.id}.conf'
+                    : trialConfig.filename,
+              );
+              return;
+            }
+            final trial = lookup.trial;
+            if (trial != null && trial.active && trial.orderId.isNotEmpty) {
+              setState(() {
+                order = Router1Order(
+                  orderId: trial.orderId,
+                  paymentUrl: '',
+                  freeTrial: true,
+                  trialMode: trial.mode,
+                  modeLocked: true,
+                );
+                status = 'Тест уже активирован. Восстанавливаем конфиг...';
+              });
+              startPolling();
+              return;
+            }
+          }
           final configs = lookup.gadgetConfigs;
-          if (configs.isNotEmpty) {
+          if (!_isTestPurchase && configs.isNotEmpty) {
             setState(() {
               existingConfigs = configs;
               status =
@@ -3808,18 +3965,27 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
         order = created;
         existingConfigs = const [];
         buyNewConfirmed = false;
-        status =
-            'Оплатите в браузере, вернитесь сюда и нажмите «Я оплатил — получить конфиг».';
+        status = created.freeTrial
+            ? 'Бесплатный доступ создан. Готовим конфиг...'
+            : 'Оплатите в браузере, вернитесь сюда и нажмите «Я оплатил — получить конфиг».';
       });
+      if (created.freeTrial) {
+        startPolling();
+        return;
+      }
       final uri = Uri.tryParse(created.paymentUrl);
       if (uri != null && uri.hasScheme && uri.host.isNotEmpty) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
       startPolling();
-    } catch (_) {
+    } on Router1ApiException catch (exception) {
       setState(() {
-        error = 'Не удалось создать оплату. Попробуйте ещё раз.';
+        error = exception.statusCode == 409
+            ? 'Бесплатный тест уже активирован для этого номера.'
+            : exception.message;
       });
+    } catch (_) {
+      setState(() => error = 'Не удалось создать доступ. Попробуйте ещё раз.');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -3914,16 +4080,21 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
-      title: 'Подключение ${widget.platform}',
-      subtitle:
-          'Оплата включает персональный конфиг и первый месяц доступа Router1.',
+      title: _isTestPurchase
+          ? '3 дня бесплатно — ${widget.platform}'
+          : 'Подключение ${widget.platform}',
+      subtitle: _isTestPurchase
+          ? 'Получите персональный конфиг без карты и оплаты.'
+          : 'Оплата включает персональный конфиг и первый месяц доступа Router1.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
               ? 'Создаём оплату...'
               : 'Проверяем оплату...'
           : order == null
-              ? 'Оплатить и получить конфиг'
+              ? (_isTestPurchase
+                  ? 'Начать бесплатно'
+                  : 'Оплатить и получить конфиг')
               : 'Я оплатил — получить конфиг',
       onPrimary: loading
           ? () {}
@@ -3933,9 +4104,11 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
       children: [
         PricePanel(
             title: _isTestPurchase
-                ? (_isPhone ? 'Смартфон — тест на сутки' : 'Ноутбук / ПК — тест на сутки')
-                : (_isPhone ? 'Router1 для смартфона' : 'Router1 для ноутбука / ПК'),
-            price: _isTestPurchase ? '20 ₽' : '1000 ₽ → 600 ₽'),
+                ? (_isPhone ? 'Смартфон — 3 дня' : 'Ноутбук / ПК — 3 дня')
+                : (_isPhone
+                    ? 'Router1 для смартфона'
+                    : 'Router1 для ноутбука / ПК'),
+            price: _isTestPurchase ? 'Бесплатно' : '1000 ₽ → 600 ₽'),
         if (!_isTestPurchase)
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
@@ -3944,7 +4117,10 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Router1Theme.green, fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
+                  color: Router1Theme.green,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3),
             ),
           ),
         Row(
@@ -3960,13 +4136,17 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                         : const Color(0x33112029),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                        color: !_isTestPurchase ? Router1Theme.green : Colors.transparent,
+                        color: !_isTestPurchase
+                            ? Router1Theme.green
+                            : Colors.transparent,
                         width: 1.5),
                   ),
                   child: const Text('Полная настройка',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
                 ),
               ),
             ),
@@ -3982,13 +4162,17 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                         : const Color(0x33112029),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                        color: _isTestPurchase ? Router1Theme.green : Colors.transparent,
+                        color: _isTestPurchase
+                            ? Router1Theme.green
+                            : Colors.transparent,
                         width: 1.5),
                   ),
-                  child: const Text('Тест на сутки — 20 ₽',
+                  child: const Text('3 дня бесплатно',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
                 ),
               ),
             ),
@@ -3998,10 +4182,9 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
         if (_isTestPurchase)
           const BenefitTile(
               icon: Icons.timer,
-              title: 'Тест на сутки',
+              title: '72 часа без оплаты',
               text:
-                  'Полный доступ на 24 часа. Через сутки VPN отключится автоматически. '
-                  'Если потом оплатите полную версию — этот же конфиг оживёт сам.'),
+                  'На гаджете весь трафик идёт через Router1. После окончания доступ отключится автоматически.'),
         const BenefitTile(
             icon: Icons.vpn_key,
             title: 'Полный VPN для гаджета',
@@ -4134,10 +4317,9 @@ class GadgetInstructionPage extends StatelessWidget {
     final rawName = filename.trim().isEmpty
         ? 'router1'
         : filename.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]+'), '_');
-    final safeName =
-        rawName.toLowerCase().endsWith('.conf')
-            ? rawName.substring(0, rawName.length - 5)
-            : rawName;
+    final safeName = rawName.toLowerCase().endsWith('.conf')
+        ? rawName.substring(0, rawName.length - 5)
+        : rawName;
     try {
       final savedPath = await FileSaver.instance.saveAs(
         name: safeName,
@@ -5000,28 +5182,41 @@ class _HomeScreenState extends State<HomeScreen> {
   final api = Router1Api(
     baseUrl: 'https://router1.tech/api',
     token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
+    demoFallback: false,
   );
 
   late Future<Router1Snapshot> snapshot;
+  late Future<Router1ClientLookup?> clientLookup;
   var localMode = RouterMode.ai;
   var refreshing = false;
 
   @override
   void initState() {
     super.initState();
-    snapshot = api.snapshot().then((value) =>
-        value.demoMode ? Router1Snapshot.demo(mode: localMode) : value);
+    snapshot = api.snapshot();
+    clientLookup = _loadClientLookup();
+  }
+
+  Future<Router1ClientLookup?> _loadClientLookup() async {
+    if (widget.clientPhone.trim().isEmpty) return null;
+    try {
+      return await api.findClientByPhone(widget.clientPhone);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> refresh() async {
     setState(() => refreshing = true);
-    final next = api.snapshot().then((value) =>
-        value.demoMode ? Router1Snapshot.demo(mode: localMode) : value);
-    setState(() => snapshot = next);
+    final next = api.snapshot();
+    setState(() {
+      snapshot = next;
+      clientLookup = _loadClientLookup();
+    });
     try {
       await next;
     } catch (_) {
-      // ошибка уже показана как demo-фолбэк в snapshot()
+      // Ошибка отображается на главном экране без подстановки тестовых данных.
     }
     if (!mounted) return;
     setState(() => refreshing = false);
@@ -5042,18 +5237,53 @@ class _HomeScreenState extends State<HomeScreen> {
           child: FutureBuilder<Router1Snapshot>(
             future: snapshot,
             builder: (context, state) {
-              final data = state.data ?? Router1Snapshot.demo();
-              return DashboardPage(
-                snapshot: data,
-                router: widget.router,
-                clientPhone: widget.clientPhone,
-                paid: widget.paid,
-                routeProfileKind: widget.routeProfileKind,
-                refreshing: refreshing,
-                onRefresh: refresh,
-                onSetupRouter: widget.onSetupRouter,
-                onSetupGadget: widget.onSetupGadget,
-                onPay: widget.onPay,
+              final data = state.data;
+              if (data == null) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (state.connectionState == ConnectionState.waiting)
+                          const CircularProgressIndicator()
+                        else
+                          const Icon(Icons.cloud_off,
+                              color: Router1Theme.muted, size: 44),
+                        const SizedBox(height: 14),
+                        Text(
+                          state.connectionState == ConnectionState.waiting
+                              ? 'Загружаем состояние Router1...'
+                              : 'Не удалось получить состояние. Проверьте интернет и повторите.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Router1Theme.muted, fontSize: 15),
+                        ),
+                        const SizedBox(height: 14),
+                        OutlinedButton(
+                          onPressed: refresh,
+                          child: const Text('Повторить'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return FutureBuilder<Router1ClientLookup?>(
+                future: clientLookup,
+                builder: (context, clientState) => DashboardPage(
+                  snapshot: data,
+                  clientLookup: clientState.data,
+                  router: widget.router,
+                  clientPhone: widget.clientPhone,
+                  paid: widget.paid,
+                  routeProfileKind: widget.routeProfileKind,
+                  refreshing: refreshing,
+                  onRefresh: refresh,
+                  onSetupRouter: widget.onSetupRouter,
+                  onSetupGadget: widget.onSetupGadget,
+                  onPay: widget.onPay,
+                ),
               );
             },
           ),
@@ -5064,16 +5294,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> changeMode(RouterMode mode) async {
     localMode = mode;
-    setState(() {
-      snapshot = Future.value(Router1Snapshot.demo(mode: mode));
-    });
     try {
       await api.setMode(mode);
-      refresh();
+      await refresh();
     } catch (_) {
-      setState(() {
-        snapshot = Future.value(Router1Snapshot.demo(mode: mode));
-      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Не удалось изменить режим. Попробуйте ещё раз.')),
+      );
     }
   }
 }
@@ -5084,6 +5313,19 @@ String routeModeShortTitle(Router1RouteProfileKind kind) {
     Router1RouteProfileKind.ai => '+AI',
     Router1RouteProfileKind.gamers => 'For Gamers',
   };
+}
+
+String _trialDeadlineText(DateTime? deadline) {
+  if (deadline == null) return 'Доступ активен на 3 дня с момента запуска.';
+  final local = deadline.toLocal();
+  final remaining = local.difference(DateTime.now());
+  final date =
+      '${local.day.toString().padLeft(2, '0')}.${local.month.toString().padLeft(2, '0')}';
+  if (remaining.inHours < 24) {
+    final hours = remaining.inHours < 1 ? 1 : remaining.inHours;
+    return 'Доступ до $date, осталось около $hours ч.';
+  }
+  return 'Доступ до $date, осталось ${remaining.inDays + 1} дн.';
 }
 
 String routeModeTagline(Router1RouteProfileKind kind) {
@@ -5117,16 +5359,17 @@ class _UpdateBannerState extends State<_UpdateBanner> {
     try {
       final client = HttpClient();
       client.connectionTimeout = const Duration(seconds: 8);
-      final request =
-          await client.getUrl(Uri.parse(router1VersionCheckUrl));
-      final response = await request.close().timeout(const Duration(seconds: 8));
+      final request = await client.getUrl(Uri.parse(router1VersionCheckUrl));
+      final response =
+          await request.close().timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return;
       final body = await response.transform(utf8.decoder).join();
       final data = jsonDecode(body) as Map<String, dynamic>;
       final build = (data['build'] as num?)?.toInt() ?? 0;
       if (build <= router1AppBuildNumber) return;
       final prefs = await SharedPreferences.getInstance();
-      final dismissedBuild = prefs.getInt('router1_update_dismissed_build') ?? 0;
+      final dismissedBuild =
+          prefs.getInt('router1_update_dismissed_build') ?? 0;
       if (dismissedBuild >= build) return;
       if (!mounted) return;
       setState(() {
@@ -5175,8 +5418,8 @@ class _UpdateBannerState extends State<_UpdateBanner> {
                           fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
                   const Text('Обновите, чтобы получить новые функции и фиксы.',
-                      style: TextStyle(
-                          color: Router1Theme.muted, fontSize: 12.5)),
+                      style:
+                          TextStyle(color: Router1Theme.muted, fontSize: 12.5)),
                 ],
               ),
             ),
@@ -5191,7 +5434,8 @@ class _UpdateBannerState extends State<_UpdateBanner> {
             ),
             IconButton(
               onPressed: _dismiss,
-              icon: const Icon(Icons.close, color: Router1Theme.muted, size: 18),
+              icon:
+                  const Icon(Icons.close, color: Router1Theme.muted, size: 18),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
             ),
@@ -5205,6 +5449,7 @@ class _UpdateBannerState extends State<_UpdateBanner> {
 class DashboardPage extends StatelessWidget {
   const DashboardPage({
     required this.snapshot,
+    this.clientLookup,
     required this.router,
     required this.clientPhone,
     required this.paid,
@@ -5218,6 +5463,7 @@ class DashboardPage extends StatelessWidget {
   });
 
   final Router1Snapshot snapshot;
+  final Router1ClientLookup? clientLookup;
   final KeeneticRouter? router;
   final String clientPhone;
   final bool paid;
@@ -5230,6 +5476,21 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final trial = clientLookup?.trial;
+    final trialConfigs = clientLookup?.configs.where((item) => item.isTest);
+    final trialUntil = trialConfigs == null || trialConfigs.isEmpty
+        ? null
+        : trialConfigs
+            .map((item) => item.paidUntil)
+            .whereType<DateTime>()
+            .fold<DateTime?>(
+                null,
+                (latest, value) =>
+                    latest == null || value.isAfter(latest) ? value : latest);
+    final trialExpired = trial != null &&
+        (trial.status == 'blocked' ||
+            trial.status == 'expired' ||
+            (trialUntil != null && trialUntil.isBefore(DateTime.now())));
     final routerName = router?.hostname?.trim().isNotEmpty == true
         ? router!.hostname!.trim()
         : router?.model.trim().isNotEmpty == true
@@ -5298,6 +5559,35 @@ class DashboardPage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
+        if (trial != null) ...[
+          Router1Card(
+            green: !trialExpired,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(trialExpired ? 'Тест закончился' : 'Бесплатный тест'),
+                const SizedBox(height: 8),
+                Text(
+                  trialExpired
+                      ? 'Оформите подписку, чтобы снова включить Router1.'
+                      : _trialDeadlineText(trialUntil),
+                  style: const TextStyle(
+                    color: Router1Theme.muted,
+                    fontSize: 16,
+                  ),
+                ),
+                if (trialExpired) ...[
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: onPay,
+                    child: const Text('Оформить подписку'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
         Router1Card(
           child: Column(
             children: [
@@ -5392,8 +5682,7 @@ class DashboardPage extends StatelessWidget {
               final lookup = await api.findClientByPhone(clientPhone);
               final code = lookup.referralCode;
               if (code != null) {
-                shareText =
-                    'Настрой домашний роутер за 5 минут с Router1.\n'
+                shareText = 'Настрой домашний роутер за 5 минут с Router1.\n'
                     'Переходи по моей ссылке — оба получим бонус:\n'
                     'https://t.me/router1_lk_bot?start=REF_$code';
               }
@@ -5678,13 +5967,6 @@ class StatusPanel extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (snapshot.demoMode) ...[
-                const Chip(
-                  label: Text('Demo Mode'),
-                  avatar: Icon(Icons.visibility, size: 18),
-                  backgroundColor: Color(0xFFFFF7CC),
-                ),
-              ],
               Chip(
                 label: Text(snapshot.mode.title),
                 avatar: const Icon(Icons.auto_awesome, size: 18),

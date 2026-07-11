@@ -2,6 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+class Router1ApiException implements Exception {
+  const Router1ApiException(this.statusCode, this.message);
+  final int statusCode;
+  final String message;
+  @override
+  String toString() => message;
+}
+
 enum RouterMode {
   normal('normal', 'Обычный'),
   game('game', 'Игровой'),
@@ -139,6 +147,7 @@ class Router1ClientConfig {
     required this.recommended,
     required this.routerCandidate,
     required this.isTest,
+    required this.paidUntil,
   });
 
   final int id;
@@ -152,6 +161,7 @@ class Router1ClientConfig {
   final bool recommended;
   final bool routerCandidate;
   final bool isTest;
+  final DateTime? paidUntil;
 
   bool get gadgetCandidate {
     final product = productType.toLowerCase();
@@ -179,8 +189,38 @@ class Router1ClientConfig {
       recommended: json['recommended'] == true,
       routerCandidate: json['router_candidate'] == true,
       isTest: json['is_test'] == true,
+      paidUntil: DateTime.tryParse(json['paid_until']?.toString() ?? ''),
     );
   }
+}
+
+class Router1Trial {
+  const Router1Trial({
+    required this.status,
+    required this.mode,
+    required this.deviceType,
+    required this.orderId,
+    required this.orderStatus,
+  });
+  final String status;
+  final Router1RouteProfileKind mode;
+  final String deviceType;
+  final String orderId;
+  final String orderStatus;
+  bool get active => const {
+        'claimed',
+        'activating',
+        'active',
+        'generation_error'
+      }.contains(status);
+
+  factory Router1Trial.fromJson(Map<String, dynamic> json) => Router1Trial(
+        status: json['status']?.toString() ?? '',
+        mode: Router1RouteProfileKind.fromId(json['mode']?.toString()),
+        deviceType: json['device_type']?.toString() ?? '',
+        orderId: json['order_id']?.toString() ?? '',
+        orderStatus: json['order_status']?.toString() ?? '',
+      );
 }
 
 class Router1ClientLookup {
@@ -189,19 +229,30 @@ class Router1ClientLookup {
     required this.clientId,
     required this.recommendedConfigId,
     required this.configs,
+    required this.trial,
   });
 
   final String clientName;
   final int? clientId;
   final int? recommendedConfigId;
   final List<Router1ClientConfig> configs;
+  final Router1Trial? trial;
+
+  Router1ClientConfig? activeTrialConfig({required bool router}) {
+    for (final config in configs) {
+      if (!config.isTest || !config.hasConfig) continue;
+      if (router != config.routerCandidate) continue;
+      if (const {'active', 'paid'}.contains(config.status)) return config;
+    }
+    return null;
+  }
 
   /// Персональный реферальный код клиента — та же формула, что и на сервере
   /// (router1.db.referral_code_for): "R1" + id, дополненный нулями до 6 цифр.
   String? get referralCode =>
       clientId == null ? null : 'R1${clientId.toString().padLeft(6, '0')}';
 
-  // Тестовые конфиги (20₽/1 день) намеренно исключены из "уже оплаченного" распознавания:
+  // Бесплатные тестовые конфиги намеренно исключены из "уже оплаченного" распознавания:
   // иначе клиент с ещё живым тестом при попытке купить полную версию получил бы её бесплатно,
   // т.к. эта функция используется для решения "пропустить оплату, конфиг уже есть".
   Router1ClientConfig? get recommendedConfig {
@@ -237,6 +288,9 @@ class Router1ClientLookup {
           .whereType<Map<String, dynamic>>()
           .map(Router1ClientConfig.fromJson)
           .toList(),
+      trial: json['trial'] is Map<String, dynamic>
+          ? Router1Trial.fromJson(json['trial'] as Map<String, dynamic>)
+          : null,
     );
   }
 }
@@ -245,15 +299,24 @@ class Router1Order {
   const Router1Order({
     required this.orderId,
     required this.paymentUrl,
+    required this.freeTrial,
+    required this.trialMode,
+    required this.modeLocked,
   });
 
   final String orderId;
   final String paymentUrl;
+  final bool freeTrial;
+  final Router1RouteProfileKind trialMode;
+  final bool modeLocked;
 
   factory Router1Order.fromJson(Map<String, dynamic> json) {
     return Router1Order(
       orderId: json['order_id']?.toString() ?? '',
       paymentUrl: json['payment_url']?.toString() ?? '',
+      freeTrial: json['free_trial'] == true,
+      trialMode: Router1RouteProfileKind.fromId(json['trial_mode']?.toString()),
+      modeLocked: json['mode_locked'] == true,
     );
   }
 }
@@ -514,12 +577,14 @@ class Router1Api {
     required String name,
     required String phone,
     required bool testMode,
+    Router1RouteProfileKind trialMode = Router1RouteProfileKind.goldStandard,
     String? refCode,
   }) async {
     final data = await _post('/order', {
       'product': testMode ? 'router_test' : 'router',
       'name': name,
       'phone': phone,
+      if (testMode) 'trial_mode': trialMode.id,
       if (refCode != null && refCode.trim().isNotEmpty)
         'ref_code': refCode.trim(),
     });
@@ -534,12 +599,14 @@ class Router1Api {
     required String product,
     required String name,
     required String phone,
+    Router1RouteProfileKind trialMode = Router1RouteProfileKind.goldStandard,
     String? refCode,
   }) async {
     final data = await _post('/order', {
       'product': product,
       'name': name,
       'phone': phone,
+      if (product.endsWith('_test')) 'trial_mode': trialMode.id,
       if (refCode != null && refCode.trim().isNotEmpty)
         'ref_code': refCode.trim(),
     });
@@ -619,15 +686,33 @@ class Router1Api {
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
     request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
     request.add(utf8.encode(jsonEncode(body)));
-    final response = await request.close().timeout(const Duration(seconds: 20));
+    final response = await request
+        .close()
+        .timeout(Duration(seconds: path == '/order' ? 45 : 20));
     return _decode(response);
   }
 
   Future<Map<String, dynamic>> _decode(HttpClientResponse response) async {
     final text = await response.transform(utf8.decoder).join();
-    final data = jsonDecode(text) as Map<String, dynamic>;
+    Map<String, dynamic>? data;
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) data = decoded;
+    } catch (_) {
+      data = null;
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException(data['error']?.toString() ?? 'Router1 service error');
+      final message = data?['detail']?.toString() ??
+          data?['error']?.toString() ??
+          (text.trim().isNotEmpty
+              ? (text.trim().length > 240
+                  ? text.trim().substring(0, 240)
+                  : text.trim())
+              : 'Router1 service error (${response.statusCode})');
+      throw Router1ApiException(response.statusCode, message);
+    }
+    if (data == null) {
+      throw const FormatException('Router1 returned invalid JSON');
     }
     return data;
   }
