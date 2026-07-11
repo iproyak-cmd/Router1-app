@@ -573,6 +573,28 @@ class KeeneticSetupService {
     return _readTunnelStatus(access, name);
   }
 
+  Future<void> setSelectedTunnelEnabled(
+      KeeneticAccess access, bool enabled) async {
+    final name = _selectedInterfaceByHost[access.router.ip];
+    if (name == null) {
+      throw const KeeneticSetupException(
+          'Сначала откройте Router1 в сети этого роутера и выполните проверку подключения.');
+    }
+    await _retryKeenetic(() => _postRci(
+          access.router.ip,
+          '/rci/interface/$name/${enabled ? 'up' : 'down'}',
+          login: access.login,
+          password: access.password,
+        ));
+    await _saveConfiguration(access, ignoreTransient: true);
+  }
+
+  Future<void> restartSelectedTunnel(KeeneticAccess access) async {
+    await setSelectedTunnelEnabled(access, false);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await setSelectedTunnelEnabled(access, true);
+  }
+
   Future<void> applyRoutingProfile(
     KeeneticAccess access,
     RouterRoutingProfile profile,

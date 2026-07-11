@@ -17,7 +17,7 @@ import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const router1AppVersion = '0.2.0-internal.1+100';
+const router1AppVersion = '0.2.0-internal.2+101';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -147,9 +147,10 @@ class _FirstRunShellState extends State<FirstRunShell> {
   void startGadgetSetupFromHome() {
     setState(() {
       path = FirstRunPath.gadget;
+      platform = 'Android';
       gadgetConfigText = null;
       gadgetConfigFilename = null;
-      step = 2;
+      step = 3;
     });
   }
 
@@ -162,6 +163,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
         step = 70;
       }
     });
+  }
+
+  Future<void> saveGadgetIdentity() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('router1_gadget_configured', true);
+    await prefs.setString('router1_client_phone', clientPhone);
   }
 
   @override
@@ -177,7 +184,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
   Future<void> loadInitialScreen() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted || step != 0) return;
-    if (prefs.getBool('router1_configured') == true) {
+    if (prefs.getBool('router1_configured') == true ||
+        prefs.getBool('router1_gadget_configured') == true) {
       splashTimer?.cancel();
       setState(() {
         final savedModel = prefs.getString('router1_router_model') ?? '';
@@ -213,14 +221,17 @@ class _FirstRunShellState extends State<FirstRunShell> {
   @override
   Widget build(BuildContext context) {
     if (step == 100) {
-      return HomeScreen(
+      return InternalDeviceDashboard(
+        api: appApi,
+        setupService: setupService,
+        routerAccess: routerAccess,
         router: router,
         clientPhone: clientPhone,
-        paid: paid || clientPhone.isNotEmpty,
+        initialGadgetConfig: gadgetConfigText,
         routeProfileKind: routerRouteProfileKind,
         onSetupRouter: startRouterSetupFromHome,
-        onSetupGadget: startGadgetSetupFromHome,
-        onPay: openPaymentFromHome,
+        onSetupAndroid: startGadgetSetupFromHome,
+        onSubscription: openPaymentFromHome,
       );
     }
     return Scaffold(
@@ -241,22 +252,37 @@ class _FirstRunShellState extends State<FirstRunShell> {
         key: ValueKey('splash'),
         icon: Icons.route,
         title: 'Router1',
-        subtitle: 'Умный интернет.',
+        subtitle: 'Управление подключениями.',
       );
     }
 
     if (step == 1) {
+      return InternalDeviceDashboard(
+        api: appApi,
+        setupService: setupService,
+        routerAccess: routerAccess,
+        router: router,
+        clientPhone: clientPhone,
+        initialGadgetConfig: gadgetConfigText,
+        routeProfileKind: routerRouteProfileKind,
+        onSetupRouter: startRouterSetupFromHome,
+        onSetupAndroid: startGadgetSetupFromHome,
+        onSubscription: openPaymentFromHome,
+      );
+    }
+
+    if (step == -1) {
       return ListView(
         key: const ValueKey('choice'),
         padding: const EdgeInsets.fromLTRB(22, 42, 22, 24),
         children: [
           const Center(child: _CompactLogo()),
           const SizedBox(height: 34),
-          const Text('Попробуйте Router1 бесплатно — 3 дня',
+          const Text('Ваши подключения',
               textAlign: TextAlign.center, style: Router1Theme.title),
           const SizedBox(height: 10),
           const Text(
-            'Выберите устройство. Карта и оплата не нужны.',
+            'Выберите, что хотите настроить.',
             textAlign: TextAlign.center,
             style: Router1Theme.subtitle,
           ),
@@ -264,7 +290,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
           ChoiceCard(
             icon: Icons.home_rounded,
             title: 'Роутер',
-            description: 'Для дома, офиса, родителей или дачи.',
+            description: 'Автоматическая настройка Keenetic.',
             button: 'Настроить роутер',
             onTap: () {
               path = FirstRunPath.router;
@@ -280,18 +306,6 @@ class _FirstRunShellState extends State<FirstRunShell> {
             onTap: () {
               path = FirstRunPath.gadget;
               platform = 'Android';
-              goTo(3);
-            },
-          ),
-          const SizedBox(height: 22),
-          ChoiceCard(
-            icon: Icons.laptop_rounded,
-            title: 'Ноутбук / ПК',
-            description: 'Полный доступ: весь трафик через Router1.',
-            button: 'Подключить ноутбук / ПК',
-            onTap: () {
-              path = FirstRunPath.gadget;
-              platform = 'Windows';
               goTo(3);
             },
           ),
@@ -531,6 +545,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
             gadgetConfigText = configText;
             gadgetConfigFilename = filename;
             paid = true;
+            unawaited(saveGadgetIdentity());
             goTo(4);
           },
           onBack: back,
@@ -551,6 +566,490 @@ class _FirstRunShellState extends State<FirstRunShell> {
           onPay: openPaymentFromHome,
         ),
     };
+  }
+}
+
+class InternalDeviceDashboard extends StatefulWidget {
+  const InternalDeviceDashboard({
+    required this.api,
+    required this.setupService,
+    required this.routerAccess,
+    required this.router,
+    required this.clientPhone,
+    required this.initialGadgetConfig,
+    required this.routeProfileKind,
+    required this.onSetupRouter,
+    required this.onSetupAndroid,
+    required this.onSubscription,
+    super.key,
+  });
+
+  final Router1Api api;
+  final KeeneticSetupService setupService;
+  final KeeneticAccess? routerAccess;
+  final KeeneticRouter? router;
+  final String clientPhone;
+  final String? initialGadgetConfig;
+  final Router1RouteProfileKind routeProfileKind;
+  final VoidCallback onSetupRouter;
+  final VoidCallback onSetupAndroid;
+  final VoidCallback onSubscription;
+
+  @override
+  State<InternalDeviceDashboard> createState() =>
+      _InternalDeviceDashboardState();
+}
+
+class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
+  final tunnel = AwgTunnelService();
+  Router1ClientLookup? lookup;
+  AwgTunnelStatus tunnelStatus = const AwgTunnelStatus(state: 'down');
+  String? configText;
+  String? error;
+  var loading = true;
+  var switching = false;
+  Timer? timer;
+
+  bool get hasRouter =>
+      widget.router != null ||
+      (lookup?.configs.any((config) => config.routerCandidate) ?? false);
+  List<Router1ClientConfig> get gadgetConfigs =>
+      lookup?.configs
+          .where((config) => !config.routerCandidate && config.hasConfig)
+          .toList() ??
+      const [];
+  bool get hasSubscription =>
+      widget.clientPhone.trim().isNotEmpty &&
+      (lookup?.configs.isNotEmpty ?? widget.initialGadgetConfig != null);
+
+  @override
+  void initState() {
+    super.initState();
+    configText = widget.initialGadgetConfig;
+    unawaited(refresh());
+    timer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(refreshTunnel()),
+    );
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> refresh() async {
+    setState(() => loading = true);
+    try {
+      if (widget.clientPhone.trim().isNotEmpty) {
+        lookup = await widget.api.findClientByPhone(widget.clientPhone);
+      }
+      await refreshTunnel();
+    } catch (exception) {
+      error = 'Не удалось обновить устройства.';
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> refreshTunnel() async {
+    try {
+      final value = await tunnel.status();
+      if (mounted) setState(() => tunnelStatus = value);
+    } catch (_) {}
+  }
+
+  Future<String?> loadGadgetConfig() async {
+    if (configText?.trim().isNotEmpty == true) return configText;
+    if (widget.clientPhone.trim().isEmpty || gadgetConfigs.isEmpty) return null;
+    final selected = gadgetConfigs.first;
+    configText = await widget.api.fetchClientConfigText(
+      phone: widget.clientPhone,
+      deviceId: selected.id,
+    );
+    return configText;
+  }
+
+  Future<void> toggleAndroid() async {
+    if (switching) return;
+    setState(() {
+      switching = true;
+      error = null;
+    });
+    try {
+      if (tunnelStatus.connected) {
+        tunnelStatus = await tunnel.disconnect();
+      } else {
+        final config = await loadGadgetConfig();
+        if (config == null) {
+          widget.onSetupAndroid();
+          return;
+        }
+        tunnelStatus = await tunnel.connect(config);
+      }
+    } on PlatformException catch (exception) {
+      error = exception.message ?? 'Не удалось изменить состояние Router1.';
+    } finally {
+      if (mounted) setState(() => switching = false);
+    }
+  }
+
+  void showAddDevice() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Router1Theme.panel2,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.router, color: Router1Theme.green),
+                title: const Text('Роутер'),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onSetupRouter();
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.phone_android, color: Router1Theme.green),
+                title: const Text('Android-устройство'),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onSetupAndroid();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void openRouter() {
+    if (!hasRouter) {
+      widget.onSetupRouter();
+      return;
+    }
+    final localAccess = widget.routerAccess;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Router1Theme.panel2,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.router?.hostname ?? widget.router?.model ?? 'Keenetic',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                localAccess == null
+                    ? 'Для управления подключитесь к Wi‑Fi этого роутера.'
+                    : '${routeModeShortTitle(widget.routeProfileKind)} · локальное управление доступно',
+                style: const TextStyle(color: Router1Theme.muted),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  FilledButton(
+                    onPressed: localAccess == null
+                        ? null
+                        : () => unawaited(_controlRouter(
+                              () => widget.setupService
+                                  .setSelectedTunnelEnabled(localAccess, true),
+                              'Туннель включён',
+                            )),
+                    child: const Text('Включить'),
+                  ),
+                  OutlinedButton(
+                    onPressed: localAccess == null
+                        ? null
+                        : () => unawaited(_controlRouter(
+                              () => widget.setupService
+                                  .setSelectedTunnelEnabled(localAccess, false),
+                              'Туннель выключен',
+                            )),
+                    child: const Text('Выключить'),
+                  ),
+                  OutlinedButton(
+                    onPressed: localAccess == null
+                        ? null
+                        : () => unawaited(_controlRouter(
+                              () => widget.setupService
+                                  .restartSelectedTunnel(localAccess),
+                              'Туннель перезапущен',
+                            )),
+                    child: const Text('Перезапустить'),
+                  ),
+                  const OutlinedButton(
+                    onPressed: null,
+                    child: Text('Сменить сервер — скоро'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: localAccess == null
+                    ? null
+                    : () => unawaited(_sendRouterDiagnostics(localAccess)),
+                icon: const Icon(Icons.support_agent),
+                label: const Text('Отправить диагностику'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _controlRouter(
+      Future<void> Function() action, String success) async {
+    try {
+      await action();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(success)));
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(exception.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _sendRouterDiagnostics(KeeneticAccess access) async {
+    try {
+      final payload = await widget.setupService.collectDiagnostics(
+        access,
+        routingProfile: RouterRoutingProfile.selective,
+        appVersion: router1AppVersion,
+        stage: 'dashboard',
+      );
+      final id = await widget.api.submitRouterDiagnostics(payload);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Диагностика отправлена: $id')),
+        );
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось отправить диагностику.')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final routerName = widget.router?.hostname?.trim().isNotEmpty == true
+        ? widget.router!.hostname!.trim()
+        : widget.router?.model ?? 'Keenetic';
+    return Scaffold(
+      body: Router1Background(
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text('Router1', style: Router1Theme.title),
+                    ),
+                    if (hasSubscription)
+                      TextButton(
+                        onPressed: widget.onSubscription,
+                        child: const Text('Моя подписка'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _DashboardDeviceCard(
+                  icon: Icons.router,
+                  title: hasRouter ? routerName : 'Роутер',
+                  subtitle: hasRouter
+                      ? '${routeModeShortTitle(widget.routeProfileKind)} · последняя проверка при настройке'
+                      : 'Автоматическая настройка Keenetic',
+                  action: hasRouter ? 'Управление' : 'Настроить',
+                  active: hasRouter,
+                  onTap: openRouter,
+                ),
+                for (final config in (lookup?.configs
+                        .where((item) => item.routerCandidate)
+                        .skip(1) ??
+                    const Iterable<Router1ClientConfig>.empty())) ...[
+                  const SizedBox(height: 14),
+                  _DashboardDeviceCard(
+                    icon: Icons.router,
+                    title: config.deviceName,
+                    subtitle: 'Отдельное подключение · ${config.status}',
+                    action: 'Управление в сети роутера',
+                    active: config.status == 'active',
+                    onTap: openRouter,
+                  ),
+                ],
+                const SizedBox(height: 14),
+                _DashboardDeviceCard(
+                  icon: Icons.phone_android,
+                  title: gadgetConfigs.length > 1
+                      ? 'Android · ${gadgetConfigs.length} устройства'
+                      : 'Android',
+                  subtitle: tunnelStatus.connected
+                      ? tunnelStatus.handshake > 0
+                          ? 'Подключено · сервер отвечает'
+                          : 'Подключено · ждём сервер'
+                      : gadgetConfigs.isNotEmpty || configText != null
+                          ? 'Готово к подключению'
+                          : 'Встроенный туннель Router1',
+                  action: switching
+                      ? 'Подождите...'
+                      : tunnelStatus.connected
+                          ? 'Выключить'
+                          : gadgetConfigs.isNotEmpty || configText != null
+                              ? 'Включить'
+                              : 'Настроить',
+                  active: tunnelStatus.connected,
+                  onTap: () => unawaited(toggleAndroid()),
+                  trailing: tunnelStatus.connected ||
+                          gadgetConfigs.isNotEmpty ||
+                          configText != null
+                      ? Switch(
+                          value: tunnelStatus.connected,
+                          onChanged: switching
+                              ? null
+                              : (_) => unawaited(toggleAndroid()),
+                        )
+                      : null,
+                ),
+                if (tunnelStatus.connected) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '↓ ${_formatTunnelBytes(tunnelStatus.rxBytes)}   ↑ ${_formatTunnelBytes(tunnelStatus.txBytes)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Router1Theme.muted),
+                  ),
+                ],
+                for (final config in gadgetConfigs.skip(1)) ...[
+                  const SizedBox(height: 14),
+                  _DashboardDeviceCard(
+                    icon: Icons.phone_android,
+                    title: config.deviceName,
+                    subtitle: 'Конфиг выдан · ${config.status}',
+                    action: 'Отдельное Android-устройство',
+                    active: config.status == 'active',
+                    onTap: () {},
+                  ),
+                ],
+                if (error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(error!,
+                      style: const TextStyle(color: Color(0xFFFFB86B))),
+                ],
+                if (loading) ...[
+                  const SizedBox(height: 12),
+                  const LinearProgressIndicator(),
+                ],
+                const SizedBox(height: 22),
+                OutlinedButton.icon(
+                  onPressed: showAddDevice,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Подключить ещё устройство'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => launchUrl(
+                    router1SupportUri,
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  icon: const Icon(Icons.support_agent),
+                  label: const Text('Техподдержка'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardDeviceCard extends StatelessWidget {
+  const _DashboardDeviceCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+    required this.active,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String action;
+  final bool active;
+  final VoidCallback onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Router1Card(
+      green: active,
+      child: InkWell(
+        onTap: onTap,
+        child: Row(
+          children: [
+            Icon(icon,
+                color: active ? Router1Theme.green : Router1Theme.muted,
+                size: 48),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 5),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          color: Router1Theme.muted, height: 1.3)),
+                  const SizedBox(height: 10),
+                  Text(action,
+                      style: TextStyle(
+                          color: active
+                              ? Router1Theme.green
+                              : const Color(0xFF7B86FF),
+                          fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -597,7 +1096,7 @@ class FirstRunPage extends StatelessWidget {
                         fit: BoxFit.contain),
                   ),
                   const SizedBox(height: 4),
-                  const Text('УМНЫЙ ИНТЕРНЕТ',
+                  const Text('ROUTER1',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           color: Router1Theme.green,
@@ -685,8 +1184,24 @@ class SetupHeader extends StatelessWidget {
           if (onBack != null)
             Align(
               alignment: Alignment.centerLeft,
-              child: GlassIconButton(
-                  icon: Icons.arrow_back_ios_new_rounded, onTap: onBack!),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GlassIconButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    onTap: onBack!,
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Назад',
+                    style: TextStyle(
+                      color: Router1Theme.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           Text(title,
               style: const TextStyle(
@@ -2425,7 +2940,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
                 textCapitalization: TextCapitalization.characters,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
                 decoration: InputDecoration(
-                  hintText: 'Код блогера (если есть, необязательно)',
+                  hintText: 'Промокод (если есть, необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
@@ -4332,7 +4847,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                 textCapitalization: TextCapitalization.characters,
                 style: const TextStyle(color: Colors.white, fontSize: 16),
                 decoration: InputDecoration(
-                  hintText: 'Код блогера (если есть, необязательно)',
+                  hintText: 'Промокод (если есть, необязательно)',
                   hintStyle: const TextStyle(color: Router1Theme.muted),
                   filled: true,
                   fillColor: const Color(0x66112029),
@@ -4750,7 +5265,7 @@ class FlowScaffold extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(22, 28, 22, 26),
       children: [
-        SetupHeader(title: 'Настройка роутера', onBack: onBack),
+        SetupHeader(title: '', onBack: onBack),
         const SizedBox(height: 38),
         Text(title, textAlign: TextAlign.center, style: Router1Theme.title),
         const SizedBox(height: 10),
@@ -4948,18 +5463,6 @@ class PricePanel extends StatelessWidget {
                           color: Colors.white,
                           fontSize: 32,
                           fontWeight: FontWeight.w900))),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                    color: Router1Theme.green.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(12)),
-                child: const Text('Выгодно',
-                    style: TextStyle(
-                        color: Router1Theme.green,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700)),
-              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -5319,7 +5822,7 @@ class _CompactLogo extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        const Text('Умный интернет',
+        const Text('Router1',
             style: TextStyle(
                 color: Router1Theme.muted,
                 fontSize: 20,
@@ -5919,7 +6422,7 @@ class DashboardPage extends StatelessWidget {
             }
             SharePlus.instance.share(
               ShareParams(
-                subject: 'Router1 — умный интернет',
+                subject: 'Router1',
                 text: shareText,
               ),
             );
@@ -6133,7 +6636,7 @@ class HeaderBar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Router1 — умный интернет для Keenetic',
+              Text('Router1 для Keenetic',
                   style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
               SizedBox(height: 2),
               Text('Режимы, диагностика и поддержка для всей домашней сети',
