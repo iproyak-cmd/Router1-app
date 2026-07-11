@@ -1,9 +1,16 @@
 import 'package:flutter/services.dart';
 
 class AwgTunnelStatus {
-  const AwgTunnelStatus({required this.state, this.handshake = -3});
+  const AwgTunnelStatus({
+    required this.state,
+    this.handshake = -3,
+    this.rxBytes = 0,
+    this.txBytes = 0,
+  });
   final String state;
   final int handshake;
+  final int rxBytes;
+  final int txBytes;
   bool get connected => state == 'up';
 }
 
@@ -35,6 +42,8 @@ class AwgTunnelService {
     return AwgTunnelStatus(
       state: value['state']?.toString() ?? 'down',
       handshake: (value['handshake'] as num?)?.toInt() ?? -3,
+      rxBytes: (value['rx'] as num?)?.toInt() ?? 0,
+      txBytes: (value['tx'] as num?)?.toInt() ?? 0,
     );
   }
 }

@@ -4388,11 +4388,21 @@ class GadgetInstructionPage extends StatefulWidget {
   State<GadgetInstructionPage> createState() => _GadgetInstructionPageState();
 }
 
+String _formatTunnelBytes(int bytes) {
+  if (bytes < 1024) return '$bytes Б';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} КБ';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} МБ';
+}
+
 class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
   final tunnel = AwgTunnelService();
   var connecting = false;
   var connected = false;
   String? tunnelError;
+  int handshake = -3;
+  int rxBytes = 0;
+  int txBytes = 0;
+  Timer? statusTimer;
 
   String get platform => widget.platform;
   String get configText => widget.configText;
@@ -4404,13 +4414,30 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
     super.initState();
     if (platform == 'Android') {
       unawaited(_refreshTunnelStatus());
+      statusTimer = Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => unawaited(_refreshTunnelStatus()),
+      );
     }
+  }
+
+  @override
+  void dispose() {
+    statusTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _refreshTunnelStatus() async {
     try {
       final value = await tunnel.status();
-      if (mounted) setState(() => connected = value.connected);
+      if (mounted) {
+        setState(() {
+          connected = value.connected;
+          handshake = value.handshake;
+          rxBytes = value.rxBytes;
+          txBytes = value.txBytes;
+        });
+      }
     } catch (_) {
       // Первый запуск: туннель ещё не создан.
     }
@@ -4566,6 +4593,28 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
+                if (connected) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    handshake > 0
+                        ? 'Соединение с сервером подтверждено'
+                        : 'Ждём ответ сервера...',
+                    style: TextStyle(
+                      color: handshake > 0
+                          ? Router1Theme.green
+                          : Router1Theme.muted,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Получено: ${_formatTunnelBytes(rxBytes)} · Отправлено: ${_formatTunnelBytes(txBytes)}',
+                    style: const TextStyle(
+                      color: Router1Theme.muted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
                 if (connecting) ...[
                   const SizedBox(height: 14),
                   const LinearProgressIndicator(),

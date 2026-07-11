@@ -13,6 +13,10 @@ import java.io.ByteArrayInputStream
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        private var sharedBackend: GoBackend? = null
+    }
+
     private val channelName = "tech.router1.app/awg"
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var backend: GoBackend
@@ -26,7 +30,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        backend = GoBackend(applicationContext)
+        backend = sharedBackend ?: GoBackend(applicationContext).also { sharedBackend = it }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -45,19 +49,25 @@ class MainActivity : FlutterActivity() {
                     }
                     "disconnect" -> runAsync(result) {
                         backend.setState(tunnel, Tunnel.State.DOWN, null)
+                        getSharedPreferences("router1_awg", MODE_PRIVATE)
+                            .edit().putBoolean("enabled", false).apply()
                         mapOf("state" to "down")
                     }
                     "status" -> runAsync(result) {
                         val actual = backend.getState(tunnel)
+                        val statistics = backend.getStatistics(tunnel)
                         mapOf(
                             "state" to actual.name.lowercase(),
                             "handshake" to backend.getLastHandshake(tunnel),
+                            "rx" to statistics.totalRx(),
+                            "tx" to statistics.totalTx(),
                             "version" to backend.version
                         )
                     }
                     else -> result.notImplemented()
                 }
             }
+        restoreTunnelIfRequested()
     }
 
     private fun connect(configText: String, result: MethodChannel.Result) {
@@ -71,7 +81,25 @@ class MainActivity : FlutterActivity() {
             val config = Config.parse(ByteArrayInputStream(configText.toByteArray(Charsets.UTF_8)))
             openFileOutput("router1-awg.conf", MODE_PRIVATE).use { it.write(configText.toByteArray()) }
             backend.setState(tunnel, Tunnel.State.UP, config)
+            getSharedPreferences("router1_awg", MODE_PRIVATE)
+                .edit().putBoolean("enabled", true).apply()
             mapOf("state" to "up", "version" to backend.version)
+        }
+    }
+
+    private fun restoreTunnelIfRequested() {
+        val enabled = getSharedPreferences("router1_awg", MODE_PRIVATE)
+            .getBoolean("enabled", false)
+        val file = getFileStreamPath("router1-awg.conf")
+        if (!enabled || !file.exists() || VpnService.prepare(this) != null) return
+        executor.execute {
+            try {
+                if (backend.getState(tunnel) == Tunnel.State.UP) return@execute
+                val config = file.inputStream().use { Config.parse(it) }
+                backend.setState(tunnel, Tunnel.State.UP, config)
+            } catch (_: Exception) {
+                // Статус и точная ошибка будут доступны через MethodChannel после запуска UI.
+            }
         }
     }
 
