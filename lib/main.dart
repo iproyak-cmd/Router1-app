@@ -17,7 +17,7 @@ import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const router1AppVersion = '0.2.0-internal.2+101';
+const router1AppVersion = '0.2.0-internal.3+102';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -102,6 +102,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   var testPaymentMode = false;
   var isTestRouterPurchase = false;
   var paid = false;
+  var routerReconnectOnly = false;
   final setupService = KeeneticSetupService();
   final appApi = Router1Api(
     baseUrl: 'https://router1.tech/api',
@@ -141,7 +142,34 @@ class _FirstRunShellState extends State<FirstRunShell> {
       setupLogs.clear();
       discoveryLogs.clear();
       step = 2;
+      routerReconnectOnly = false;
     });
+  }
+
+  void reconnectRouterFromHome() {
+    setState(() {
+      path = FirstRunPath.router;
+      setupLogs.clear();
+      discoveryLogs.clear();
+      routerReconnectOnly = true;
+      step = 2;
+    });
+  }
+
+  Future<void> finishRouterReconnect(KeeneticAccess value) async {
+    routerAccess = value;
+    router = value.router;
+    try {
+      await setupService.attachAndCheckExistingTunnel(value);
+    } catch (_) {}
+    if (mounted) openHome();
+  }
+
+  Future<void> saveRouterMode(Router1RouteProfileKind value) async {
+    routerRouteProfileKind = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('router1_route_profile_kind', value.name);
+    if (mounted) setState(() {});
   }
 
   void startGadgetSetupFromHome() {
@@ -230,6 +258,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
         initialGadgetConfig: gadgetConfigText,
         routeProfileKind: routerRouteProfileKind,
         onSetupRouter: startRouterSetupFromHome,
+        onConnectRouter: reconnectRouterFromHome,
+        onRouterModeChanged: (value) => unawaited(saveRouterMode(value)),
         onSetupAndroid: startGadgetSetupFromHome,
         onSubscription: openPaymentFromHome,
       );
@@ -266,6 +296,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
         initialGadgetConfig: gadgetConfigText,
         routeProfileKind: routerRouteProfileKind,
         onSetupRouter: startRouterSetupFromHome,
+        onConnectRouter: reconnectRouterFromHome,
+        onRouterModeChanged: (value) => unawaited(saveRouterMode(value)),
         onSetupAndroid: startGadgetSetupFromHome,
         onSubscription: openPaymentFromHome,
       );
@@ -388,9 +420,13 @@ class _FirstRunShellState extends State<FirstRunShell> {
       2 => RouterConnectPage(
           service: setupService,
           onAccess: (value) {
-            routerAccess = value;
-            router = value.router;
-            goTo(5);
+            if (routerReconnectOnly) {
+              unawaited(finishRouterReconnect(value));
+            } else {
+              routerAccess = value;
+              router = value.router;
+              goTo(5);
+            }
           },
           onLog: addSetupLog,
           onBack: back,
@@ -579,6 +615,8 @@ class InternalDeviceDashboard extends StatefulWidget {
     required this.initialGadgetConfig,
     required this.routeProfileKind,
     required this.onSetupRouter,
+    required this.onConnectRouter,
+    required this.onRouterModeChanged,
     required this.onSetupAndroid,
     required this.onSubscription,
     super.key,
@@ -592,6 +630,8 @@ class InternalDeviceDashboard extends StatefulWidget {
   final String? initialGadgetConfig;
   final Router1RouteProfileKind routeProfileKind;
   final VoidCallback onSetupRouter;
+  final VoidCallback onConnectRouter;
+  final ValueChanged<Router1RouteProfileKind> onRouterModeChanged;
   final VoidCallback onSetupAndroid;
   final VoidCallback onSubscription;
 
@@ -608,19 +648,30 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
   String? error;
   var loading = true;
   var switching = false;
+  var routerOnline = false;
   Timer? timer;
 
+  bool isCurrentConfig(Router1ClientConfig config) {
+    final deadline = config.paidUntil;
+    return config.status.toLowerCase() == 'active' &&
+        const {'paid', 'active', 'manual_grant'}
+            .contains(config.paymentStatus.toLowerCase()) &&
+        (deadline == null || deadline.isAfter(DateTime.now()));
+  }
+
+  List<Router1ClientConfig> get activeConfigs =>
+      lookup?.configs.where(isCurrentConfig).toList() ?? const [];
   bool get hasRouter =>
       widget.router != null ||
-      (lookup?.configs.any((config) => config.routerCandidate) ?? false);
-  List<Router1ClientConfig> get gadgetConfigs =>
-      lookup?.configs
-          .where((config) => !config.routerCandidate && config.hasConfig)
-          .toList() ??
-      const [];
+      activeConfigs.any((config) => config.routerCandidate);
+  List<Router1ClientConfig> get routerConfigs =>
+      activeConfigs.where((config) => config.routerCandidate).toList();
+  List<Router1ClientConfig> get gadgetConfigs => activeConfigs
+      .where((config) => !config.routerCandidate && config.hasConfig)
+      .toList();
   bool get hasSubscription =>
       widget.clientPhone.trim().isNotEmpty &&
-      (lookup?.configs.isNotEmpty ?? widget.initialGadgetConfig != null);
+      (activeConfigs.isNotEmpty || widget.initialGadgetConfig != null);
 
   @override
   void initState() {
@@ -646,6 +697,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
         lookup = await widget.api.findClientByPhone(widget.clientPhone);
       }
       await refreshTunnel();
+      await refreshRouter();
     } catch (exception) {
       error = 'Не удалось обновить устройства.';
     } finally {
@@ -658,6 +710,18 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       final value = await tunnel.status();
       if (mounted) setState(() => tunnelStatus = value);
     } catch (_) {}
+  }
+
+  Future<void> refreshRouter() async {
+    final access = widget.routerAccess;
+    if (access == null) return;
+    try {
+      final status =
+          await widget.setupService.attachAndCheckExistingTunnel(access);
+      if (mounted) setState(() => routerOnline = status.handshakeOk);
+    } catch (_) {
+      if (mounted) setState(() => routerOnline = false);
+    }
   }
 
   Future<String?> loadGadgetConfig() async {
@@ -735,6 +799,10 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       return;
     }
     final localAccess = widget.routerAccess;
+    if (localAccess == null) {
+      widget.onConnectRouter();
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Router1Theme.panel2,
@@ -755,9 +823,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
               ),
               const SizedBox(height: 6),
               Text(
-                localAccess == null
-                    ? 'Для управления подключитесь к Wi‑Fi этого роутера.'
-                    : '${routeModeShortTitle(widget.routeProfileKind)} · локальное управление доступно',
+                '${routeModeShortTitle(widget.routeProfileKind)} · локальное управление доступно',
                 style: const TextStyle(color: Router1Theme.muted),
               ),
               const SizedBox(height: 18),
@@ -766,46 +832,52 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                 runSpacing: 10,
                 children: [
                   FilledButton(
-                    onPressed: localAccess == null
-                        ? null
-                        : () => unawaited(_controlRouter(
-                              () => widget.setupService
-                                  .setSelectedTunnelEnabled(localAccess, true),
-                              'Туннель включён',
-                            )),
+                    onPressed: () => unawaited(_controlRouter(
+                      () => widget.setupService
+                          .setSelectedTunnelEnabled(localAccess, true),
+                      'Туннель включён',
+                    )),
                     child: const Text('Включить'),
                   ),
                   OutlinedButton(
-                    onPressed: localAccess == null
-                        ? null
-                        : () => unawaited(_controlRouter(
-                              () => widget.setupService
-                                  .setSelectedTunnelEnabled(localAccess, false),
-                              'Туннель выключен',
-                            )),
+                    onPressed: () => unawaited(_controlRouter(
+                      () => widget.setupService
+                          .setSelectedTunnelEnabled(localAccess, false),
+                      'Туннель выключен',
+                    )),
                     child: const Text('Выключить'),
                   ),
                   OutlinedButton(
-                    onPressed: localAccess == null
-                        ? null
-                        : () => unawaited(_controlRouter(
-                              () => widget.setupService
-                                  .restartSelectedTunnel(localAccess),
-                              'Туннель перезапущен',
-                            )),
+                    onPressed: () => unawaited(_controlRouter(
+                      () => widget.setupService
+                          .restartSelectedTunnel(localAccess),
+                      'Туннель перезапущен',
+                    )),
                     child: const Text('Перезапустить'),
                   ),
-                  const OutlinedButton(
-                    onPressed: null,
-                    child: Text('Сменить сервер — скоро'),
+                  OutlinedButton(
+                    onPressed: () => unawaited(_changeRouterMode(
+                        localAccess, Router1RouteProfileKind.goldStandard)),
+                    child: const Text('Standard'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => unawaited(_changeRouterMode(
+                        localAccess, Router1RouteProfileKind.ai)),
+                    child: const Text('AI+'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => unawaited(_controlRouter(
+                      () => widget.setupService
+                          .restartSelectedTunnel(localAccess),
+                      'Подключение сброшено и запущено заново',
+                    )),
+                    child: const Text('Reset'),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: localAccess == null
-                    ? null
-                    : () => unawaited(_sendRouterDiagnostics(localAccess)),
+                onPressed: () => unawaited(_sendRouterDiagnostics(localAccess)),
                 icon: const Icon(Icons.support_agent),
                 label: const Text('Отправить диагностику'),
               ),
@@ -856,6 +928,32 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
     }
   }
 
+  Future<void> _changeRouterMode(
+      KeeneticAccess access, Router1RouteProfileKind kind) async {
+    try {
+      final profile = await widget.api.routerRouteProfile(profile: kind);
+      await widget.setupService.applyRoutingProfile(
+        access,
+        kind == Router1RouteProfileKind.ai
+            ? RouterRoutingProfile.fullTunnel
+            : RouterRoutingProfile.selective,
+        profile,
+      );
+      widget.onRouterModeChanged(kind);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Включён режим ${routeModeShortTitle(kind)}')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось переключить режим.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final routerName = widget.router?.hostname?.trim().isNotEmpty == true
@@ -886,32 +984,33 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   icon: Icons.router,
                   title: hasRouter ? routerName : 'Роутер',
                   subtitle: hasRouter
-                      ? '${routeModeShortTitle(widget.routeProfileKind)} · последняя проверка при настройке'
+                      ? routerOnline
+                          ? '${routeModeShortTitle(widget.routeProfileKind)} · подключено'
+                          : '${routeModeShortTitle(widget.routeProfileKind)} · состояние не проверено'
                       : 'Автоматическая настройка Keenetic',
-                  action: hasRouter ? 'Управление' : 'Настроить',
-                  active: hasRouter,
+                  action: hasRouter
+                      ? widget.routerAccess == null
+                          ? 'Подключиться к роутеру'
+                          : 'Управление'
+                      : 'Настроить',
+                  active: routerOnline,
                   onTap: openRouter,
                 ),
-                for (final config in (lookup?.configs
-                        .where((item) => item.routerCandidate)
-                        .skip(1) ??
-                    const Iterable<Router1ClientConfig>.empty())) ...[
+                for (final config in routerConfigs.skip(1)) ...[
                   const SizedBox(height: 14),
                   _DashboardDeviceCard(
                     icon: Icons.router,
                     title: config.deviceName,
-                    subtitle: 'Отдельное подключение · ${config.status}',
+                    subtitle: 'Действует · состояние не проверено',
                     action: 'Управление в сети роутера',
-                    active: config.status == 'active',
+                    active: false,
                     onTap: openRouter,
                   ),
                 ],
                 const SizedBox(height: 14),
                 _DashboardDeviceCard(
                   icon: Icons.phone_android,
-                  title: gadgetConfigs.length > 1
-                      ? 'Android · ${gadgetConfigs.length} устройства'
-                      : 'Android',
+                  title: 'Этот Android',
                   subtitle: tunnelStatus.connected
                       ? tunnelStatus.handshake > 0
                           ? 'Подключено · сервер отвечает'
@@ -952,9 +1051,9 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   _DashboardDeviceCard(
                     icon: Icons.phone_android,
                     title: config.deviceName,
-                    subtitle: 'Конфиг выдан · ${config.status}',
+                    subtitle: 'Действует · устройство сейчас не проверяется',
                     action: 'Отдельное Android-устройство',
-                    active: config.status == 'active',
+                    active: false,
                     onTap: () {},
                   ),
                 ],
@@ -981,6 +1080,12 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   ),
                   icon: const Icon(Icons.support_agent),
                   label: const Text('Техподдержка'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(_shareRouter1App()),
+                  icon: const Icon(Icons.share),
+                  label: const Text('Поделиться приложением'),
                 ),
               ],
             ),
@@ -3285,9 +3390,23 @@ class _RenewalPageState extends State<RenewalPage> {
           SelectableText(paymentUrl!,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Router1Theme.muted, fontSize: 13)),
+        OutlinedButton.icon(
+          onPressed: () => unawaited(_shareRouter1App()),
+          icon: const Icon(Icons.share),
+          label: const Text('Поделиться приложением'),
+        ),
       ],
     );
   }
+}
+
+Future<void> _shareRouter1App() async {
+  await SharePlus.instance.share(
+    ShareParams(
+      text: 'Router1: https://router1.tech/#download',
+      subject: 'Router1',
+    ),
+  );
 }
 
 class WireGuardComponentPage extends StatefulWidget {

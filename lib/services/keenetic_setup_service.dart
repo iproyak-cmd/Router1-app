@@ -573,6 +573,42 @@ class KeeneticSetupService {
     return _readTunnelStatus(access, name);
   }
 
+  Future<TunnelStatus> attachAndCheckExistingTunnel(
+      KeeneticAccess access) async {
+    final interfaces = await _getJson(
+      access.router.ip,
+      '/rci/show/interface',
+      login: access.login,
+      password: access.password,
+    );
+    if (interfaces is! Map) {
+      throw const KeeneticSetupException(
+          'Keenetic не вернул список подключений.');
+    }
+    const router1Endpoints = {
+      '213.176.93.13',
+      '201.51.23.60',
+      '92.51.46.27',
+    };
+    String? selected;
+    for (final entry in interfaces.entries) {
+      final name = entry.key.toString();
+      if (!name.startsWith('Wireguard')) continue;
+      final endpoint = _wireGuardEndpoint(interfaces, name);
+      if (endpoint != null && router1Endpoints.contains(endpoint)) {
+        selected = name;
+        final value = entry.value;
+        if (value is Map && value['state'] == 'up') break;
+      }
+    }
+    if (selected == null) {
+      throw const KeeneticSetupException(
+          'Подключение Router1 на этом роутере не найдено.');
+    }
+    _selectedInterfaceByHost[access.router.ip] = selected;
+    return _readTunnelStatus(access, selected);
+  }
+
   Future<void> setSelectedTunnelEnabled(
       KeeneticAccess access, bool enabled) async {
     final name = _selectedInterfaceByHost[access.router.ip];
