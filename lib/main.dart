@@ -16,7 +16,7 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 
-const router1AppVersion = '0.1.57+60';
+const router1AppVersion = '0.1.58+61';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -2276,13 +2276,12 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
           title: _isTestPurchase
               ? 'Router1 для роутера — 3 дня'
               : 'Router1 для роутера',
-          price: _isTestPurchase ? 'Бесплатно' : '2000 ₽ → 1200 ₽',
+          price: _isTestPurchase ? 'Бесплатно' : '1990 ₽',
         ),
         if (!_isTestPurchase)
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
             child: Text(
-              'Скидка 40% до 15 июля уже включена в цену — вводить код не нужно.\n'
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -4108,12 +4107,11 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                 : (_isPhone
                     ? 'Router1 для смартфона'
                     : 'Router1 для ноутбука / ПК'),
-            price: _isTestPurchase ? 'Бесплатно' : '1000 ₽ → 600 ₽'),
+            price: _isTestPurchase ? 'Бесплатно' : '990 ₽'),
         if (!_isTestPurchase)
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
             child: Text(
-              'Скидка 40% до 15 июля уже включена в цену — вводить код не нужно.\n'
               'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
