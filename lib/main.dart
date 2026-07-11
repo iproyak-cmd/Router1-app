@@ -15,8 +15,9 @@ import 'models/keenetic_router.dart';
 import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
+import 'services/awg_tunnel_service.dart';
 
-const router1AppVersion = '0.1.59+62';
+const router1AppVersion = '0.2.0-internal.1+100';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -4369,7 +4370,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
   }
 }
 
-class GadgetInstructionPage extends StatelessWidget {
+class GadgetInstructionPage extends StatefulWidget {
   const GadgetInstructionPage({
     required this.platform,
     required this.configText,
@@ -4382,6 +4383,58 @@ class GadgetInstructionPage extends StatelessWidget {
   final String configText;
   final String filename;
   final VoidCallback onBack;
+
+  @override
+  State<GadgetInstructionPage> createState() => _GadgetInstructionPageState();
+}
+
+class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
+  final tunnel = AwgTunnelService();
+  var connecting = false;
+  var connected = false;
+  String? tunnelError;
+
+  String get platform => widget.platform;
+  String get configText => widget.configText;
+  String get filename => widget.filename;
+  VoidCallback get onBack => widget.onBack;
+
+  @override
+  void initState() {
+    super.initState();
+    if (platform == 'Android') {
+      unawaited(_refreshTunnelStatus());
+    }
+  }
+
+  Future<void> _refreshTunnelStatus() async {
+    try {
+      final value = await tunnel.status();
+      if (mounted) setState(() => connected = value.connected);
+    } catch (_) {
+      // Первый запуск: туннель ещё не создан.
+    }
+  }
+
+  Future<void> _toggleTunnel() async {
+    setState(() {
+      connecting = true;
+      tunnelError = null;
+    });
+    try {
+      final value = connected
+          ? await tunnel.disconnect()
+          : await tunnel.connect(configText);
+      if (mounted) setState(() => connected = value.connected);
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(
+            () => tunnelError = error.message ?? 'Не удалось включить Router1');
+      }
+    } finally {
+      if (mounted) setState(() => connecting = false);
+    }
+  }
 
   Future<void> _downloadConfigFile(BuildContext context) async {
     final rawName = filename.trim().isEmpty
@@ -4477,6 +4530,62 @@ class GadgetInstructionPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (platform == 'Android') {
+      return FlowScaffold(
+        title: connected ? 'Router1 подключён' : 'Включить Router1',
+        subtitle: connected
+            ? 'Защищённый туннель работает внутри приложения.'
+            : 'Конфиг уже загружен. Разрешите VPN и включите подключение.',
+        onBack: onBack,
+        primaryText: connecting
+            ? 'Подключаем...'
+            : connected
+                ? 'Отключить'
+                : 'Подключить Router1',
+        onPrimary: connecting ? () {} : () => unawaited(_toggleTunnel()),
+        children: [
+          Router1Card(
+            green: connected,
+            child: Column(
+              children: [
+                Icon(
+                  connected ? Icons.shield : Icons.shield_outlined,
+                  size: 64,
+                  color: connected ? Router1Theme.green : Router1Theme.muted,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  connecting
+                      ? 'Создаём защищённое подключение...'
+                      : connected
+                          ? 'Подключено'
+                          : 'Готово к подключению',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (connecting) ...[
+                  const SizedBox(height: 14),
+                  const LinearProgressIndicator(),
+                ],
+                if (tunnelError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(tunnelError!,
+                      style: const TextStyle(color: Color(0xFFFFB86B))),
+                ],
+              ],
+            ),
+          ),
+          const BenefitTile(
+            icon: Icons.lock,
+            title: 'Всё внутри Router1',
+            text: 'Стороннее приложение и импорт файла не требуются.',
+          ),
+        ],
+      );
+    }
     return FlowScaffold(
       title: 'Конфиг готов',
       subtitle:
