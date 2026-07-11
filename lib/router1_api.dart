@@ -508,19 +508,21 @@ class Router1Api {
 
   Future<Router1Snapshot> snapshot() async {
     try {
-      final status = await _get('/status');
-      final traffic = await _get('/traffic');
-      final modeId = status['mode'] is Map ? status['mode']['mode'] : null;
-      return Router1Snapshot(
-        connected: _serviceOk(status, 'wireguard'),
-        serverName: status['node']?['NODE_NAME']?.toString() ?? 'Router1',
-        mode: _modeFromId(modeId?.toString()),
+      final health = await _get('/health');
+      final serviceOk = health['ok'] == true;
+      if (!serviceOk) {
+        throw const FormatException('Router1 API unhealthy');
+      }
+      return const Router1Snapshot(
+        connected: true,
+        serverName: 'Router1',
+        mode: RouterMode.normal,
         downloadMbps: 0,
         uploadMbps: 0,
         pingMs: 0,
-        trafficGb: _trafficGb(traffic),
-        devices: const [],
-        events: const ['Центр управления подключён'],
+        trafficGb: 0,
+        devices: [],
+        events: ['API Router1 доступен'],
         demoMode: false,
       );
     } catch (_) {
@@ -715,35 +717,5 @@ class Router1Api {
       throw const FormatException('Router1 returned invalid JSON');
     }
     return data;
-  }
-
-  bool _serviceOk(Map<String, dynamic> status, String key) {
-    final services = status['services'];
-    return services is Map && services[key] == 'active';
-  }
-
-  double _trafficGb(Map<String, dynamic> traffic) {
-    final peers = traffic['peers'];
-    if (peers is! List) return 0;
-    var total = 0;
-    for (final peer in peers) {
-      if (peer is Map) {
-        total += (peer['rx_bytes'] as num? ?? 0).toInt();
-        total += (peer['tx_bytes'] as num? ?? 0).toInt();
-      }
-    }
-    return total / 1024 / 1024 / 1024;
-  }
-
-  RouterMode _modeFromId(String? id) {
-    return switch (id) {
-      'game' => RouterMode.game,
-      'ai' => RouterMode.ai,
-      'streaming' => RouterMode.streaming,
-      'privacy' => RouterMode.privacy,
-      'domains' => RouterMode.domains,
-      'normal' => RouterMode.normal,
-      _ => RouterMode.normal,
-    };
   }
 }
