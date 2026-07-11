@@ -5,6 +5,9 @@
 
 package org.amnezia.awg.backend;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
@@ -498,8 +501,24 @@ public final class GoBackend implements Backend {
 
         @Override
         public void onCreate() {
-            vpnService.complete(this);
             super.onCreate();
+            final String channelId = "router1_vpn";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                final NotificationChannel channel = new NotificationChannel(
+                        channelId, "Подключение Router1", NotificationManager.IMPORTANCE_LOW);
+                getSystemService(NotificationManager.class).createNotificationChannel(channel);
+            }
+            final Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(this, channelId)
+                    : new Notification.Builder(this);
+            final Notification notification = builder
+                    .setContentTitle("Router1 подключён")
+                    .setContentText("Защищённый туннель работает")
+                    .setSmallIcon(android.R.drawable.ic_lock_lock)
+                    .setOngoing(true)
+                    .build();
+            startForeground(1701, notification);
+            vpnService.complete(this);
         }
 
         @Override
