@@ -622,8 +622,9 @@ class Router1Api {
     return order;
   }
 
-  Future<List<Router1RenewalOffer>> renewalOffers() async {
-    final data = await _get('/app/renewal-offers');
+  Future<List<Router1RenewalOffer>> renewalOffers(String phone) async {
+    final query = Uri(queryParameters: {'phone': phone}).query;
+    final data = await _get('/app/renewal-offers?$query');
     final offers = data['offers'] as List? ?? const [];
     return offers
         .whereType<Map<String, dynamic>>()

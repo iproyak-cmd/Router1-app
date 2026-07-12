@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.9+108';
+const router1AppVersion = '0.2.0-internal.10+109';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -714,7 +714,35 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       .toList();
   bool get hasSubscription =>
       widget.clientPhone.trim().isNotEmpty &&
-      (activeConfigs.isNotEmpty || widget.initialGadgetConfig != null);
+      (lookup?.configs.isNotEmpty == true ||
+          lookup?.trial != null ||
+          widget.initialGadgetConfig != null);
+  bool get trialPaymentRequired {
+    final trial = lookup?.trial;
+    if (trial == null) return false;
+    final hasFullActive = lookup!.configs
+        .any((config) => !config.isTest && isCurrentConfig(config));
+    if (hasFullActive) return false;
+    final expiredByDate = lookup!.configs
+        .where((config) => config.isTest)
+        .map((config) => config.paidUntil)
+        .whereType<DateTime>()
+        .any((date) => !date.isAfter(DateTime.now()));
+    return const {'blocked', 'expired'}.contains(trial.status.toLowerCase()) ||
+        expiredByDate;
+  }
+
+  String get trialDeviceLabel {
+    final configs = lookup?.configs.where((config) => config.isTest) ??
+        const <Router1ClientConfig>[];
+    if (configs.any((config) => config.routerCandidate)) {
+      return 'роутере — 1 990 ₽';
+    }
+    if (configs.any((config) => config.productType.toLowerCase() == 'iphone')) {
+      return 'iPhone — 990 ₽';
+    }
+    return 'устройстве — 990 ₽';
+  }
 
   @override
   void initState() {
@@ -1087,6 +1115,34 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                 ),
                 const _InternalUpdateCard(),
                 const SizedBox(height: 18),
+                if (trialPaymentRequired) ...[
+                  Router1Card(
+                    accentColor: Router1Theme.gold,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text('Бесплатные 3 дня закончились',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        Text(
+                            'Продолжите работу на $trialDeviceLabel. Повторная настройка не потребуется.',
+                            style: const TextStyle(
+                                color: Router1Theme.muted,
+                                fontSize: 15,
+                                height: 1.35)),
+                        const SizedBox(height: 14),
+                        FilledButton(
+                          onPressed: widget.onSubscription,
+                          child: const Text('Продолжить работу'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 _DashboardDeviceCard(
                   icon: Icons.router,
                   title: hasRouter ? routerName : 'Роутер',
@@ -3443,7 +3499,7 @@ class _RenewalPageState extends State<RenewalPage> {
   void initState() {
     super.initState();
     phoneController = TextEditingController(text: widget.initialPhone);
-    offers = widget.api.renewalOffers();
+    offers = widget.api.renewalOffers(widget.initialPhone);
   }
 
   @override
@@ -3493,8 +3549,9 @@ class _RenewalPageState extends State<RenewalPage> {
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
-      title: 'Продлить доступ',
-      subtitle: 'Выберите срок продления подписки Router1.',
+      title: 'Оплата Router1',
+      subtitle:
+          'Выберите доступный вариант. После оплаты существующее подключение включится автоматически.',
       onBack: widget.onBack,
       primaryText: 'На главный экран',
       onPrimary: widget.onBack,
