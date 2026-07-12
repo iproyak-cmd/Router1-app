@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.7+106';
+const router1AppVersion = '0.2.0-internal.8+107';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
