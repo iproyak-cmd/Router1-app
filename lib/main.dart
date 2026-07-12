@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.8+107';
+const router1AppVersion = '0.2.0-internal.9+108';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -104,6 +104,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   var isTestRouterPurchase = false;
   var paid = false;
   var routerReconnectOnly = false;
+  String? routerSetupResumeStage;
   final setupService = KeeneticSetupService();
   final appApi = Router1Api(
     baseUrl: 'https://router1.tech/api',
@@ -128,10 +129,21 @@ class _FirstRunShellState extends State<FirstRunShell> {
     await prefs.setString('router1_client_phone', clientPhone);
     await prefs.setString(
         'router1_route_profile_kind', routerRouteProfileKind.name);
+    await prefs.remove('router1_router_setup_stage');
+    routerSetupResumeStage = null;
     if (mounted) openHome();
   }
 
+  Future<void> saveRouterSetupStage(String stage) async {
+    routerSetupResumeStage = stage;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('router1_router_setup_stage', stage);
+    await prefs.setString('router1_client_phone', clientPhone);
+    await prefs.setString('router1_router_model', router?.model ?? 'Keenetic');
+  }
+
   void startRouterSetupFromHome() {
+    unawaited(saveRouterSetupStage('started'));
     setState(() {
       path = FirstRunPath.router;
       router = null;
@@ -163,7 +175,16 @@ class _FirstRunShellState extends State<FirstRunShell> {
     try {
       await setupService.attachAndCheckExistingTunnel(value);
     } catch (_) {}
-    if (mounted) openHome();
+    if (!mounted) return;
+    if (routerSetupResumeStage != null) {
+      setState(() {
+        path = FirstRunPath.router;
+        routerReconnectOnly = false;
+        step = 6;
+      });
+    } else {
+      openHome();
+    }
   }
 
   Future<void> saveRouterMode(Router1RouteProfileKind value) async {
@@ -214,13 +235,16 @@ class _FirstRunShellState extends State<FirstRunShell> {
   Future<void> loadInitialScreen() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted || step != 0) return;
+    final pendingRouterStage = prefs.getString('router1_router_setup_stage');
     if (prefs.getBool('router1_configured') == true ||
-        prefs.getBool('router1_gadget_configured') == true) {
+        prefs.getBool('router1_gadget_configured') == true ||
+        pendingRouterStage != null) {
       splashTimer?.cancel();
       setState(() {
         final savedModel = prefs.getString('router1_router_model') ?? '';
         final savedPhone = prefs.getString('router1_client_phone') ?? '';
         final savedKind = prefs.getString('router1_route_profile_kind');
+        routerSetupResumeStage = pendingRouterStage;
         if (savedKind != null) {
           routerRouteProfileKind = Router1RouteProfileKind.values.firstWhere(
               (k) => k.name == savedKind,
@@ -447,7 +471,10 @@ class _FirstRunShellState extends State<FirstRunShell> {
             clientPhone = phone;
             awgConfig = configText;
             paid = true;
-            goTo(7);
+            goTo(routerSetupResumeStage == 'component_ready' ||
+                    routerSetupResumeStage == 'configuring'
+                ? 9
+                : 7);
           },
           onNeedsPayment: (name, phone) {
             clientName = name;
@@ -491,7 +518,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
           access: routerAccess,
           service: setupService,
           demoMode: demoMode,
-          onReady: () => awgConfig == null ? goTo(8) : goTo(9),
+          onInstallStarted: () =>
+              unawaited(saveRouterSetupStage('installing_component')),
+          onReady: () {
+            unawaited(saveRouterSetupStage('component_ready'));
+            awgConfig == null ? goTo(8) : goTo(9);
+          },
           onLog: addSetupLog,
           onBack: back,
         ),
@@ -515,7 +547,10 @@ class _FirstRunShellState extends State<FirstRunShell> {
             routerRouteProfileKind = value;
             routerRoutingProfile = RouterRoutingProfile.selective;
           }),
-          onNext: () => goTo(10),
+          onNext: () {
+            unawaited(saveRouterSetupStage('configuring'));
+            goTo(10);
+          },
           onBack: back,
         ),
       10 => RouterSetupProgressPage(
@@ -3581,6 +3616,7 @@ class WireGuardComponentPage extends StatefulWidget {
     required this.access,
     required this.service,
     required this.demoMode,
+    required this.onInstallStarted,
     required this.onReady,
     required this.onLog,
     required this.onBack,
@@ -3590,6 +3626,7 @@ class WireGuardComponentPage extends StatefulWidget {
   final KeeneticAccess? access;
   final KeeneticSetupService service;
   final bool demoMode;
+  final VoidCallback onInstallStarted;
   final VoidCallback onReady;
   final ValueChanged<SetupLogEntry> onLog;
   final VoidCallback onBack;
@@ -3648,6 +3685,7 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
       error = null;
       progressMessage = 'Начинаем установку WireGuard...';
     });
+    widget.onInstallStarted();
     try {
       final value = await widget.service.installWireGuardComponent(
         access,
@@ -4242,11 +4280,19 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
   TunnelStatus? tunnel;
   String? error;
   String? manualScript;
+  Timer? handshakeTimer;
+  var handshakeElapsed = 0;
 
   @override
   void initState() {
     super.initState();
     unawaited(run());
+  }
+
+  @override
+  void dispose() {
+    handshakeTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> run() async {
@@ -4305,7 +4351,13 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
           time: DateTime.now()));
       setState(() => created = true);
 
+      handshakeElapsed = 0;
+      handshakeTimer?.cancel();
+      handshakeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => handshakeElapsed++);
+      });
       final value = await widget.service.startAndCheckTunnel(access);
+      handshakeTimer?.cancel();
       widget.onLog(SetupLogEntry(
           title: 'Handshake',
           message: value.message,
@@ -4363,6 +4415,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
         );
       }
     } catch (e) {
+      handshakeTimer?.cancel();
       final message = e is KeeneticSetupException ? e.message : e.toString();
       String? fallback;
       if (!access.testMode) {
@@ -4445,7 +4498,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
                         ? 'Применяем маршруты Router1...'
                         : 'Настройка завершена.';
     return FlowScaffold(
-      title: done ? 'Интернет работает' : 'Настраиваем роутер',
+      title: done ? 'Интернет работает' : 'Настройка роутера',
       subtitle: done
           ? widget.routeProfileKind == Router1RouteProfileKind.ai
               ? 'AI-режим включён: весь интернет идёт через VPN.'
@@ -4475,7 +4528,9 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
               StepTile(
                   done: imported,
                   loading: !imported && error == null,
-                  title: awgDetails?.summary ?? 'AWG-конфиг загружен'),
+                  title: imported
+                      ? 'Конфигурация проверена'
+                      : 'Проверяем конфигурацию'),
               StepTile(
                   done: created,
                   loading: imported && !created && error == null,
@@ -4484,7 +4539,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
                   done: startedTunnel,
                   loading: created && !startedTunnel && error == null,
                   title: tunnel?.message ??
-                      'Проверка handshake / статуса туннеля'),
+                      'Проверяем соединение: $handshakeElapsed сек. Обычно до 30 секунд.'),
               StepTile(
                   done: routingApplied,
                   loading: startedTunnel && !routingApplied && error == null,
@@ -4499,6 +4554,21 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
             ],
           ),
         ),
+        if (awgDetails != null)
+          Router1Card(
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              title: const Text('Технические подробности'),
+              children: [
+                SelectableText(
+                  awgDetails!.summary,
+                  style: const TextStyle(
+                      color: Router1Theme.muted, fontSize: 13, height: 1.35),
+                ),
+              ],
+            ),
+          ),
         if (manualScript != null) ManualScriptCard(script: manualScript!),
         SetupLogPanel(logs: widget.logs),
       ],
@@ -4568,21 +4638,22 @@ class SetupLogPanel extends StatelessWidget {
     if (logs.isEmpty) return const SizedBox.shrink();
     final visible = logs.reversed.take(6).toList();
     return Router1Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 4),
+        title: const Text('Подробности настройки'),
         children: [
-          const Text('Журнал ошибок и событий',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w900)),
-          const SizedBox(height: 10),
           for (final item in visible)
             Padding(
               padding: const EdgeInsets.only(bottom: 9),
-              child: Text('${item.title}: ${item.message}',
-                  style: TextStyle(
-                      color: _logColor(item.level), fontSize: 15, height: 1.3)),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('${item.title}: ${item.message}',
+                    style: TextStyle(
+                        color: _logColor(item.level),
+                        fontSize: 14,
+                        height: 1.3)),
+              ),
             ),
         ],
       ),
