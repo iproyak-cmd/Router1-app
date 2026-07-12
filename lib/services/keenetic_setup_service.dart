@@ -643,6 +643,24 @@ class KeeneticSetupService {
     }
   }
 
+  Future<bool> verifyFullTunnelRouting(KeeneticAccess access) async {
+    if (access.testMode) return true;
+    final selected = _selectedInterfaceByHost[access.router.ip];
+    if (selected == null) return false;
+    final routes = await _getJson(
+      access.router.ip,
+      '/rci/show/ip/route',
+      login: access.login,
+      password: access.password,
+    );
+    final text = jsonEncode(routes);
+    final firstHalf = text.contains('0.0.0.0') &&
+        (text.contains('128.0.0.0') || text.contains('0.0.0.0/1'));
+    final secondHalf = text.contains('128.0.0.0') &&
+        (text.contains('128.0.0.0/1') || text.contains('128.0.0.0'));
+    return firstHalf && secondHalf && text.contains(selected);
+  }
+
   Future<void> clearRouter1Routing(
     KeeneticAccess access, {
     Router1RouteProfile? routeProfile,

@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.5+104';
+const router1AppVersion = '0.2.0-internal.6+105';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -189,6 +189,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
         path = FirstRunPath.router;
         step = routerAccess == null ? 2 : 60;
       } else {
+        path = null;
         step = 70;
       }
     });
@@ -387,6 +388,13 @@ class _FirstRunShellState extends State<FirstRunShell> {
       );
     }
 
+    if (step == 70) {
+      return RenewalPage(
+        api: appApi,
+        initialPhone: clientPhone,
+        onBack: openHome,
+      );
+    }
     if (path == FirstRunPath.gadget) {
       return buildGadgetFlow();
     }
@@ -404,13 +412,6 @@ class _FirstRunShellState extends State<FirstRunShell> {
           });
         },
         onBack: () => goTo(1),
-      );
-    }
-    if (step == 70) {
-      return RenewalPage(
-        api: appApi,
-        initialPhone: clientPhone,
-        onBack: openHome,
       );
     }
     return buildRouterFlow();
@@ -593,14 +594,19 @@ class _FirstRunShellState extends State<FirstRunShell> {
           filename: gadgetConfigFilename ?? 'router1.conf',
           onBack: back,
         ),
-      _ => HomeScreen(
+      _ => InternalDeviceDashboard(
+          api: appApi,
+          setupService: setupService,
+          routerAccess: routerAccess,
           router: router,
           clientPhone: clientPhone,
-          paid: paid || clientPhone.isNotEmpty,
+          initialGadgetConfig: gadgetConfigText,
           routeProfileKind: routerRouteProfileKind,
           onSetupRouter: startRouterSetupFromHome,
-          onSetupGadget: startGadgetSetupFromHome,
-          onPay: openPaymentFromHome,
+          onConnectRouter: reconnectRouterFromHome,
+          onRouterModeChanged: (value) => unawaited(saveRouterMode(value)),
+          onSetupAndroid: startGadgetSetupFromHome,
+          onSubscription: openPaymentFromHome,
         ),
     };
   }
@@ -650,6 +656,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
   var loading = true;
   var switching = false;
   var routerOnline = false;
+  var lookupLoaded = false;
   Timer? timer;
 
   bool isCurrentConfig(Router1ClientConfig config) {
@@ -697,6 +704,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       if (widget.clientPhone.trim().isNotEmpty) {
         lookup = await widget.api.findClientByPhone(widget.clientPhone);
       }
+      lookupLoaded = true;
       await refreshTunnel();
       await refreshRouter();
     } catch (exception) {
@@ -743,6 +751,14 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       error = null;
     });
     try {
+      if (!lookupLoaded) {
+        await refresh();
+        if (!lookupLoaded) {
+          error =
+              'Не удалось проверить сохранённый конфиг. Проверьте интернет и повторите.';
+          return;
+        }
+      }
       if (tunnelStatus.connected) {
         tunnelStatus = await tunnel.disconnect();
       } else {
@@ -931,7 +947,28 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
 
   Future<void> _changeRouterMode(
       KeeneticAccess access, Router1RouteProfileKind kind) async {
+    var progressVisible = false;
     try {
+      unawaited(showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          backgroundColor: Router1Theme.panel,
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Text(
+                  'Переключаем роутер на ${routeModeShortTitle(kind)}…\nЭто может занять до минуты.',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ));
+      progressVisible = true;
       final profile = await widget.api.routerRouteProfile(profile: kind);
       await widget.setupService.applyRoutingProfile(
         access,
@@ -940,16 +977,49 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
             : RouterRoutingProfile.selective,
         profile,
       );
+      if (kind == Router1RouteProfileKind.ai) {
+        final verified =
+            await widget.setupService.verifyFullTunnelRouting(access);
+        if (!verified) {
+          throw const KeeneticSetupException(
+              'Роутер не подтвердил маршруты AI+. Повторите переключение.');
+        }
+      }
+      if (mounted && progressVisible) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressVisible = false;
+      }
       widget.onRouterModeChanged(kind);
       if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Включён режим ${routeModeShortTitle(kind)}')),
+          SnackBar(
+              content: Text(
+                  'Режим ${routeModeShortTitle(kind)} включён и проверен')),
         );
       }
-    } catch (_) {
+    } catch (exception) {
+      if (mounted && progressVisible) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось переключить режим.')),
+        await showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: Router1Theme.panel,
+            title: const Text('Режим не переключён'),
+            content: Text(
+              exception is KeeneticSetupException
+                  ? exception.message
+                  : 'Не удалось применить настройки Keenetic. Проверьте Wi-Fi роутера и повторите.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Закрыть'),
+              ),
+            ],
+          ),
         );
       }
     }
@@ -1017,18 +1087,22 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                       ? tunnelStatus.handshake > 0
                           ? 'Подключено · сервер отвечает'
                           : 'Подключено · ждём сервер'
-                      : gadgetConfigs.isNotEmpty || configText != null
-                          ? 'Готово к подключению'
-                          : 'Встроенный туннель Router1',
+                      : !lookupLoaded
+                          ? 'Проверяем сохранённое подключение'
+                          : gadgetConfigs.isNotEmpty || configText != null
+                              ? 'Готово к подключению'
+                              : 'Встроенный туннель Router1',
                   action: switching
                       ? 'Подождите...'
                       : tunnelStatus.connected
                           ? 'Выключить'
-                          : gadgetConfigs.isNotEmpty || configText != null
-                              ? 'Включить'
-                              : 'Настроить',
+                          : !lookupLoaded
+                              ? 'Проверяем...'
+                              : gadgetConfigs.isNotEmpty || configText != null
+                                  ? 'Включить'
+                                  : 'Настроить',
                   active: tunnelStatus.connected,
-                  onTap: () => unawaited(toggleAndroid()),
+                  onTap: switching ? () {} : () => unawaited(toggleAndroid()),
                   trailing: tunnelStatus.connected ||
                           gadgetConfigs.isNotEmpty ||
                           configText != null
@@ -3066,7 +3140,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               icon: Icons.timer,
               title: '72 часа без оплаты',
               text:
-                  'Выберите Standard или AI+. Режим фиксируется на все 3 дня и отключится автоматически. '
+                  'Пользуйтесь Standard и AI+ без ограничений все 3 дня. Доступ отключится автоматически. '
                   'Если потом оплатите полную версию — этот же конфиг можно использовать дальше.'),
         if (_isTestPurchase) ...[
           _RouteModeCard(
@@ -3091,7 +3165,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
           const Padding(
             padding: EdgeInsets.only(top: 10),
             child: Text(
-              'После активации изменить режим до окончания теста нельзя.',
+              'После активации режим можно менять на главном экране.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Router1Theme.muted, fontSize: 13),
             ),
@@ -3986,33 +4060,23 @@ class RouterRoutingProfilePage extends StatelessWidget {
           description: 'YouTube, Telegram, WhatsApp.',
           selected: profile == RouterRoutingProfile.selective &&
               routeProfileKind == Router1RouteProfileKind.goldStandard,
-          onTap: isTestPurchase
-              ? () {}
-              : () {
-                  onChanged(RouterRoutingProfile.selective);
-                  onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
-                },
+          onTap: () {
+            onChanged(RouterRoutingProfile.selective);
+            onRouteProfileChanged(Router1RouteProfileKind.goldStandard);
+          },
         ),
         const SizedBox(height: 16),
-        Opacity(
-          opacity:
-              isTestPurchase && routeProfileKind != Router1RouteProfileKind.ai
-                  ? 0.7
-                  : 1.0,
-          child: _RouteModeCard(
-            icon: Icons.auto_awesome_rounded,
-            accent: Router1Theme.blue,
-            title: '+AI',
-            description: 'Нейронки через full tunnel.',
-            selected: profile == RouterRoutingProfile.selective &&
-                routeProfileKind == Router1RouteProfileKind.ai,
-            onTap: isTestPurchase
-                ? () {}
-                : () {
-                    onChanged(RouterRoutingProfile.selective);
-                    onRouteProfileChanged(Router1RouteProfileKind.ai);
-                  },
-          ),
+        _RouteModeCard(
+          icon: Icons.auto_awesome_rounded,
+          accent: Router1Theme.blue,
+          title: '+AI',
+          description: 'Нейронки через full tunnel.',
+          selected: profile == RouterRoutingProfile.selective &&
+              routeProfileKind == Router1RouteProfileKind.ai,
+          onTap: () {
+            onChanged(RouterRoutingProfile.selective);
+            onRouteProfileChanged(Router1RouteProfileKind.ai);
+          },
         ),
         const SizedBox(height: 16),
         Opacity(
@@ -4035,9 +4099,9 @@ class RouterRoutingProfilePage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         if (isTestPurchase)
-          Text(
-            'Режим ${routeProfileKind.title} выбран при активации и зафиксирован до окончания 3 дней.',
-            style: const TextStyle(
+          const Text(
+            'Во время бесплатных 3 дней можно переключаться между Standard и AI+.',
+            style: TextStyle(
               color: Router1Theme.green,
               fontSize: 13,
               height: 1.35,
