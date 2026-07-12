@@ -1,8 +1,13 @@
 package tech.router1.app
 
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Intent
 import android.net.VpnService
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -64,10 +69,51 @@ class MainActivity : FlutterActivity() {
                             "version" to backend.version
                         )
                     }
+                    "installUpdate" -> {
+                        val url = call.argument<String>("url").orEmpty()
+                        installUpdate(url, result)
+                    }
                     else -> result.notImplemented()
                 }
             }
         restoreTunnelIfRequested()
+    }
+
+    private fun installUpdate(url: String, result: MethodChannel.Result) {
+        val uri = runCatching { Uri.parse(url) }.getOrNull()
+        if (uri == null || uri.scheme != "https" || uri.host != "router1.tech") {
+            result.error("INVALID_UPDATE_URL", "Недопустимая ссылка обновления", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()) {
+            startActivity(Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName")
+            ))
+            result.error(
+                "INSTALL_PERMISSION",
+                "Разрешите установку обновлений для Router1 и нажмите «Обновить» ещё раз",
+                null
+            )
+            return
+        }
+        val request = DownloadManager.Request(uri)
+            .setTitle("Обновление Router1")
+            .setDescription("Скачиваем новую версию")
+            .setNotificationVisibility(
+                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setMimeType("application/vnd.android.package-archive")
+            .setDestinationInExternalFilesDir(
+                this,
+                Environment.DIRECTORY_DOWNLOADS,
+                "router1-internal-update.apk"
+            )
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val id = manager.enqueue(request)
+        getSharedPreferences("router1_updates", MODE_PRIVATE)
+            .edit().putLong("download_id", id).apply()
+        result.success(true)
     }
 
     private fun connect(configText: String, result: MethodChannel.Result) {

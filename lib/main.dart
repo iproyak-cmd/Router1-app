@@ -16,8 +16,9 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.3+102';
+const router1AppVersion = '0.2.0-internal.4+103';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -979,6 +980,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                       ),
                   ],
                 ),
+                const _InternalUpdateCard(),
                 const SizedBox(height: 18),
                 _DashboardDeviceCard(
                   icon: Icons.router,
@@ -1090,6 +1092,97 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InternalUpdateCard extends StatefulWidget {
+  const _InternalUpdateCard();
+
+  @override
+  State<_InternalUpdateCard> createState() => _InternalUpdateCardState();
+}
+
+class _InternalUpdateCardState extends State<_InternalUpdateCard> {
+  final service = InternalUpdateService();
+  Router1InternalUpdate? update;
+  String? error;
+  var installing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(check());
+  }
+
+  Future<void> check() async {
+    try {
+      final value = await service.check(router1AppBuildNumber);
+      if (mounted) setState(() => update = value);
+    } catch (_) {
+      // Отсутствие сети не блокирует основную работу приложения.
+    }
+  }
+
+  Future<void> install() async {
+    final value = update;
+    if (value == null || installing) return;
+    setState(() {
+      installing = true;
+      error = null;
+    });
+    try {
+      await service.install(value.url);
+    } on PlatformException catch (exception) {
+      if (mounted) {
+        setState(
+            () => error = exception.message ?? 'Не удалось начать обновление.');
+      }
+    } finally {
+      if (mounted) setState(() => installing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = update;
+    if (value == null) return const SizedBox.shrink();
+    final required = value.isRequiredFor(router1AppBuildNumber);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Router1Card(
+        green: required,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              required
+                  ? 'Нужно обновить Router1'
+                  : 'Доступна версия ${value.version}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (value.notes.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(value.notes,
+                  style: const TextStyle(color: Router1Theme.muted)),
+            ],
+            if (error != null) ...[
+              const SizedBox(height: 8),
+              Text(error!, style: const TextStyle(color: Color(0xFFFFB86B))),
+            ],
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: installing ? null : () => unawaited(install()),
+              icon: const Icon(Icons.system_update),
+              label: Text(installing ? 'Скачиваем...' : 'Обновить'),
+            ),
+          ],
         ),
       ),
     );
