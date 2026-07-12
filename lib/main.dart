@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.6+105';
+const router1AppVersion = '0.2.0-internal.7+106';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -3702,6 +3702,13 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
       onSecondary:
           item?.installed == true || !widget.demoMode ? null : widget.onReady,
       children: [
+        if (item?.installed != true)
+          const BenefitTile(
+            icon: Icons.restart_alt,
+            title: 'Keenetic перезагрузится',
+            text:
+                'Во время установки Wi-Fi и интернет временно пропадут. Не закрывайте Router1: приложение дождётся роутера и продолжит автоматически.',
+          ),
         Router1Card(
           green: item?.installed == true,
           child: Column(
