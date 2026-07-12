@@ -170,6 +170,7 @@ class Router1ClientConfig {
         hasConfig &&
         (product == 'vpn_config' ||
             product == 'smartphone' ||
+            product == 'iphone' ||
             product == 'pc' ||
             deviceName.toLowerCase().contains('смартфон') ||
             deviceName.toLowerCase().contains('ноутбук') ||
@@ -601,6 +602,7 @@ class Router1Api {
     required String product,
     required String name,
     required String phone,
+    String? email,
     Router1RouteProfileKind trialMode = Router1RouteProfileKind.goldStandard,
     String? refCode,
   }) async {
@@ -608,6 +610,7 @@ class Router1Api {
       'product': product,
       'name': name,
       'phone': phone,
+      if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
       if (product.endsWith('_test')) 'trial_mode': trialMode.id,
       if (refCode != null && refCode.trim().isNotEmpty)
         'ref_code': refCode.trim(),

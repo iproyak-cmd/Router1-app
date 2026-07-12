@@ -18,7 +18,7 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.4+103';
+const router1AppVersion = '0.2.0-internal.5+104';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -4646,6 +4646,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     with WidgetsBindingObserver {
   late final TextEditingController nameController;
   late final TextEditingController phoneController;
+  late final TextEditingController emailController;
   late final TextEditingController promoController;
   Router1Order? order;
   String? error;
@@ -4658,7 +4659,9 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
 
   bool get _isPhone =>
       widget.platform == 'Android' || widget.platform == 'iPhone';
+  bool get _isIphone => widget.platform == 'iPhone';
   String get _product {
+    if (_isIphone) return _isTestPurchase ? 'iphone_test' : 'iphone';
     if (_isTestPurchase) return _isPhone ? 'smartphone_test' : 'laptop_test';
     return _isPhone ? 'smartphone' : 'laptop';
   }
@@ -4670,6 +4673,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     nameController = TextEditingController(
         text: widget.initialName == 'Клиент Router1' ? '' : widget.initialName);
     phoneController = TextEditingController(text: widget.initialPhone);
+    emailController = TextEditingController();
     promoController = TextEditingController();
   }
 
@@ -4680,6 +4684,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     nameController.dispose();
     promoController.dispose();
     phoneController.dispose();
+    emailController.dispose();
     super.dispose();
   }
 
@@ -4695,6 +4700,11 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
     final phone = phoneController.text.trim();
     if (phone.isEmpty || phone.replaceAll(RegExp(r'\D+'), '').length < 10) {
       setState(() => error = 'Введите телефон клиента.');
+      return;
+    }
+    final email = emailController.text.trim();
+    if (_isIphone && !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      setState(() => error = 'Введите email для доставки конфига.');
       return;
     }
     setState(() {
@@ -4758,6 +4768,7 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
         product: _product,
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
+        email: _isIphone ? email : null,
         refCode: promoController.text,
       );
       setState(() {
@@ -5053,6 +5064,23 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                       borderRadius: BorderRadius.circular(16)),
                 ),
               ),
+              if (_isIphone) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autocorrect: false,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  decoration: InputDecoration(
+                    hintText: 'Email для отправки конфига',
+                    hintStyle: const TextStyle(color: Router1Theme.muted),
+                    filled: true,
+                    fillColor: const Color(0x66112029),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               TextField(
                 controller: promoController,
@@ -5230,7 +5258,8 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
 
   String get _clientAppName {
     return switch (platform) {
-      'Android' || 'iPhone' => 'AmneziaWG',
+      'Android' => 'AmneziaWG',
+      'iPhone' => 'WireGuard',
       _ => 'AmneziaVPN',
     };
   }
@@ -5240,7 +5269,7 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
       'Android' => Uri.parse(
           'https://play.google.com/store/apps/details?id=org.amnezia.awg'),
       'iPhone' =>
-        Uri.parse('https://apps.apple.com/us/app/amneziawg/id6478942365'),
+        Uri.parse('https://apps.apple.com/app/wireguard/id1441195209'),
       _ => Uri.parse('https://amnezia.org/downloads'),
     };
   }
@@ -5250,7 +5279,7 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
       'Android' =>
         'Нажмите «Установить приложение», откроется Google Play с AmneziaWG. Установите приложение и вернитесь в Router1.',
       'iPhone' =>
-        'Нажмите «Установить приложение», откроется App Store с AmneziaWG. Если приложение недоступно в вашем регионе, нажмите «Нужна помощь».',
+        'Нажмите «Установить приложение», откроется App Store с официальным WireGuard. Установите его и вернитесь в Router1.',
       'Windows' =>
         'Нажмите «Установить приложение», скачайте AmneziaVPN для Windows с официального сайта и установите его.',
       'macOS' =>
@@ -5267,7 +5296,7 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
       'Android' =>
         'Нажмите «Скачать файл .conf», в открывшемся окне выберите папку «Загрузки» и нажмите «Сохранить». Затем откройте AmneziaWG, нажмите «+» и импортируйте файл из Загрузок.',
       'iPhone' =>
-        'Нажмите «Скачать файл .conf». В меню iPhone выберите AmneziaWG. Если его нет в списке, сохраните файл в «Файлы», затем импортируйте его из AmneziaWG.',
+        'Нажмите «Скачать файл .conf». В меню iPhone выберите WireGuard. Если его нет в списке, сохраните файл в «Файлы», затем откройте WireGuard и импортируйте конфигурацию из файла.',
       'Windows' =>
         'Нажмите «Скачать файл .conf» и сохраните файл. В AmneziaVPN выберите импорт конфигурации из файла и укажите скачанный .conf.',
       'macOS' =>
