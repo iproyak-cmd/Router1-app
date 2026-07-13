@@ -27,6 +27,8 @@ import org.amnezia.awg.crypto.KeyFormatException;
 import org.amnezia.awg.util.NonNullForAll;
 
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -273,11 +275,15 @@ public final class GoBackend implements Backend {
                 final boolean fresh = lastHandshake > 0L
                         && nowSeconds >= lastHandshake
                         && nowSeconds - lastHandshake <= failoverHandshakeStaleSeconds;
-                if (fresh) {
+                final boolean failoverConfigured = isFailoverConfigured();
+                final boolean reachable = failoverConfigured
+                        ? probeTunnelConnectivity()
+                        : fresh;
+                if (reachable) {
                     failoverFailures = 0;
                     if (statusCallback != null)
                         statusCallback.onStatusChanged(true);
-                } else if (lastHandshake >= 0L) {
+                } else if (failoverConfigured || lastHandshake >= 0L) {
                     failoverFailures++;
                     if (shouldScheduleFailover() && scheduleFailover(currentTunnel))
                         break;
@@ -293,6 +299,23 @@ public final class GoBackend implements Backend {
             statusThread = null;
         }, "StatusJob");
         statusThread.start();
+    }
+
+    private synchronized boolean isFailoverConfigured() {
+        return failoverConfigs.size() > 1;
+    }
+
+    private boolean probeTunnelConnectivity() {
+        final String[] targets = {"201.51.4.89", "1.1.1.1", "8.8.8.8"};
+        for (final String host : targets) {
+            try (final Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(host, 443), 1500);
+                return true;
+            } catch (final Exception ignored) {
+                // Try the next independent target through the active tunnel.
+            }
+        }
+        return false;
     }
 
     private synchronized boolean shouldScheduleFailover() {
