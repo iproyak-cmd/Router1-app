@@ -28,6 +28,8 @@ import org.amnezia.awg.util.NonNullForAll;
 
 import java.net.InetAddress;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -56,6 +58,15 @@ public final class GoBackend implements Backend {
     private int currentTunnelHandle = -1;
     @Nullable private Thread statusThread;
     @Nullable private StatusCallback statusCallback;
+    private final Map<String, Config> failoverConfigs = new LinkedHashMap<>();
+    private String failoverPrimaryServer = "";
+    private String failoverActiveServer = "";
+    private int failoverFailureSamples = 3;
+    private int failoverHandshakeStaleSeconds = 180;
+    private int failoverSwitchCooldownSeconds = 300;
+    private int failoverFailures = 0;
+    private long failoverLastSwitchMillis = 0;
+    private boolean failoverSwitching = false;
 
     /**
      * Public constructor for GoBackend.
@@ -75,6 +86,32 @@ public final class GoBackend implements Backend {
      */
     public static void setAlwaysOnCallback(final AlwaysOnCallback cb) {
         alwaysOnCallback = cb;
+    }
+
+    public synchronized void configureFailover(
+            final String primaryServer,
+            final String activeServer,
+            final Map<String, Config> configs,
+            final int failureSamples,
+            final int handshakeStaleSeconds,
+            final int switchCooldownSeconds) {
+        failoverConfigs.clear();
+        failoverConfigs.putAll(configs);
+        failoverPrimaryServer = primaryServer;
+        failoverActiveServer = configs.containsKey(activeServer) ? activeServer : primaryServer;
+        failoverFailureSamples = Math.max(2, failureSamples);
+        failoverHandshakeStaleSeconds = Math.max(60, handshakeStaleSeconds);
+        failoverSwitchCooldownSeconds = Math.max(60, switchCooldownSeconds);
+        failoverFailures = 0;
+    }
+
+    public synchronized void setActiveFailoverServer(final String serverCode) {
+        if (failoverConfigs.containsKey(serverCode))
+            failoverActiveServer = serverCode;
+    }
+
+    public synchronized String getActiveFailoverServer() {
+        return failoverActiveServer;
     }
 
 
@@ -232,30 +269,22 @@ public final class GoBackend implements Backend {
                     break;
                 }
 
-                // 0 means no handshake yet, wait and retry
-                if (lastHandshake == 0L) {
-                    try {
-                        Thread.sleep(1000);
-                    } catch (final InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    continue;
-                }
-
-                // Only positive handshake time indicates successful connection
-                // -1 may be returned if unable to parse output (doesn't mean no connection)
-                // -2 indicates command execution error (also doesn't mean no connection)
-                if (lastHandshake > 0L) {
-                    if (statusCallback != null) {
+                final long nowSeconds = System.currentTimeMillis() / 1000L;
+                final boolean fresh = lastHandshake > 0L
+                        && nowSeconds >= lastHandshake
+                        && nowSeconds - lastHandshake <= failoverHandshakeStaleSeconds;
+                if (fresh) {
+                    failoverFailures = 0;
+                    if (statusCallback != null)
                         statusCallback.onStatusChanged(true);
-                    }
-                    break;
+                } else if (lastHandshake >= 0L) {
+                    failoverFailures++;
+                    if (shouldScheduleFailover() && scheduleFailover(currentTunnel))
+                        break;
                 }
 
-                // For -1 or -2, retry after delay instead of reporting disconnected
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(10000);
                 } catch (final InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -264,6 +293,51 @@ public final class GoBackend implements Backend {
             statusThread = null;
         }, "StatusJob");
         statusThread.start();
+    }
+
+    private synchronized boolean shouldScheduleFailover() {
+        if (failoverSwitching || failoverConfigs.size() < 2
+                || failoverFailures < failoverFailureSamples)
+            return false;
+        return System.currentTimeMillis() - failoverLastSwitchMillis
+                >= failoverSwitchCooldownSeconds * 1000L;
+    }
+
+    private synchronized boolean scheduleFailover(@Nullable final Tunnel tunnel) {
+        if (tunnel == null || failoverSwitching)
+            return false;
+        String targetServer = "";
+        Config targetConfig = null;
+        for (final Map.Entry<String, Config> entry : failoverConfigs.entrySet()) {
+            if (!entry.getKey().equals(failoverActiveServer)) {
+                targetServer = entry.getKey();
+                targetConfig = entry.getValue();
+                break;
+            }
+        }
+        if (targetConfig == null)
+            return false;
+        final String selectedServer = targetServer;
+        final Config selectedConfig = targetConfig;
+        failoverSwitching = true;
+        new Thread(() -> {
+            try {
+                setState(tunnel, State.UP, selectedConfig);
+                synchronized (GoBackend.this) {
+                    failoverActiveServer = selectedServer;
+                    failoverLastSwitchMillis = System.currentTimeMillis();
+                    failoverFailures = 0;
+                }
+                Log.w(TAG, "Router1 failover switched to " + selectedServer);
+            } catch (final Exception error) {
+                Log.e(TAG, "Router1 failover failed", error);
+            } finally {
+                synchronized (GoBackend.this) {
+                    failoverSwitching = false;
+                }
+            }
+        }, "Router1Failover").start();
+        return true;
     }
 
     /**

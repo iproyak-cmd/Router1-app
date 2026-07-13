@@ -121,6 +121,7 @@ class KeeneticSetupService {
 
   final Duration timeout;
   final _selectedInterfaceByHost = <String, String>{};
+  final _standbyInterfaceByHost = <String, String>{};
   static const _telegramIpv4Routes = [
     _Ipv4Route('91.105.192.0', '255.255.254.0'),
     _Ipv4Route('91.108.0.0', '255.255.0.0'),
@@ -593,6 +594,47 @@ class KeeneticSetupService {
     }
   }
 
+  Future<String> installStandbyAwgConfig(
+    KeeneticAccess access,
+    String configText,
+  ) async {
+    if (access.testMode) return 'WireguardStandby';
+    final config = _parseConfig(configText);
+    final interfaces = await _getJson(
+      access.router.ip,
+      '/rci/show/interface',
+      login: access.login,
+      password: access.password,
+    );
+    if (interfaces is! Map<String, dynamic>) {
+      throw const KeeneticSetupException(
+          'Keenetic не вернул список интерфейсов для резерва.');
+    }
+    var standby = _findMatchingWireGuardInterface(interfaces, config);
+    standby ??= await _importWireGuardConfig(access, configText, config);
+    if (standby == _selectedInterfaceByHost[access.router.ip]) {
+      throw const KeeneticSetupException(
+          'Резервный конфиг совпал с основным подключением.');
+    }
+    await _runCliCommands(
+        access,
+        [
+          'interface $standby no ip global',
+          'interface $standby no ipv6 global',
+          'interface $standby ip mtu 1280',
+        ],
+        ignoreErrors: true);
+    await _retryKeenetic(() => _postRci(
+          access.router.ip,
+          '/rci/interface/$standby/down',
+          login: access.login,
+          password: access.password,
+        ));
+    _standbyInterfaceByHost[access.router.ip] = standby;
+    await _saveConfiguration(access, ignoreTransient: true);
+    return standby;
+  }
+
   Future<TunnelStatus> startAndCheckTunnel(KeeneticAccess access) async {
     if (access.testMode) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
@@ -628,14 +670,20 @@ class KeeneticSetupService {
       '92.51.46.27',
     };
     String? selected;
+    var selectedIsUp = false;
+    final candidates = <String>[];
     for (final entry in interfaces.entries) {
       final name = entry.key.toString();
       if (!name.startsWith('Wireguard')) continue;
       final endpoint = _wireGuardEndpoint(interfaces, name);
       if (endpoint != null && router1Endpoints.contains(endpoint)) {
-        selected = name;
+        candidates.add(name);
         final value = entry.value;
-        if (value is Map && value['state'] == 'up') break;
+        final isUp = value is Map && value['state'] == 'up';
+        if (selected == null || (isUp && !selectedIsUp)) {
+          selected = name;
+          selectedIsUp = isUp;
+        }
       }
     }
     if (selected == null) {
@@ -643,7 +691,73 @@ class KeeneticSetupService {
           'Подключение Router1 на этом роутере не найдено.');
     }
     _selectedInterfaceByHost[access.router.ip] = selected;
+    for (final name in candidates) {
+      if (name != selected) {
+        _standbyInterfaceByHost[access.router.ip] = name;
+        break;
+      }
+    }
     return _readTunnelStatus(access, selected);
+  }
+
+  Future<TunnelStatus> checkSelectedTunnel(KeeneticAccess access) async {
+    final selected = _selectedInterfaceByHost[access.router.ip];
+    if (selected == null) return attachAndCheckExistingTunnel(access);
+    return _readTunnelStatus(access, selected);
+  }
+
+  Future<TunnelStatus> switchToStandbyTunnel(
+    KeeneticAccess access, {
+    required RouterRoutingProfile routingProfile,
+    Router1RouteProfile? routeProfile,
+  }) async {
+    final current = _selectedInterfaceByHost[access.router.ip];
+    final standby = _standbyInterfaceByHost[access.router.ip];
+    if (current == null || standby == null || current == standby) {
+      throw const KeeneticSetupException(
+          'На роутере не найден отдельный резервный маршрут Router1.');
+    }
+    try {
+      await _retryKeenetic(() => _postRci(
+            access.router.ip,
+            '/rci/interface/$standby/up',
+            login: access.login,
+            password: access.password,
+          ));
+      final status = await _waitForHandshake(access, standby);
+      if (!status.handshakeOk) throw KeeneticSetupException(status.message);
+      _selectedInterfaceByHost[access.router.ip] = standby;
+      await applyRoutingProfile(access, routingProfile, routeProfile);
+      await _retryKeenetic(() => _postRci(
+            access.router.ip,
+            '/rci/interface/$current/down',
+            login: access.login,
+            password: access.password,
+          ));
+      _standbyInterfaceByHost[access.router.ip] = current;
+      await _saveConfiguration(access, ignoreTransient: true);
+      return status;
+    } catch (error) {
+      _selectedInterfaceByHost[access.router.ip] = current;
+      try {
+        await _postRci(
+          access.router.ip,
+          '/rci/interface/$current/up',
+          login: access.login,
+          password: access.password,
+        );
+      } catch (_) {}
+      try {
+        await _postRci(
+          access.router.ip,
+          '/rci/interface/$standby/down',
+          login: access.login,
+          password: access.password,
+        );
+      } catch (_) {}
+      throw KeeneticSetupException(
+          'Резерв не включён, основной маршрут сохранён: $error');
+    }
   }
 
   Future<void> setSelectedTunnelEnabled(

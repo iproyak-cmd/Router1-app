@@ -140,6 +140,7 @@ class Router1ClientConfig {
     required this.deviceName,
     required this.productType,
     required this.protocol,
+    required this.serverCode,
     required this.status,
     required this.paymentStatus,
     required this.hasConfig,
@@ -154,6 +155,7 @@ class Router1ClientConfig {
   final String deviceName;
   final String productType;
   final String protocol;
+  final String serverCode;
   final String status;
   final String paymentStatus;
   final bool hasConfig;
@@ -183,6 +185,7 @@ class Router1ClientConfig {
       deviceName: json['device_name']?.toString() ?? 'Router1',
       productType: json['product_type']?.toString() ?? '',
       protocol: json['protocol']?.toString() ?? 'wireguard',
+      serverCode: json['server_code']?.toString() ?? '',
       status: json['status']?.toString() ?? '',
       paymentStatus: json['payment_status']?.toString() ?? '',
       hasConfig: json['has_config'] == true,
@@ -193,6 +196,124 @@ class Router1ClientConfig {
       paidUntil: DateTime.tryParse(json['paid_until']?.toString() ?? ''),
     );
   }
+}
+
+class Router1FailoverNode {
+  const Router1FailoverNode({
+    required this.role,
+    required this.serverCode,
+    required this.configText,
+  });
+
+  final String role;
+  final String serverCode;
+  final String configText;
+
+  factory Router1FailoverNode.fromJson(Map<String, dynamic> json) =>
+      Router1FailoverNode(
+        role: json['role']?.toString() ?? 'standby',
+        serverCode: json['server_code']?.toString() ?? '',
+        configText: json['config_text']?.toString() ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'role': role,
+        'server_code': serverCode,
+        'config_text': configText,
+      };
+}
+
+class Router1FailoverPolicy {
+  const Router1FailoverPolicy({
+    required this.failureSamples,
+    required this.handshakeStaleSeconds,
+    required this.switchCooldownSeconds,
+    required this.failbackHealthySamples,
+  });
+
+  final int failureSamples;
+  final int handshakeStaleSeconds;
+  final int switchCooldownSeconds;
+  final int failbackHealthySamples;
+
+  factory Router1FailoverPolicy.fromJson(Map<String, dynamic> json) =>
+      Router1FailoverPolicy(
+        failureSamples: (json['failure_samples'] as num?)?.toInt() ?? 3,
+        handshakeStaleSeconds:
+            (json['handshake_stale_seconds'] as num?)?.toInt() ?? 180,
+        switchCooldownSeconds:
+            (json['switch_cooldown_seconds'] as num?)?.toInt() ?? 300,
+        failbackHealthySamples:
+            (json['failback_healthy_samples'] as num?)?.toInt() ?? 5,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'failure_samples': failureSamples,
+        'handshake_stale_seconds': handshakeStaleSeconds,
+        'switch_cooldown_seconds': switchCooldownSeconds,
+        'failback_healthy_samples': failbackHealthySamples,
+      };
+}
+
+class Router1FailoverBundle {
+  const Router1FailoverBundle({
+    required this.deviceId,
+    required this.primaryServer,
+    required this.recommendedServer,
+    required this.health,
+    required this.nodes,
+    required this.policy,
+  });
+
+  final int deviceId;
+  final String primaryServer;
+  final String recommendedServer;
+  final Map<String, String> health;
+  final List<Router1FailoverNode> nodes;
+  final Router1FailoverPolicy policy;
+
+  Router1FailoverNode? node(String serverCode) {
+    for (final value in nodes) {
+      if (value.serverCode == serverCode) return value;
+    }
+    return null;
+  }
+
+  factory Router1FailoverBundle.fromJson(Map<String, dynamic> json) {
+    final healthJson = json['health'] as Map<String, dynamic>? ?? const {};
+    final nodesJson = json['nodes'] as List? ?? const [];
+    return Router1FailoverBundle(
+      deviceId: (json['device_id'] as num?)?.toInt() ?? 0,
+      primaryServer: json['primary_server']?.toString() ?? '',
+      recommendedServer: json['recommended_server']?.toString() ?? '',
+      health: {
+        for (final entry in healthJson.entries)
+          entry.key: entry.value is Map
+              ? (entry.value as Map)['state']?.toString() ?? 'unknown'
+              : 'unknown',
+      },
+      nodes: nodesJson
+          .whereType<Map<String, dynamic>>()
+          .map(Router1FailoverNode.fromJson)
+          .where((node) =>
+              node.serverCode.isNotEmpty && node.configText.isNotEmpty)
+          .toList(),
+      policy: Router1FailoverPolicy.fromJson(
+        json['policy'] as Map<String, dynamic>? ?? const {},
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'device_id': deviceId,
+        'primary_server': primaryServer,
+        'recommended_server': recommendedServer,
+        'health': {
+          for (final entry in health.entries) entry.key: {'state': entry.value},
+        },
+        'nodes': nodes.map((node) => node.toJson()).toList(),
+        'policy': policy.toJson(),
+      };
 }
 
 class Router1Trial {
@@ -574,6 +695,20 @@ class Router1Api {
       throw const FormatException('Router1 returned empty config');
     }
     return text;
+  }
+
+  Future<Router1FailoverBundle> fetchFailoverBundle({
+    required String phone,
+    required int deviceId,
+  }) async {
+    final query = Uri(queryParameters: {'phone': phone}).query;
+    final data = await _get('/app/failover/$deviceId?$query');
+    final bundle = Router1FailoverBundle.fromJson(data);
+    if (bundle.deviceId != deviceId || bundle.nodes.isEmpty) {
+      throw const FormatException(
+          'Router1 returned incomplete failover bundle');
+    }
+    return bundle;
   }
 
   Future<Router1Order> createRouterOrder({

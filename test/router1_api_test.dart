@@ -125,4 +125,33 @@ void main() {
       expect(order.modeLocked, isTrue);
     });
   });
+
+  group('Router1FailoverBundle', () {
+    test('parses primary, standby and policy', () {
+      final bundle = Router1FailoverBundle.fromJson({
+        'device_id': 126,
+        'primary_server': 'fr',
+        'recommended_server': 'nl2',
+        'health': {
+          'fr': {'state': 'down'},
+          'nl2': {'state': 'healthy'},
+        },
+        'nodes': [
+          {'role': 'primary', 'server_code': 'fr', 'config_text': 'primary'},
+          {'role': 'standby', 'server_code': 'nl2', 'config_text': 'standby'},
+        ],
+        'policy': {
+          'failure_samples': 3,
+          'handshake_stale_seconds': 180,
+          'switch_cooldown_seconds': 300,
+          'failback_healthy_samples': 5,
+        },
+      });
+
+      expect(bundle.deviceId, 126);
+      expect(bundle.health['fr'], 'down');
+      expect(bundle.node('nl2')?.configText, 'standby');
+      expect(bundle.policy.switchCooldownSeconds, 300);
+    });
+  });
 }

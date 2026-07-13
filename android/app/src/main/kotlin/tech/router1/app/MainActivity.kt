@@ -15,6 +15,7 @@ import org.amnezia.awg.backend.GoBackend
 import org.amnezia.awg.backend.Tunnel
 import org.amnezia.awg.config.Config
 import java.io.ByteArrayInputStream
+import java.util.LinkedHashMap
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
@@ -26,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var backend: GoBackend
     private var pendingConfig: String? = null
+    private var pendingServerCode: String? = null
     private var pendingResult: MethodChannel.Result? = null
     private var state = Tunnel.State.DOWN
     private val tunnel = object : Tunnel {
@@ -49,8 +51,34 @@ class MainActivity : FlutterActivity() {
                     }
                     "connect" -> {
                         val config = call.argument<String>("config").orEmpty()
+                        val serverCode = call.argument<String>("serverCode").orEmpty()
                         if (config.isBlank()) result.error("EMPTY_CONFIG", "Конфиг пуст", null)
-                        else connect(config, result)
+                        else connect(config, serverCode, result)
+                    }
+                    "configureFailover" -> {
+                        runAsync(result) {
+                            val primaryServer = call.argument<String>("primaryServer").orEmpty()
+                            val activeServer = call.argument<String>("activeServer").orEmpty()
+                            val rawNodes = call.argument<List<Map<String, Any?>>>("nodes").orEmpty()
+                            val configs = LinkedHashMap<String, Config>()
+                            for (node in rawNodes) {
+                                val code = node["serverCode"]?.toString().orEmpty()
+                                val text = node["config"]?.toString().orEmpty()
+                                if (code.isNotBlank() && text.isNotBlank()) {
+                                    configs[code] = Config.parse(
+                                        ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)))
+                                }
+                            }
+                            backend.configureFailover(
+                                primaryServer,
+                                activeServer,
+                                configs,
+                                call.argument<Int>("failureSamples") ?: 3,
+                                call.argument<Int>("handshakeStaleSeconds") ?: 180,
+                                call.argument<Int>("switchCooldownSeconds") ?: 300
+                            )
+                            configs.size > 1
+                        }
                     }
                     "disconnect" -> runAsync(result) {
                         backend.setState(tunnel, Tunnel.State.DOWN, null)
@@ -66,6 +94,7 @@ class MainActivity : FlutterActivity() {
                             "handshake" to backend.getLastHandshake(tunnel),
                             "rx" to statistics.totalRx(),
                             "tx" to statistics.totalTx(),
+                            "serverCode" to backend.activeFailoverServer,
                             "version" to backend.version
                         )
                     }
@@ -116,9 +145,14 @@ class MainActivity : FlutterActivity() {
         result.success(true)
     }
 
-    private fun connect(configText: String, result: MethodChannel.Result) {
+    private fun connect(
+        configText: String,
+        serverCode: String,
+        result: MethodChannel.Result
+    ) {
         if (VpnService.prepare(this) != null) {
             pendingConfig = configText
+            pendingServerCode = serverCode
             pendingResult = result
             startActivityForResult(VpnService.prepare(this), 7002)
             return
@@ -127,6 +161,7 @@ class MainActivity : FlutterActivity() {
             val config = Config.parse(ByteArrayInputStream(configText.toByteArray(Charsets.UTF_8)))
             openFileOutput("router1-awg.conf", MODE_PRIVATE).use { it.write(configText.toByteArray()) }
             backend.setState(tunnel, Tunnel.State.UP, config)
+            if (serverCode.isNotBlank()) backend.setActiveFailoverServer(serverCode)
             getSharedPreferences("router1_awg", MODE_PRIVATE)
                 .edit().putBoolean("enabled", true).apply()
             mapOf("state" to "up", "version" to backend.version)
@@ -168,9 +203,13 @@ class MainActivity : FlutterActivity() {
         } else if (requestCode == 7002) {
             val result = pendingResult
             val config = pendingConfig
+            val serverCode = pendingServerCode.orEmpty()
             pendingResult = null
             pendingConfig = null
-            if (resultCode == Activity.RESULT_OK && result != null && config != null) connect(config, result)
+            pendingServerCode = null
+            if (resultCode == Activity.RESULT_OK && result != null && config != null) {
+                connect(config, serverCode, result)
+            }
             else result?.error("VPN_DENIED", "Разрешение VPN не предоставлено", null)
         }
     }

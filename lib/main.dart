@@ -16,9 +16,10 @@ import 'router1_api.dart';
 import 'services/keenetic_discovery.dart';
 import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.10+109';
+const router1AppVersion = '0.2.0-internal.11+110';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -556,6 +557,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
       10 => RouterSetupProgressPage(
           access: routerAccess,
           awgConfig: awgConfig,
+          clientPhone: clientPhone,
           paid: paid,
           routingProfile: routerRoutingProfile,
           routeProfileKind: routerRouteProfileKind,
@@ -693,6 +695,12 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
   var routerOnline = false;
   var lookupLoaded = false;
   Timer? timer;
+  Timer? routerTimer;
+  AwgFailoverController? failover;
+  var failoverEvaluating = false;
+  var routerFailoverEvaluating = false;
+  var routerFailureSamples = 0;
+  DateTime? routerLastFailoverAttempt;
 
   bool isCurrentConfig(Router1ClientConfig config) {
     final deadline = config.paidUntil;
@@ -753,11 +761,16 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       const Duration(seconds: 3),
       (_) => unawaited(refreshTunnel()),
     );
+    routerTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => unawaited(evaluateRouterFailover()),
+    );
   }
 
   @override
   void dispose() {
     timer?.cancel();
+    routerTimer?.cancel();
     super.dispose();
   }
 
@@ -768,6 +781,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
         lookup = await widget.api.findClientByPhone(widget.clientPhone);
       }
       lookupLoaded = true;
+      await initializeFailover();
       await refreshTunnel();
       await refreshRouter();
     } catch (exception) {
@@ -781,7 +795,45 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
     try {
       final value = await tunnel.status();
       if (mounted) setState(() => tunnelStatus = value);
+      await evaluateFailover(value);
     } catch (_) {}
+  }
+
+  Future<void> initializeFailover() async {
+    if (failover != null ||
+        widget.clientPhone.trim().isEmpty ||
+        gadgetConfigs.isEmpty) {
+      return;
+    }
+    final controller = AwgFailoverController(
+      api: widget.api,
+      tunnel: tunnel,
+      phone: widget.clientPhone,
+      deviceId: gadgetConfigs.first.id,
+    );
+    await controller.initialize();
+    failover = controller;
+  }
+
+  Future<void> evaluateFailover(AwgTunnelStatus status) async {
+    final controller = failover;
+    if (controller == null || failoverEvaluating) return;
+    failoverEvaluating = true;
+    try {
+      final result = await controller.evaluate(status);
+      if (result.switched && mounted) {
+        tunnelStatus = await tunnel.status();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message ?? 'Маршрут переключён')),
+        );
+        setState(() {});
+      }
+    } catch (_) {
+      // Рабочий туннель не отключаем из-за ошибки мониторинга.
+    } finally {
+      failoverEvaluating = false;
+    }
   }
 
   Future<void> refreshRouter() async {
@@ -793,6 +845,53 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       if (mounted) setState(() => routerOnline = status.handshakeOk);
     } catch (_) {
       if (mounted) setState(() => routerOnline = false);
+    }
+  }
+
+  Future<void> evaluateRouterFailover() async {
+    final access = widget.routerAccess;
+    if (access == null || routerFailoverEvaluating) return;
+    routerFailoverEvaluating = true;
+    try {
+      final status = await widget.setupService.checkSelectedTunnel(access);
+      if (status.handshakeOk) {
+        routerFailureSamples = 0;
+        if (mounted && !routerOnline) setState(() => routerOnline = true);
+        return;
+      }
+      routerFailureSamples += 1;
+      if (mounted) setState(() => routerOnline = false);
+      if (routerFailureSamples < 3) return;
+      final now = DateTime.now();
+      if (routerLastFailoverAttempt != null &&
+          now.difference(routerLastFailoverAttempt!) <
+              const Duration(minutes: 5)) {
+        return;
+      }
+      routerLastFailoverAttempt = now;
+      Router1RouteProfile? profile;
+      try {
+        profile = await widget.api.routerRouteProfile(
+          profile: widget.routeProfileKind,
+        );
+      } catch (_) {}
+      final switched = await widget.setupService.switchToStandbyTunnel(
+        access,
+        routingProfile: widget.routeProfileKind == Router1RouteProfileKind.ai
+            ? RouterRoutingProfile.fullTunnel
+            : RouterRoutingProfile.selective,
+        routeProfile: profile,
+      );
+      routerFailureSamples = 0;
+      if (!mounted) return;
+      setState(() => routerOnline = switched.handshakeOk);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Роутер переключён на резервный маршрут')),
+      );
+    } catch (_) {
+      // Ошибка резерва не должна отключать текущее подключение роутера.
+    } finally {
+      routerFailoverEvaluating = false;
     }
   }
 
@@ -4298,6 +4397,7 @@ class RouterSetupProgressPage extends StatefulWidget {
   const RouterSetupProgressPage({
     required this.access,
     required this.awgConfig,
+    required this.clientPhone,
     required this.paid,
     required this.routingProfile,
     required this.routeProfileKind,
@@ -4312,6 +4412,7 @@ class RouterSetupProgressPage extends StatefulWidget {
 
   final KeeneticAccess? access;
   final String? awgConfig;
+  final String clientPhone;
   final bool paid;
   final RouterRoutingProfile routingProfile;
   final Router1RouteProfileKind routeProfileKind;
@@ -4464,6 +4565,7 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
             level: SetupLogLevel.success,
             time: DateTime.now()));
         setState(() => routingApplied = true);
+        await prepareStandby(access);
         await sendRouterDiagnostics(
           access: access,
           routeProfile: routeProfile,
@@ -4497,6 +4599,40 @@ class _RouterSetupProgressPageState extends State<RouterSetupProgressPage> {
         error = message;
         manualScript = fallback;
       });
+    }
+  }
+
+  Future<void> prepareStandby(KeeneticAccess access) async {
+    if (access.testMode || widget.clientPhone.trim().isEmpty) return;
+    try {
+      final lookup = await widget.api.findClientByPhone(widget.clientPhone);
+      final config =
+          lookup.recommendedConfig ?? lookup.activeTrialConfig(router: true);
+      if (config == null) return;
+      final bundle = await widget.api.fetchFailoverBundle(
+        phone: widget.clientPhone,
+        deviceId: config.id,
+      );
+      final standby = bundle.nodes.where((node) => node.role == 'standby');
+      if (standby.isEmpty) return;
+      final name = await widget.service.installStandbyAwgConfig(
+        access,
+        standby.first.configText,
+      );
+      widget.onLog(SetupLogEntry(
+        title: 'Резервный маршрут',
+        message: 'Подготовлен на роутере: $name.',
+        level: SetupLogLevel.success,
+        time: DateTime.now(),
+      ));
+    } catch (exception) {
+      widget.onLog(SetupLogEntry(
+        title: 'Резервный маршрут',
+        message:
+            'Основное подключение работает. Резерв пока не подготовлен: $exception',
+        level: SetupLogLevel.warning,
+        time: DateTime.now(),
+      ));
     }
   }
 
