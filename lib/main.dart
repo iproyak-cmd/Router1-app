@@ -19,7 +19,7 @@ import 'services/awg_tunnel_service.dart';
 import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.12+111';
+const router1AppVersion = '0.2.0-internal.13+115';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -1293,17 +1293,6 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   active: routerOnline,
                   onTap: openRouter,
                 ),
-                for (final config in routerConfigs.skip(1)) ...[
-                  const SizedBox(height: 14),
-                  _DashboardDeviceCard(
-                    icon: Icons.router,
-                    title: config.deviceName,
-                    subtitle: 'Действует · состояние не проверено',
-                    action: 'Управление в сети роутера',
-                    active: false,
-                    onTap: openRouter,
-                  ),
-                ],
                 const SizedBox(height: 14),
                 _DashboardDeviceCard(
                   icon: router1CurrentDeviceIcon,
@@ -1357,17 +1346,6 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                     style: const TextStyle(color: Router1Theme.muted),
                   ),
                 ],
-                for (final config in gadgetConfigs.skip(1)) ...[
-                  const SizedBox(height: 14),
-                  _DashboardDeviceCard(
-                    icon: router1CurrentDeviceIcon,
-                    title: config.deviceName,
-                    subtitle: 'Действует · устройство сейчас не проверяется',
-                    action: 'Отдельное устройство',
-                    active: false,
-                    onTap: () {},
-                  ),
-                ],
                 if (error != null) ...[
                   const SizedBox(height: 12),
                   Text(error!,
@@ -1377,6 +1355,43 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   const SizedBox(height: 12),
                   const LinearProgressIndicator(),
                 ],
+                const SizedBox(height: 18),
+                Router1Card(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.newspaper_rounded,
+                          color: Router1Theme.green, size: 30),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Новости Router1',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900)),
+                            SizedBox(height: 4),
+                            Text('Обновления, инструкции и полезные материалы',
+                                style: TextStyle(
+                                    color: Router1Theme.muted,
+                                    fontSize: 14,
+                                    height: 1.3)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Открыть канал',
+                        onPressed: () => launchUrl(
+                          Uri.parse('https://t.me/Router1_pro'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        icon: const Icon(Icons.arrow_forward_rounded,
+                            color: Router1Theme.green),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 22),
                 OutlinedButton.icon(
                   onPressed: showAddDevice,
