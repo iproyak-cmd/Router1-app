@@ -1,5 +1,8 @@
 name: Router1 Windows
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -37,3 +40,24 @@ jobs:
           name: Router1-Windows
           path: build-output/windows/Router1Setup.exe
           if-no-files-found: error
+      - name: Publish latest installer for Router1 delivery
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\router1-release" | Out-Null
+          Copy-Item ".\build-output\windows\Router1Setup.exe" "$env:RUNNER_TEMP\router1-release\Router1Setup.exe"
+          git config user.name "router1-build"
+          git config user.email "build@router1.tech"
+          git fetch origin builds 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            git switch builds
+            git rm -rf .
+          } else {
+            git switch --orphan builds
+            git rm -rf . 2>$null
+          }
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\router1-release\Router1Setup.exe" ".\dist\Router1Setup.exe"
+          Get-FileHash -Algorithm SHA256 ".\dist\Router1Setup.exe" | ForEach-Object { $_.Hash.ToLowerInvariant() + "  Router1Setup.exe" } | Set-Content -Encoding ASCII ".\dist\Router1Setup.exe.sha256"
+          git add dist
+          git commit -m "build: publish Router1 Windows installer"
+          git push origin builds --force
