@@ -36,5 +36,12 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
+# Router1 controls its bundled tunnel service and therefore needs elevation.
+# Let the MSVC linker generate the UAC fragment instead of merging a second
+# trustInfo block with Flutter's manifest through mt.exe.
+target_link_options(${BINARY_NAME} PRIVATE
+  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
