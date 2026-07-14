@@ -2837,7 +2837,7 @@ class RouterReadyForPaymentPage extends StatelessWidget {
       subtitle:
           'Роутер найден, доступ подтверждён. Если конфиг уже оплачен, Router1 сразу начнёт установку.',
       onBack: onBack,
-      primaryText: 'Проверить оплату',
+      primaryText: 'Проверить конфиг',
       onPrimary: onNext,
       children: [
         const Center(child: GlowingCheck(size: 108)),
@@ -3060,7 +3060,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   String? error;
   String? status;
   var loading = false;
-  var _isTestPurchase = true;
+  final _isTestPurchase = true;
   var _trialMode = Router1RouteProfileKind.goldStandard;
   Timer? pollTimer;
 
@@ -3101,11 +3101,27 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
     setState(() {
       loading = true;
       error = null;
-      status = 'Сначала проверяем, нет ли уже оплаченного конфига...';
+      status = 'Проверяем, есть ли уже оформленный конфиг...';
     });
     try {
       try {
         final lookup = await widget.api.findClientByPhone(phone);
+        final existingConfig = lookup.recommendedConfig;
+        if (existingConfig != null) {
+          final text = await widget.api.fetchClientConfigText(
+            phone: phone,
+            deviceId: existingConfig.id,
+          );
+          widget.onExistingConfig(
+            lookup.clientName.isEmpty
+                ? (name.isEmpty ? 'Клиент Router1' : name)
+                : lookup.clientName,
+            phone,
+            text,
+            null,
+          );
+          return;
+        }
         if (_isTestPurchase) {
           final config = lookup.activeTrialConfig(router: true);
           if (config != null) {
@@ -3137,27 +3153,13 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
             startPolling();
             return;
           }
-        } else {
-          final config = lookup.recommendedConfig;
-          if (config != null) {
-            final text = await widget.api
-                .fetchClientConfigText(phone: phone, deviceId: config.id);
-            widget.onExistingConfig(
-              lookup.clientName.isEmpty
-                  ? (name.isEmpty ? 'Клиент Router1' : name)
-                  : lookup.clientName,
-              phone,
-              text,
-              null,
-            );
-            return;
-          }
         }
       } catch (_) {
         // Новый клиент или временно недоступный lookup: продолжаем создание.
       }
       if (mounted) {
-        setState(() => status = 'Активный конфиг не найден. Создаём оплату...');
+        setState(
+            () => status = 'Конфиг не найден. Создаём бесплатный доступ...');
       }
       final created = await widget.api.createRouterOrder(
         name: name.isEmpty ? 'Клиент Router1' : name,
@@ -3238,7 +3240,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
       setState(() {
         loading = true;
         error = null;
-        status = 'Проверяем оплату...';
+        status = 'Проверяем готовность конфига...';
       });
     }
     try {
@@ -3258,15 +3260,15 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
       }
       setState(() {
         status = value.paid
-            ? 'Оплата получена. Готовим конфиг и запускаем установку.'
+            ? 'Доступ подтверждён. Готовим конфиг и запускаем установку.'
             : manual
-                ? 'Оплата пока не подтверждена. Если платёж прошёл, подождите несколько секунд и нажмите ещё раз.'
-                : 'Ждём подтверждение оплаты.';
+                ? 'Конфиг ещё создаётся. Подождите несколько секунд и нажмите ещё раз.'
+                : 'Готовим конфиг.';
       });
     } catch (_) {
       setState(() => status = manual
-          ? 'Не удалось проверить оплату. Попробуйте ещё раз.'
-          : 'Ждём подтверждение оплаты.');
+          ? 'Не удалось проверить конфиг. Попробуйте ещё раз.'
+          : 'Готовим конфиг.');
     } finally {
       if (manual && mounted) setState(() => loading = false);
     }
@@ -3275,108 +3277,34 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
-      title: _isTestPurchase ? '3 дня бесплатно' : 'Оплата Router1',
-      subtitle: _isTestPurchase
-          ? 'Выберите режим, укажите телефон и начните без карты и оплаты.'
-          : 'Оплата включает настройку роутера и первый месяц доступа Router1.',
+      title: 'Бесплатный доступ до 20 июля',
+      subtitle:
+          'Введите телефон: Router1 установит ранее оформленный конфиг или создаст новый без оплаты.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
               ? 'Проверяем...'
-              : 'Проверяем оплату...'
+              : 'Проверяем конфиг...'
           : order == null
-              ? (_isTestPurchase
-                  ? 'Начать бесплатно'
-                  : 'Проверить оплату или оплатить')
-              : 'Я оплатил — продолжить',
+              ? 'Проверить конфиг'
+              : 'Проверить готовность',
       onPrimary: loading
           ? () {}
           : order == null
               ? pay
               : () => unawaited(checkPayment(manual: true)),
       children: [
-        PricePanel(
-          title: _isTestPurchase
-              ? 'Router1 для роутера — 3 дня'
-              : 'Router1 для роутера',
-          price: _isTestPurchase ? 'Бесплатно' : '1990 ₽',
-        ),
-        if (!_isTestPurchase)
-          const Padding(
-            padding: EdgeInsets.only(top: 6, bottom: 2),
-            child: Text(
-              'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Router1Theme.green,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3),
-            ),
-          ),
-        Row(
-          children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _isTestPurchase = false),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color: !_isTestPurchase
-                        ? Router1Theme.green.withValues(alpha: 0.22)
-                        : const Color(0x33112029),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: !_isTestPurchase
-                            ? Router1Theme.green
-                            : Colors.transparent,
-                        width: 1.5),
-                  ),
-                  child: const Text('Полная настройка',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _isTestPurchase = true),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color: _isTestPurchase
-                        ? Router1Theme.green.withValues(alpha: 0.22)
-                        : const Color(0x33112029),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: _isTestPurchase
-                            ? Router1Theme.green
-                            : Colors.transparent,
-                        width: 1.5),
-                  ),
-                  child: const Text('3 дня бесплатно',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700)),
-                ),
-              ),
-            ),
-          ],
+        const PricePanel(
+          title: 'Router1 для роутера — до 20 июля',
+          price: 'Бесплатно',
         ),
         const SizedBox(height: 4),
         if (_isTestPurchase)
           const BenefitTile(
               icon: Icons.timer,
-              title: '72 часа без оплаты',
+              title: 'Бесплатно до 20 июля',
               text:
-                  'Пользуйтесь Standard и AI+ без ограничений все 3 дня. Доступ отключится автоматически. '
-                  'Если потом оплатите полную версию — этот же конфиг можно использовать дальше.'),
+                  'Оплата временно не требуется. После восстановления платежей этот же конфиг можно будет использовать дальше.'),
         if (_isTestPurchase) ...[
           _RouteModeCard(
             icon: Icons.workspace_premium_rounded,
@@ -3408,9 +3336,9 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         ],
         const BenefitTile(
             icon: Icons.install_mobile,
-            title: 'Если уже оплатили, новая оплата не нужна',
+            title: 'Сначала проверим существующий конфиг',
             text:
-                'Введите тот же телефон. Router1 найдёт активный конфиг и сразу начнёт установку. Если конфига нет — откроется оплата.'),
+                'Если конфиг уже оформлен — сразу установим его. Если нет — бесплатно создадим новый.'),
         Router1Card(
           child: Column(
             children: [
