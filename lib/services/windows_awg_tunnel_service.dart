@@ -56,6 +56,8 @@ class WindowsAwgTunnelService {
   Future<WindowsAwgTunnelState> connect(String config) async {
     final executable = await _findExecutable();
     final file = await _writeConfig(config);
+    final current = await status();
+    if (current.connected) return current;
     await _uninstallIfPresent(executable);
     final result = await Process.run(
       executable,
@@ -63,6 +65,8 @@ class WindowsAwgTunnelService {
       runInShell: false,
     );
     if (result.exitCode != 0) {
+      final currentAfterInstall = await status();
+      if (currentAfterInstall.connected) return currentAfterInstall;
       final message = result.stderr.toString().trim();
       throw WindowsAwgTunnelException(
         message.isEmpty
@@ -92,6 +96,14 @@ class WindowsAwgTunnelService {
         'Не удалось выключить предыдущее подключение Router1.',
       );
     }
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final value = await status();
+      if (!value.installed) return;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw const WindowsAwgTunnelException(
+      'Windows ещё завершает предыдущее подключение. Подождите несколько секунд и повторите.',
+    );
   }
 
   Future<WindowsAwgTunnelState> status() async {
@@ -108,7 +120,10 @@ class WindowsAwgTunnelService {
     }
     final output = '${result.stdout}\n${result.stderr}'.toUpperCase();
     return WindowsAwgTunnelState(
-      connected: RegExp(r'STATE\s*:\s*4\s+RUNNING').hasMatch(output),
+      // Имя поля локализуется Windows, но числовое состояние 4 остаётся
+      // одинаковым на русской и английской системах.
+      connected: RegExp(r':\s*4\s+').hasMatch(output) ||
+          RegExp(r'\bRUNNING\b').hasMatch(output),
       installed: true,
     );
   }

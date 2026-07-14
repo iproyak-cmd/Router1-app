@@ -19,7 +19,7 @@ import 'services/awg_tunnel_service.dart';
 import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.13+115';
+const router1AppVersion = '0.2.0-internal.13+116';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -198,8 +198,10 @@ class _FirstRunShellState extends State<FirstRunShell> {
   Future<void> finishRouterReconnect(KeeneticAccess value) async {
     routerAccess = value;
     router = value.router;
+    var existingTunnelWorks = false;
     try {
-      await setupService.attachAndCheckExistingTunnel(value);
+      final status = await setupService.attachAndCheckExistingTunnel(value);
+      existingTunnelWorks = status.handshakeOk;
     } catch (_) {}
     if (!mounted) return;
     if (routerSetupResumeStage != null) {
@@ -207,6 +209,15 @@ class _FirstRunShellState extends State<FirstRunShell> {
         path = FirstRunPath.router;
         routerReconnectOnly = false;
         step = 6;
+      });
+    } else if (!existingTunnelWorks) {
+      setState(() {
+        path = FirstRunPath.router;
+        routerReconnectOnly = false;
+        paid = false;
+        awgConfig = null;
+        paidOrderId = null;
+        step = 5;
       });
     } else {
       openHome();
