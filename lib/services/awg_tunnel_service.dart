@@ -35,6 +35,8 @@ class AwgTunnelService {
       final value = await _windows.connect(config);
       return AwgTunnelStatus(
         state: value.connected ? 'up' : 'down',
+        rxBytes: value.rxBytes,
+        txBytes: value.txBytes,
         serverCode: serverCode,
       );
     }
@@ -67,7 +69,11 @@ class AwgTunnelService {
   Future<AwgTunnelStatus> disconnect() async {
     if (Platform.isWindows) {
       final value = await _windows.disconnect();
-      return AwgTunnelStatus(state: value.connected ? 'up' : 'down');
+      return AwgTunnelStatus(
+        state: value.connected ? 'up' : 'down',
+        rxBytes: value.rxBytes,
+        txBytes: value.txBytes,
+      );
     }
     final value =
         await _channel.invokeMapMethod<String, dynamic>('disconnect') ??
@@ -78,7 +84,11 @@ class AwgTunnelService {
   Future<AwgTunnelStatus> status() async {
     if (Platform.isWindows) {
       final value = await _windows.status();
-      return AwgTunnelStatus(state: value.connected ? 'up' : 'down');
+      return AwgTunnelStatus(
+        state: value.connected ? 'up' : 'down',
+        rxBytes: value.rxBytes,
+        txBytes: value.txBytes,
+      );
     }
     final value =
         await _channel.invokeMapMethod<String, dynamic>('status') ?? const {};

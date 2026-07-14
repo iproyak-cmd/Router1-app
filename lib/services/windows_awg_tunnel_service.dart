@@ -6,10 +6,14 @@ class WindowsAwgTunnelState {
   const WindowsAwgTunnelState({
     required this.connected,
     required this.installed,
+    this.rxBytes = 0,
+    this.txBytes = 0,
   });
 
   final bool connected;
   final bool installed;
+  final int rxBytes;
+  final int txBytes;
 }
 
 class WindowsAwgTunnelException implements Exception {
@@ -41,7 +45,7 @@ class WindowsAwgTunnelService {
     );
   }
 
-  Future<File> _writeConfig(String config) async {
+  Future<(File, bool)> _writeConfig(String config) async {
     if (!config.contains('[Interface]') || !config.contains('[Peer]')) {
       throw const WindowsAwgTunnelException('Получен некорректный конфиг.');
     }
@@ -49,15 +53,70 @@ class WindowsAwgTunnelService {
     final directory = Directory('${root.path}\\tunnels');
     await directory.create(recursive: true);
     final file = File('${directory.path}\\$tunnelName.conf');
-    await file.writeAsString(config, flush: true);
-    return file;
+    // Не используем точные default-route /0 на Windows: они включают kill
+    // switch движка и блокируют локальную сеть, включая админку роутера.
+    final windowsConfig = config.replaceAllMapped(
+      RegExp(
+        r'^\s*AllowedIPs\s*=\s*(.+)$',
+        multiLine: true,
+        caseSensitive: false,
+      ),
+      (match) {
+        var value = match.group(1) ?? '';
+        value = value.replaceAll('0.0.0.0/0', '0.0.0.0/1, 128.0.0.0/1');
+        value = value.replaceAll('::/0', '::/1, 8000::/1');
+        return 'AllowedIPs = $value';
+      },
+    );
+    final previous = await file.exists() ? await file.readAsString() : null;
+    final changed = previous != windowsConfig;
+    await file.writeAsString(windowsConfig, flush: true);
+    return (file, changed);
+  }
+
+  Future<String?> _findToolExecutable() async {
+    final appDirectory = File(Platform.resolvedExecutable).parent;
+    final engineDirectory = Directory('${appDirectory.path}\\engine');
+    if (!await engineDirectory.exists()) return null;
+    await for (final entity in engineDirectory.list(recursive: true)) {
+      if (entity is File &&
+          entity.uri.pathSegments.last.toLowerCase() == 'awg.exe') {
+        return entity.path;
+      }
+    }
+    return null;
+  }
+
+  Future<(int, int)> _transferStats() async {
+    final tool = await _findToolExecutable();
+    if (tool == null) return (0, 0);
+    try {
+      final result = await Process.run(
+        tool,
+        const ['show', tunnelName, 'transfer'],
+        runInShell: false,
+      );
+      if (result.exitCode != 0) return (0, 0);
+      var rx = 0;
+      var tx = 0;
+      for (final line in result.stdout.toString().split(RegExp(r'[\r\n]+'))) {
+        final fields = line.trim().split(RegExp(r'\s+'));
+        if (fields.length < 3) continue;
+        rx += int.tryParse(fields[fields.length - 2]) ?? 0;
+        tx += int.tryParse(fields.last) ?? 0;
+      }
+      return (rx, tx);
+    } catch (_) {
+      return (0, 0);
+    }
   }
 
   Future<WindowsAwgTunnelState> connect(String config) async {
     final executable = await _findExecutable();
-    final file = await _writeConfig(config);
+    final prepared = await _writeConfig(config);
+    final file = prepared.$1;
     final current = await status();
-    if (current.connected) return current;
+    if (current.connected && !prepared.$2) return current;
     await _uninstallIfPresent(executable);
     final result = await Process.run(
       executable,
@@ -119,12 +178,16 @@ class WindowsAwgTunnelService {
       );
     }
     final output = '${result.stdout}\n${result.stderr}'.toUpperCase();
+    final connected = RegExp(r':\s*4\s+').hasMatch(output) ||
+        RegExp(r'\bRUNNING\b').hasMatch(output);
+    final stats = connected ? await _transferStats() : (0, 0);
     return WindowsAwgTunnelState(
       // Имя поля локализуется Windows, но числовое состояние 4 остаётся
       // одинаковым на русской и английской системах.
-      connected: RegExp(r':\s*4\s+').hasMatch(output) ||
-          RegExp(r'\bRUNNING\b').hasMatch(output),
+      connected: connected,
       installed: true,
+      rxBytes: stats.$1,
+      txBytes: stats.$2,
     );
   }
 }

@@ -19,7 +19,7 @@ import 'services/awg_tunnel_service.dart';
 import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 
-const router1AppVersion = '0.2.0-internal.13+116';
+const router1AppVersion = '0.2.0-internal.13+117';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
@@ -755,9 +755,31 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       activeConfigs.any((config) => config.routerCandidate);
   List<Router1ClientConfig> get routerConfigs =>
       activeConfigs.where((config) => config.routerCandidate).toList();
-  List<Router1ClientConfig> get gadgetConfigs => activeConfigs
-      .where((config) => !config.routerCandidate && config.hasConfig)
-      .toList();
+  List<Router1ClientConfig> get gadgetConfigs {
+    final configs = activeConfigs
+        .where((config) => !config.routerCandidate && config.hasConfig)
+        .toList();
+    bool matchesCurrentPlatform(Router1ClientConfig config) {
+      final value = '${config.productType} ${config.deviceName}'.toLowerCase();
+      if (Platform.isWindows) {
+        return value.contains('windows') ||
+            value.contains('laptop') ||
+            value.contains('pc') ||
+            value.contains('ноутбук') ||
+            value.contains('пк');
+      }
+      if (Platform.isAndroid) {
+        return value.contains('android') ||
+            value.contains('smartphone') ||
+            value.contains('смартфон');
+      }
+      return true;
+    }
+
+    final preferred = configs.where(matchesCurrentPlatform).toList();
+    return preferred.isNotEmpty ? preferred : configs;
+  }
+
   bool get hasSubscription =>
       widget.clientPhone.trim().isNotEmpty &&
       (lookup?.configs.isNotEmpty == true ||
