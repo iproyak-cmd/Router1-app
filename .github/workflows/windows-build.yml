@@ -39,8 +39,10 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: |
-          flutter build windows --release *>&1 | Tee-Object -FilePath windows-build.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmd.exe /d /s /c "flutter build windows --release > windows-build.log 2>&1"
+          $BuildExitCode = $LASTEXITCODE
+          Get-Content -Path windows-build.log
+          if ($BuildExitCode -ne 0) { exit $BuildExitCode }
       - name: Add embedded Router1 network engine
         id: engine
         continue-on-error: true
