@@ -1,0 +1,39 @@
+name: Router1 Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - "windows/**"
+      - "assets/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build windows --release
+      - name: Add embedded Router1 network engine
+        shell: powershell
+        run: .\tool\prepare_windows_engine.ps1
+      - name: Build Router1 installer
+        shell: powershell
+        run: |
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ".\windows\installer\router1.iss"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Router1-Windows
+          path: build-output/windows/Router1Setup.exe
+          if-no-files-found: error

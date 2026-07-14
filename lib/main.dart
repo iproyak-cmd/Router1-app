@@ -23,6 +23,31 @@ const router1AppVersion = '0.2.0-internal.12+111';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 const router1VersionCheckUrl = 'https://router1.tech/app/version.json';
 
+String get router1CurrentPlatform {
+  if (Platform.isWindows) return 'Windows';
+  if (Platform.isMacOS) return 'macOS';
+  if (Platform.isLinux) return 'Linux';
+  if (Platform.isIOS) return 'iPhone';
+  return 'Android';
+}
+
+bool get router1HasEmbeddedTunnel => Platform.isAndroid || Platform.isWindows;
+
+String get router1CurrentDeviceTitle => Platform.isWindows
+    ? 'Этот Windows ПК'
+    : Platform.isMacOS
+        ? 'Этот Mac'
+        : Platform.isLinux
+            ? 'Этот компьютер'
+            : Platform.isIOS
+                ? 'Этот iPhone'
+                : 'Этот Android';
+
+IconData get router1CurrentDeviceIcon =>
+    Platform.isWindows || Platform.isLinux || Platform.isMacOS
+        ? Icons.computer_rounded
+        : Icons.phone_android_rounded;
+
 int get router1AppBuildNumber {
   final plusIndex = router1AppVersion.indexOf('+');
   if (plusIndex == -1) return 0;
@@ -88,7 +113,7 @@ class FirstRunShell extends StatefulWidget {
 class _FirstRunShellState extends State<FirstRunShell> {
   var step = 0;
   FirstRunPath? path;
-  var platform = 'Android';
+  var platform = router1CurrentPlatform;
   var runMode = Router1RunMode.real;
   KeeneticRouter? router;
   KeeneticAccess? routerAccess;
@@ -198,7 +223,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   void startGadgetSetupFromHome() {
     setState(() {
       path = FirstRunPath.gadget;
-      platform = 'Android';
+      platform = router1CurrentPlatform;
       gadgetConfigText = null;
       gadgetConfigFilename = null;
       step = 3;
@@ -358,13 +383,15 @@ class _FirstRunShellState extends State<FirstRunShell> {
           ),
           const SizedBox(height: 22),
           ChoiceCard(
-            icon: Icons.phone_android_rounded,
-            title: 'Смартфон',
-            description: 'Полный доступ: весь трафик через Router1.',
-            button: 'Подключить смартфон',
+            icon: router1CurrentDeviceIcon,
+            title: Platform.isWindows ? 'Этот компьютер' : 'Смартфон',
+            description: 'Отдельное подключение этого устройства.',
+            button: Platform.isWindows
+                ? 'Подключить компьютер'
+                : 'Подключить смартфон',
             onTap: () {
               path = FirstRunPath.gadget;
-              platform = 'Android';
+              platform = router1CurrentPlatform;
               goTo(3);
             },
           ),
@@ -908,6 +935,10 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
 
   Future<void> toggleAndroid() async {
     if (switching) return;
+    if (!router1HasEmbeddedTunnel) {
+      widget.onSetupAndroid();
+      return;
+    }
     setState(() {
       switching = true;
       error = null;
@@ -933,6 +964,8 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       }
     } on PlatformException catch (exception) {
       error = exception.message ?? 'Не удалось изменить состояние Router1.';
+    } catch (exception) {
+      error = exception.toString();
     } finally {
       if (mounted) setState(() => switching = false);
     }
@@ -958,8 +991,10 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
               ),
               ListTile(
                 leading:
-                    const Icon(Icons.phone_android, color: Router1Theme.green),
-                title: const Text('Android-устройство'),
+                    Icon(router1CurrentDeviceIcon, color: Router1Theme.green),
+                title: Text(Platform.isWindows
+                    ? 'Windows-компьютер'
+                    : 'Мобильное устройство'),
                 onTap: () {
                   Navigator.pop(context);
                   widget.onSetupAndroid();
@@ -1271,31 +1306,41 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                 ],
                 const SizedBox(height: 14),
                 _DashboardDeviceCard(
-                  icon: Icons.phone_android,
-                  title: 'Этот Android',
-                  subtitle: tunnelStatus.connected
-                      ? tunnelStatus.handshake > 0
-                          ? 'Подключено · сервер отвечает'
-                          : 'Подключено · ждём сервер'
-                      : !lookupLoaded
-                          ? 'Проверяем сохранённое подключение'
-                          : gadgetConfigs.isNotEmpty || configText != null
-                              ? 'Готово к подключению'
-                              : 'Встроенный туннель Router1',
-                  action: switching
-                      ? 'Подождите...'
+                  icon: router1CurrentDeviceIcon,
+                  title: router1CurrentDeviceTitle,
+                  subtitle: !router1HasEmbeddedTunnel
+                      ? gadgetConfigs.isNotEmpty || configText != null
+                          ? 'Конфигурация готова'
+                          : 'Отдельное подключение компьютера'
                       : tunnelStatus.connected
-                          ? 'Выключить'
+                          ? tunnelStatus.handshake > 0
+                              ? 'Подключено · сервер отвечает'
+                              : 'Подключено · ждём сервер'
                           : !lookupLoaded
-                              ? 'Проверяем...'
+                              ? 'Проверяем сохранённое подключение'
                               : gadgetConfigs.isNotEmpty || configText != null
-                                  ? 'Включить'
-                                  : 'Настроить',
+                                  ? 'Готово к подключению'
+                                  : 'Встроенный туннель Router1',
+                  action: !router1HasEmbeddedTunnel
+                      ? gadgetConfigs.isNotEmpty || configText != null
+                          ? 'Открыть настройку'
+                          : 'Настроить'
+                      : switching
+                          ? 'Подождите...'
+                          : tunnelStatus.connected
+                              ? 'Выключить'
+                              : !lookupLoaded
+                                  ? 'Проверяем...'
+                                  : gadgetConfigs.isNotEmpty ||
+                                          configText != null
+                                      ? 'Включить'
+                                      : 'Настроить',
                   active: tunnelStatus.connected,
                   onTap: switching ? () {} : () => unawaited(toggleAndroid()),
-                  trailing: tunnelStatus.connected ||
-                          gadgetConfigs.isNotEmpty ||
-                          configText != null
+                  trailing: router1HasEmbeddedTunnel &&
+                          (tunnelStatus.connected ||
+                              gadgetConfigs.isNotEmpty ||
+                              configText != null)
                       ? Switch(
                           value: tunnelStatus.connected,
                           onChanged: switching
@@ -1315,10 +1360,10 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                 for (final config in gadgetConfigs.skip(1)) ...[
                   const SizedBox(height: 14),
                   _DashboardDeviceCard(
-                    icon: Icons.phone_android,
+                    icon: router1CurrentDeviceIcon,
                     title: config.deviceName,
                     subtitle: 'Действует · устройство сейчас не проверяется',
-                    action: 'Отдельное Android-устройство',
+                    action: 'Отдельное устройство',
                     active: false,
                     onTap: () {},
                   ),
@@ -5502,7 +5547,7 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
   @override
   void initState() {
     super.initState();
-    if (platform == 'Android') {
+    if (platform == 'Android' || platform == 'Windows') {
       unawaited(_refreshTunnelStatus());
       statusTimer = Timer.periodic(
         const Duration(seconds: 3),
@@ -5548,6 +5593,8 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
         setState(
             () => tunnelError = error.message ?? 'Не удалось включить Router1');
       }
+    } catch (error) {
+      if (mounted) setState(() => tunnelError = error.toString());
     } finally {
       if (mounted) setState(() => connecting = false);
     }
@@ -5648,11 +5695,11 @@ class _GadgetInstructionPageState extends State<GadgetInstructionPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (platform == 'Android') {
+    if (platform == 'Android' || platform == 'Windows') {
       return FlowScaffold(
         title: connected ? 'Router1 подключён' : 'Включить Router1',
         subtitle: connected
-            ? 'Защищённый туннель работает внутри приложения.'
+            ? 'Подключение работает на этом устройстве.'
             : 'Конфиг уже загружен. Разрешите VPN и включите подключение.',
         onBack: onBack,
         primaryText: connecting

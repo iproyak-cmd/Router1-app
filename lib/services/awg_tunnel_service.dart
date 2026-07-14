@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
+
+import 'windows_awg_tunnel_service.dart';
 
 class AwgTunnelStatus {
   const AwgTunnelStatus({
@@ -18,12 +22,22 @@ class AwgTunnelStatus {
 
 class AwgTunnelService {
   static const _channel = MethodChannel('tech.router1.app/awg');
+  final _windows = WindowsAwgTunnelService();
 
-  Future<bool> prepare() async =>
-      await _channel.invokeMethod<bool>('prepare') ?? false;
+  Future<bool> prepare() async {
+    if (Platform.isWindows) return true;
+    return await _channel.invokeMethod<bool>('prepare') ?? false;
+  }
 
   Future<AwgTunnelStatus> connect(String config,
       {String serverCode = ''}) async {
+    if (Platform.isWindows) {
+      final value = await _windows.connect(config);
+      return AwgTunnelStatus(
+        state: value.connected ? 'up' : 'down',
+        serverCode: serverCode,
+      );
+    }
     final value = await _channel.invokeMapMethod<String, dynamic>(
           'connect',
           {'config': config, 'serverCode': serverCode},
@@ -51,6 +65,10 @@ class AwgTunnelService {
       false;
 
   Future<AwgTunnelStatus> disconnect() async {
+    if (Platform.isWindows) {
+      final value = await _windows.disconnect();
+      return AwgTunnelStatus(state: value.connected ? 'up' : 'down');
+    }
     final value =
         await _channel.invokeMapMethod<String, dynamic>('disconnect') ??
             const {};
@@ -58,6 +76,10 @@ class AwgTunnelService {
   }
 
   Future<AwgTunnelStatus> status() async {
+    if (Platform.isWindows) {
+      final value = await _windows.status();
+      return AwgTunnelStatus(state: value.connected ? 'up' : 'down');
+    }
     final value =
         await _channel.invokeMapMethod<String, dynamic>('status') ?? const {};
     return AwgTunnelStatus(
