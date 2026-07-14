@@ -39,9 +39,10 @@ jobs:
         continue-on-error: true
         shell: powershell
         env:
-          ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN }}
+          ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:ROUTER1_APP_TOKEN)) {
+            "ROUTER1_APP_TOKEN or APP_API_TOKEN repository secret is required" | Set-Content -Encoding UTF8 windows-build.log
             throw "ROUTER1_APP_TOKEN repository secret is required"
           }
           cmd.exe /d /s /c "flutter build windows --release --dart-define=ROUTER1_APP_TOKEN=$env:ROUTER1_APP_TOKEN > windows-build.log 2>&1"
