@@ -28,4 +28,4 @@ Name: "{autoprograms}\Router1"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\Router1"; Filename: "{app}\{#AppExeName}"
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Запустить Router1"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExeName}"; Description: "Запустить Router1"; Flags: nowait postinstall skipifsilent runascurrentuser
