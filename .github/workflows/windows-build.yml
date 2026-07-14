@@ -76,14 +76,8 @@ jobs:
           "@ | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\router1-release\build-report.txt"
           git config user.name "router1-build"
           git config user.email "build@router1.tech"
-          git fetch origin builds 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            git switch builds
-            git rm -rf .
-          } else {
-            git switch --orphan builds
-            git rm -rf . 2>$null
-          }
+          git switch --orphan builds
+          git rm -rf .
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
           Copy-Item "$env:RUNNER_TEMP\router1-release\*" ".\dist\"
           if (Test-Path ".\dist\Router1Setup.exe") {
