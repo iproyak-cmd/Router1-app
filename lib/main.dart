@@ -18,8 +18,9 @@ import 'services/keenetic_setup_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
+import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.15+119';
+const router1AppVersion = '0.2.0-internal.16+120';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
@@ -134,6 +135,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
   var routerReconnectOnly = false;
   String? routerSetupResumeStage;
   final setupService = KeeneticSetupService();
+  final routerCredentialsService = RouterCredentialsService();
+  SavedRouterCredentials? savedRouterCredentials;
   final appApi = Router1Api(
     baseUrl: 'https://router1.tech/api',
     token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
@@ -198,6 +201,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   }
 
   Future<void> finishRouterReconnect(KeeneticAccess value) async {
+    await _saveRouterAccess(value);
     routerAccess = value;
     router = value.router;
     var existingTunnelWorks = false;
@@ -223,6 +227,39 @@ class _FirstRunShellState extends State<FirstRunShell> {
       });
     } else {
       openHome();
+    }
+  }
+
+  Future<void> _saveRouterAccess(KeeneticAccess value) async {
+    if (value.testMode) return;
+    final credentials = SavedRouterCredentials(
+      address: value.router.ip,
+      login: value.login,
+      password: value.password,
+    );
+    savedRouterCredentials = credentials;
+    await routerCredentialsService.save(
+      address: credentials.address,
+      login: credentials.login,
+      password: credentials.password,
+    );
+  }
+
+  Future<void> _restoreRouterAccess() async {
+    final credentials = await routerCredentialsService.read();
+    savedRouterCredentials = credentials;
+    if (credentials == null) return;
+    try {
+      final access = await setupService.authenticate(
+        router: KeeneticRouter.manual(ip: credentials.address),
+        login: credentials.login,
+        password: credentials.password,
+        testMode: false,
+      );
+      routerAccess = access;
+      router = access.router;
+    } catch (_) {
+      // Оставляем данные для заполнения формы: роутер мог быть временно офлайн.
     }
   }
 
@@ -272,6 +309,7 @@ class _FirstRunShellState extends State<FirstRunShell> {
   }
 
   Future<void> loadInitialScreen() async {
+    await _restoreRouterAccess();
     final prefs = await SharedPreferences.getInstance();
     if (!mounted || step != 0) return;
     final pendingRouterStage = prefs.getString('router1_router_setup_stage');
@@ -486,10 +524,12 @@ class _FirstRunShellState extends State<FirstRunShell> {
     return switch (step) {
       2 => RouterConnectPage(
           service: setupService,
+          initialCredentials: savedRouterCredentials,
           onAccess: (value) {
             if (routerReconnectOnly) {
               unawaited(finishRouterReconnect(value));
             } else {
+              unawaited(_saveRouterAccess(value));
               routerAccess = value;
               router = value.router;
               goTo(5);
@@ -2172,6 +2212,7 @@ class RouterConnectPage extends StatefulWidget {
     required this.onAccess,
     required this.onLog,
     required this.onBack,
+    this.initialCredentials,
     super.key,
   });
 
@@ -2179,6 +2220,7 @@ class RouterConnectPage extends StatefulWidget {
   final ValueChanged<KeeneticAccess> onAccess;
   final ValueChanged<SetupLogEntry> onLog;
   final VoidCallback onBack;
+  final SavedRouterCredentials? initialCredentials;
 
   @override
   State<RouterConnectPage> createState() => _RouterConnectPageState();
@@ -2190,6 +2232,17 @@ class _RouterConnectPageState extends State<RouterConnectPage> {
   final password = TextEditingController();
   var loading = false;
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = widget.initialCredentials;
+    if (saved != null) {
+      address.text = saved.address;
+      login.text = saved.login;
+      password.text = saved.password;
+    }
+  }
 
   @override
   void dispose() {
