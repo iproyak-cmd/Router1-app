@@ -20,7 +20,7 @@ import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.16+120';
+const router1AppVersion = '0.2.0-internal.17+121';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
