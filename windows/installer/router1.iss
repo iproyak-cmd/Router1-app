@@ -1,7 +1,7 @@
 #define AppName "Router1"
-#define AppVersion "0.2.0.118"
+#define AppVersion "0.2.0.119"
 #define AppPublisher "Router1"
-#define AppExeName "router1_app_mvp.exe"
+#define AppExeName "Router1.exe"
 
 [Setup]
 AppId={{78DBB054-6235-41C0-9025-AF50BC273101}
@@ -19,9 +19,15 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#AppExeName}
+CloseApplications=yes
+RestartApplications=yes
+CloseApplicationsFilter=*.exe
 
 [Files]
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+Type: files; Name: "{app}\router1_app_mvp.exe"
 
 [Icons]
 Name: "{autoprograms}\Router1"; Filename: "{app}\{#AppExeName}"
