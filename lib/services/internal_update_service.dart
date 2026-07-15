@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-const router1InternalVersionUrl =
-    'https://router1.tech/app/internal/version.json';
+String get router1InternalVersionUrl => Platform.isWindows
+    ? 'https://router1.tech/app/windows/version.json'
+    : 'https://router1.tech/app/internal/version.json';
 
 class Router1InternalUpdate {
   const Router1InternalUpdate({
@@ -53,6 +55,19 @@ class InternalUpdateService {
   }
 
   Future<void> install(String url) async {
+    if (Platform.isWindows) {
+      final opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) {
+        throw PlatformException(
+          code: 'update_download_failed',
+          message: 'Не удалось открыть загрузку обновления.',
+        );
+      }
+      return;
+    }
     await _channel.invokeMethod<bool>('installUpdate', {'url': url});
   }
 }
