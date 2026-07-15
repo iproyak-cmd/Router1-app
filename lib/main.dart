@@ -20,7 +20,7 @@ import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.18+122';
+const router1AppVersion = '0.2.0-internal.19+123';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
@@ -853,8 +853,11 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
     }
     if (configs.any((config) {
       final product = config.productType.toLowerCase();
-      final device = config.deviceType.toLowerCase();
-      return product == 'pc' || device == 'pc' || device.contains('windows');
+      final name = config.deviceName.toLowerCase();
+      return product == 'pc' ||
+          name.contains('windows') ||
+          name.contains('ноутбук') ||
+          name.contains('пк');
     })) {
       return 'ноутбуке / ПК — 490 ₽';
     }
