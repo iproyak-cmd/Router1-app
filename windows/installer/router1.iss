@@ -1,5 +1,5 @@
 #define AppName "Router1"
-#define AppVersion "0.2.0.121"
+#define AppVersion "0.2.0.122"
 #define AppPublisher "Router1"
 #define AppExeName "Router1.exe"
 

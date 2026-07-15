@@ -20,7 +20,7 @@ import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.17+121';
+const router1AppVersion = '0.2.0-internal.18+122';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
@@ -846,12 +846,19 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
     final configs = lookup?.configs.where((config) => config.isTest) ??
         const <Router1ClientConfig>[];
     if (configs.any((config) => config.routerCandidate)) {
-      return 'роутере — 1 990 ₽';
+      return 'роутере — 1 300 ₽';
     }
     if (configs.any((config) => config.productType.toLowerCase() == 'iphone')) {
-      return 'iPhone — 990 ₽';
+      return 'iPhone — 390 ₽';
     }
-    return 'устройстве — 990 ₽';
+    if (configs.any((config) {
+      final product = config.productType.toLowerCase();
+      final device = config.deviceType.toLowerCase();
+      return product == 'pc' || device == 'pc' || device.contains('windows');
+    })) {
+      return 'ноутбуке / ПК — 490 ₽';
+    }
+    return 'устройстве — 390 ₽';
   }
 
   @override
@@ -5329,12 +5336,16 @@ class _GadgetPaymentPageState extends State<GadgetPaymentPage>
                 : (_isPhone
                     ? 'Router1 для смартфона'
                     : 'Router1 для ноутбука / ПК'),
-            price: _isTestPurchase ? 'Бесплатно' : '990 ₽'),
+            price: _isTestPurchase
+                ? 'Бесплатно'
+                : widget.platform == 'Windows'
+                    ? '490 ₽'
+                    : '390 ₽'),
         if (!_isTestPurchase)
           const Padding(
             padding: EdgeInsets.only(top: 6, bottom: 2),
             child: Text(
-              'Абонентская плата 300 ₽/мес — начиная со второго месяца.',
+              'Абонентская плата 350 ₽/мес — начиная со второго месяца.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Router1Theme.green,
@@ -6131,7 +6142,7 @@ class PricePanel extends StatelessWidget {
           const CheckLine(text: 'Все режимы и локации'),
           const CheckLine(text: 'Приоритетная поддержка'),
           const CheckLine(text: 'Первый месяц доступа включён'),
-          const CheckLine(text: 'Далее абонентская плата 300 ₽/мес'),
+          const CheckLine(text: 'Далее абонентская плата 350 ₽/мес'),
         ],
       ),
     );
