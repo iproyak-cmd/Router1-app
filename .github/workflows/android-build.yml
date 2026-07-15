@@ -1,0 +1,46 @@
+name: Router1 Android
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-build.yml"
+      - "lib/**"
+      - "android/**"
+      - "assets/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - name: Build Android APK
+        env:
+          ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+        run: |
+          test -n "$ROUTER1_APP_TOKEN"
+          flutter build apk --release --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
+      - name: Prepare Android release
+        run: |
+          mkdir -p "${RUNNER_TEMP}/router1-android"
+          cp build/app/outputs/flutter-apk/app-release.apk "${RUNNER_TEMP}/router1-android/Router1.apk"
+          sha256sum "${RUNNER_TEMP}/router1-android/Router1.apk" > "${RUNNER_TEMP}/router1-android/Router1.apk.sha256"
+      - name: Publish Android release
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: android-builds
+          publish_dir: ${{ runner.temp }}/router1-android
+          force_orphan: true
