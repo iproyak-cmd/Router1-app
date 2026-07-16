@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:router1_app_mvp/router1_api.dart';
+import 'package:fabula_app/router1_api.dart';
 
 void main() {
   group('Router1RouteProfileKind', () {

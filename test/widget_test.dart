@@ -7,7 +7,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:router1_app_mvp/main.dart';
+import 'package:fabula_app/main.dart';
 
 void main() {
   testWidgets('Fabula starts', (WidgetTester tester) async {
