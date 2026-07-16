@@ -10,6 +10,7 @@ on:
     paths:
       - ".github/workflows/android-build.yml"
       - "lib/**"
+      - "test/**"
       - "android/**"
       - "assets/**"
       - "pubspec.yaml"
