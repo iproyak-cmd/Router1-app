@@ -36,8 +36,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-            android/.cxx
-          key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/tunnel/tools/libwg-go/go.sum') }}
+          key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/libs/tunnel-release.aar') }}
           restore-keys: |
             fabula-android-${{ runner.os }}-
       - run: flutter pub get
