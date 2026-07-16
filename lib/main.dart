@@ -20,7 +20,7 @@ import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.19+123';
+const router1AppVersion = '0.2.0-internal.20+124';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
@@ -56,6 +56,15 @@ int get router1AppBuildNumber {
   if (plusIndex == -1) return 0;
   return int.tryParse(router1AppVersion.substring(plusIndex + 1)) ?? 0;
 }
+
+const router1ZodiacSigns = <(String, String, String)>[
+  ('aries', 'Овен', '♈'), ('taurus', 'Телец', '♉'),
+  ('gemini', 'Близнецы', '♊'), ('cancer', 'Рак', '♋'),
+  ('leo', 'Лев', '♌'), ('virgo', 'Дева', '♍'),
+  ('libra', 'Весы', '♎'), ('scorpio', 'Скорпион', '♏'),
+  ('sagittarius', 'Стрелец', '♐'), ('capricorn', 'Козерог', '♑'),
+  ('aquarius', 'Водолей', '♒'), ('pisces', 'Рыбы', '♓'),
+];
 
 void main() {
   runApp(const Router1App());
@@ -781,6 +790,9 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
   var routerFailoverEvaluating = false;
   var routerFailureSamples = 0;
   DateTime? routerLastFailoverAttempt;
+  String? selectedZodiacSign;
+  Router1DailyHoroscope? horoscope;
+  var horoscopeLoading = false;
 
   bool isCurrentConfig(Router1ClientConfig config) {
     final deadline = config.paidUntil;
@@ -869,6 +881,7 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
     super.initState();
     configText = widget.initialGadgetConfig;
     unawaited(refresh());
+    unawaited(_loadHoroscopePreference());
     timer = Timer.periodic(
       const Duration(seconds: 3),
       (_) => unawaited(refreshTunnel()),
@@ -877,6 +890,65 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
       const Duration(seconds: 15),
       (_) => unawaited(evaluateRouterFailover()),
     );
+  }
+
+  Future<void> _loadHoroscopePreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sign = prefs.getString('router1_zodiac_sign');
+    if (sign == null || sign.isEmpty) return;
+    selectedZodiacSign = sign;
+    await _loadHoroscope(sign);
+  }
+
+  Future<void> _loadHoroscope(String sign) async {
+    if (mounted) setState(() => horoscopeLoading = true);
+    try {
+      final value = await widget.api.dailyHoroscope(sign);
+      if (mounted) setState(() => horoscope = value);
+    } catch (_) {
+      // Гороскоп не мешает основным функциям приложения при недоступности сети.
+    } finally {
+      if (mounted) setState(() => horoscopeLoading = false);
+    }
+  }
+
+  Future<void> _selectZodiacSign() async {
+    final sign = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Router1Theme.panel,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Выберите знак зодиака', style: TextStyle(
+              color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 16),
+            GridView.count(
+              shrinkWrap: true, crossAxisCount: 3,
+              childAspectRatio: 1.55, mainAxisSpacing: 8, crossAxisSpacing: 8,
+              children: router1ZodiacSigns.map((item) => OutlinedButton(
+                onPressed: () => Navigator.pop(context, item.$1),
+                child: Text('${item.$3} ${item.$2}', textAlign: TextAlign.center),
+              )).toList(),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (sign == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('router1_zodiac_sign', sign);
+    if (mounted) setState(() { selectedZodiacSign = sign; horoscope = null; });
+    await _loadHoroscope(sign);
+  }
+
+  Future<void> _shareHoroscope() async {
+    final value = horoscope;
+    if (value == null) return;
+    await SharePlus.instance.share(ShareParams(text:
+      '${value.symbol} ${value.signTitle} — прогноз на сегодня\n\n'
+      '${value.overview}\n\n🃏 Карта дня: ${value.tarotTitle}\n'
+      '${value.tarotMeaning}\n\nRouter1: https://router1.tech/download'));
   }
 
   @override
@@ -1334,6 +1406,13 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                 ),
                 const _InternalUpdateCard(),
                 const SizedBox(height: 18),
+                _DailyHoroscopeCard(
+                  value: horoscope,
+                  loading: horoscopeLoading,
+                  onSelectSign: _selectZodiacSign,
+                  onShare: _shareHoroscope,
+                ),
+                const SizedBox(height: 18),
                 if (trialPaymentRequired) ...[
                   Router1Card(
                     accentColor: Router1Theme.gold,
@@ -1440,43 +1519,6 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   const SizedBox(height: 12),
                   const LinearProgressIndicator(),
                 ],
-                const SizedBox(height: 18),
-                Router1Card(
-                  child: Row(
-                    children: [
-                      const Icon(Icons.newspaper_rounded,
-                          color: Router1Theme.green, size: 30),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Новости Router1',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900)),
-                            SizedBox(height: 4),
-                            Text('Обновления, инструкции и полезные материалы',
-                                style: TextStyle(
-                                    color: Router1Theme.muted,
-                                    fontSize: 14,
-                                    height: 1.3)),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Открыть канал',
-                        onPressed: () => launchUrl(
-                          Uri.parse('https://t.me/Router1_pro'),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.arrow_forward_rounded,
-                            color: Router1Theme.green),
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 22),
                 OutlinedButton.icon(
                   onPressed: showAddDevice,
@@ -1498,11 +1540,118 @@ class _InternalDeviceDashboardState extends State<InternalDeviceDashboard> {
                   icon: const Icon(Icons.share),
                   label: const Text('Поделиться приложением'),
                 ),
+                const SizedBox(height: 18),
+                Router1Card(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.newspaper_rounded,
+                        color: Router1Theme.green, size: 30),
+                    title: const Text('Новости Router1', style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w900)),
+                    subtitle: const Text('Обновления и полезные материалы',
+                        style: TextStyle(color: Router1Theme.muted)),
+                    trailing: const Icon(Icons.arrow_forward_rounded,
+                        color: Router1Theme.green),
+                    onTap: () => launchUrl(Uri.parse('https://t.me/Router1_pro'),
+                        mode: LaunchMode.externalApplication),
+                  ),
+                ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DailyHoroscopeCard extends StatelessWidget {
+  const _DailyHoroscopeCard({
+    required this.value,
+    required this.loading,
+    required this.onSelectSign,
+    required this.onShare,
+  });
+
+  final Router1DailyHoroscope? value;
+  final bool loading;
+  final VoidCallback onSelectSign;
+  final VoidCallback onShare;
+
+  Widget _section(String title, String text) => Padding(
+    padding: const EdgeInsets.only(top: 10),
+    child: RichText(text: TextSpan(
+      style: const TextStyle(color: Router1Theme.muted, fontSize: 14, height: 1.35),
+      children: [
+        TextSpan(text: '$title  ', style: const TextStyle(
+          color: Colors.white, fontWeight: FontWeight.w800)),
+        TextSpan(text: text),
+      ],
+    )),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final forecast = value;
+    return Router1Card(
+      accentColor: Router1Theme.gold,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Text(forecast?.symbol ?? '✦', style: const TextStyle(
+              color: Router1Theme.gold, fontSize: 38, fontWeight: FontWeight.w900)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(forecast == null ? 'Гороскоп и Таро на сегодня' : forecast.signTitle,
+              style: const TextStyle(color: Colors.white, fontSize: 20,
+                fontWeight: FontWeight.w900)),
+            Text(forecast == null ? 'Ежедневный прогноз' : forecast.lunarPhase,
+              style: const TextStyle(color: Router1Theme.muted, fontSize: 13)),
+          ])),
+        ]),
+        if (loading) ...[
+          const SizedBox(height: 16), const LinearProgressIndicator(),
+        ] else if (forecast == null) ...[
+          const SizedBox(height: 12),
+          const Text('Выберите знак — прогноз и карта дня будут обновляться автоматически.',
+            style: TextStyle(color: Router1Theme.muted, height: 1.35)),
+          const SizedBox(height: 14),
+          FilledButton(onPressed: onSelectSign, child: const Text('Выбрать знак')),
+        ] else ...[
+          const SizedBox(height: 12),
+          Text(forecast.overview, style: const TextStyle(
+            color: Colors.white, fontSize: 15, height: 1.4)),
+          _section('💼 Дела', forecast.work),
+          _section('💰 Деньги', forecast.money),
+          _section('❤️ Отношения', forecast.love),
+          _section('✨ Совет', forecast.advice),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: Router1Theme.panel2,
+              borderRadius: BorderRadius.circular(14)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('🃏 Карта дня: ${forecast.tarotTitle}', style: const TextStyle(
+                color: Router1Theme.gold, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text(forecast.tarotMeaning, style: const TextStyle(
+                color: Router1Theme.muted, height: 1.35)),
+            ]),
+          ),
+          const SizedBox(height: 10),
+          Text('Цвет дня: ${forecast.color} · Число дня: ${forecast.number}',
+            style: const TextStyle(color: Router1Theme.muted, fontSize: 13)),
+          const SizedBox(height: 4),
+          Text(forecast.disclaimer, style: const TextStyle(
+            color: Router1Theme.muted, fontSize: 11)),
+          const SizedBox(height: 10),
+          Row(children: [
+            TextButton(onPressed: onSelectSign, child: const Text('Другой знак')),
+            const Spacer(),
+            IconButton(onPressed: onShare, tooltip: 'Поделиться',
+              icon: const Icon(Icons.share_rounded, color: Router1Theme.green)),
+          ]),
+        ],
+      ]),
     );
   }
 }
