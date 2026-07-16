@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.1.2+3';
+const fabulaVersion = '0.1.3+4';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -108,13 +108,14 @@ class _FabulaShellState extends State<FabulaShell> {
         vpn = await tunnel.disconnect();
       } else {
         final lookup = await _lookupOrCreateTrial();
-        final candidates = lookup.gadgetConfigs.where((c) {
+        final available = _fabulaConfigs(lookup);
+        final candidates = available.where((c) {
           final text = '${c.productType} ${c.deviceName}'.toLowerCase();
           return Platform.isWindows ? text.contains('windows') || text.contains('pc') || text.contains('пк')
             : text.contains('android') || text.contains('smartphone') || text.contains('смартфон');
         }).toList();
         final config = candidates.isNotEmpty ? candidates.first
-          : (lookup.gadgetConfigs.isNotEmpty ? lookup.gadgetConfigs.first : null);
+          : (available.isNotEmpty ? available.first : null);
         if (config == null) throw const FormatException('no_config');
         final text = await api.fetchClientConfigText(phone: phone, deviceId: config.id);
         await tunnel.prepare();
@@ -131,7 +132,7 @@ class _FabulaShellState extends State<FabulaShell> {
   Future<Router1ClientLookup> _lookupOrCreateTrial() async {
     try {
       final current = await api.findClientByPhone(phone);
-      if (current.gadgetConfigs.isNotEmpty) return current;
+      if (_fabulaConfigs(current).isNotEmpty) return current;
     } catch (_) {}
     await api.createFabulaAccess(
       product: Platform.isWindows ? 'laptop_test' : 'smartphone_test',
@@ -142,11 +143,18 @@ class _FabulaShellState extends State<FabulaShell> {
       await Future<void>.delayed(const Duration(seconds: 2));
       try {
         final lookup = await api.findClientByPhone(phone);
-        if (lookup.gadgetConfigs.isNotEmpty) return lookup;
+        if (_fabulaConfigs(lookup).isNotEmpty) return lookup;
       } catch (_) {}
     }
     throw const FormatException('config_generation_timeout');
   }
+
+  List<Router1ClientConfig> _fabulaConfigs(Router1ClientLookup lookup) =>
+    lookup.configs.where((config) {
+      final status = config.status.toLowerCase();
+      return !config.routerCandidate && config.hasConfig &&
+        const {'active', 'paid'}.contains(status);
+    }).toList(growable: false);
 
   Future<void> _chooseSign() async {
     final value = await showModalBottomSheet<String>(context: context,
@@ -240,7 +248,9 @@ class _FabulaShellState extends State<FabulaShell> {
 
 class _Page extends StatelessWidget {
   const _Page({required this.children}); final List<Widget> children;
-  @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.fromLTRB(24, 22, 24, 30), children: children);
+  @override Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) =>
+    Align(alignment: Alignment.topCenter, child: SizedBox(width: constraints.maxWidth > 840 ? 840 : constraints.maxWidth,
+      child: ListView(padding: const EdgeInsets.fromLTRB(24, 22, 24, 30), children: children))));
 }
 
 class _OnboardingPage extends StatefulWidget {
@@ -343,14 +353,18 @@ class _TodayPage extends StatelessWidget {
       Text(f.tarotMeaning, style: const TextStyle(color: _muted, height: 1.4)),
     ])), const SizedBox(width: 14), _TarotArtwork(title: f.tarotTitle, width: 112)])),
     const SizedBox(height: 12),
-    _Card(child: f == null ? const Center(child: CircularProgressIndicator()) : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('ПРОГНОЗ ЗНАКА', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-      const SizedBox(height: 14), _editorial(f.overview, size: 23),
+    _Card(child: f == null ? const Center(child: CircularProgressIndicator()) : Stack(children: [
+      Positioned(right: -30, top: -24, child: Opacity(opacity: .68,
+        child: Image.asset('assets/fabula/branch.png', width: 250))),
+      Padding(padding: const EdgeInsets.only(right: 115), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('ПРОГНОЗ ЗНАКА', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+        const SizedBox(height: 14), _editorial(f.overview, size: 23),
+      ])),
     ])),
     const SizedBox(height: 12),
     if (f != null) Row(children: [Expanded(child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('ЦВЕТ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 12),
-      Row(children: [const CircleAvatar(backgroundColor: _burgundy), const SizedBox(width: 10), Expanded(child: Text(f.color))])]))),
+      Row(children: [CircleAvatar(backgroundColor: _colorForName(f.color)), const SizedBox(width: 10), Expanded(child: Text(f.color))])]))),
       const SizedBox(width: 10), Expanded(child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('ЧИСЛО ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 6),
         Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'Serif', fontSize: 42))])))]),
@@ -409,6 +423,7 @@ class _TarotArtwork extends StatelessWidget {
       'звезда' => 'assets/fabula/tarot/star.png',
       'луна' => 'assets/fabula/tarot/moon.png',
       'императрица' => 'assets/fabula/tarot/empress.png',
+      'башня' => 'assets/fabula/tarot/tower.png',
       _ => null,
     };
     if (asset == null) {
@@ -460,6 +475,16 @@ String _date() {
   const weekdays = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
   final d = DateTime.now(); return '${weekdays[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
 }
+
+Color _colorForName(String name) => switch (name.toLowerCase()) {
+  'синий' => const Color(0xFF3F5F91),
+  'бирюзовый' => const Color(0xFF3E9D99),
+  'золотой' => const Color(0xFFB8A17B),
+  'зелёный' => const Color(0xFF71866B),
+  'фиолетовый' => const Color(0xFF79638F),
+  'серебристый' => const Color(0xFFAAA8A5),
+  _ => _burgundy,
+};
 
 String _zodiacFor(int month, int day) {
   if ((month == 3 && day >= 21) || (month == 4 && day <= 19)) return 'aries';
