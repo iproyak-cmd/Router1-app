@@ -134,65 +134,6 @@ class KeeneticDevice {
   final bool online;
 }
 
-class Router1DailyHoroscope {
-  const Router1DailyHoroscope({
-    required this.date,
-    required this.sign,
-    required this.signTitle,
-    required this.symbol,
-    required this.lunarPhase,
-    required this.overview,
-    required this.work,
-    required this.money,
-    required this.love,
-    required this.advice,
-    required this.color,
-    required this.number,
-    required this.tarotTitle,
-    required this.tarotMeaning,
-    required this.disclaimer,
-  });
-
-  final String date;
-  final String sign;
-  final String signTitle;
-  final String symbol;
-  final String lunarPhase;
-  final String overview;
-  final String work;
-  final String money;
-  final String love;
-  final String advice;
-  final String color;
-  final int number;
-  final String tarotTitle;
-  final String tarotMeaning;
-  final String disclaimer;
-
-  factory Router1DailyHoroscope.fromJson(Map<String, dynamic> json) {
-    final tarot = json['tarot'] is Map
-        ? Map<String, dynamic>.from(json['tarot'] as Map)
-        : const <String, dynamic>{};
-    return Router1DailyHoroscope(
-      date: json['date']?.toString() ?? '',
-      sign: json['sign']?.toString() ?? '',
-      signTitle: json['sign_title']?.toString() ?? '',
-      symbol: json['symbol']?.toString() ?? '✦',
-      lunarPhase: json['lunar_phase']?.toString() ?? '',
-      overview: json['overview']?.toString() ?? '',
-      work: json['work']?.toString() ?? '',
-      money: json['money']?.toString() ?? '',
-      love: json['love']?.toString() ?? '',
-      advice: json['advice']?.toString() ?? '',
-      color: json['color']?.toString() ?? '',
-      number: (json['number'] as num?)?.toInt() ?? 1,
-      tarotTitle: tarot['title']?.toString() ?? '',
-      tarotMeaning: tarot['meaning']?.toString() ?? '',
-      disclaimer: json['disclaimer']?.toString() ?? 'Развлекательный прогноз',
-    );
-  }
-}
-
 class Router1ClientConfig {
   const Router1ClientConfig({
     required this.id,
@@ -710,11 +651,6 @@ class Router1Api {
       if (demoFallback) return Router1Snapshot.demo();
       rethrow;
     }
-  }
-
-  Future<Router1DailyHoroscope> dailyHoroscope(String sign) async {
-    final data = await _get('/app/horoscope/${Uri.encodeComponent(sign)}');
-    return Router1DailyHoroscope.fromJson(data);
   }
 
   Future<void> setMode(RouterMode mode) async {
