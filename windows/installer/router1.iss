@@ -1,10 +1,10 @@
 #define AppName "Fabula"
-#define AppVersion "0.1.0.1"
+#define AppVersion "0.1.1.2"
 #define AppPublisher "Fabula"
 #define AppExeName "Fabula.exe"
 
 [Setup]
-AppId={{78DBB054-6235-41C0-9025-AF50BC273101}
+AppId={{C5467DB1-9DC2-4BD1-A297-FBA64F81E4C9}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}

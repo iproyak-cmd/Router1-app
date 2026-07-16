@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.1.0+1';
+const fabulaVersion = '0.1.1+2';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -63,6 +63,7 @@ class _FabulaShellState extends State<FabulaShell> {
   var vpnBusy = false;
   String name = '';
   String phone = '';
+  String birthday = '';
   String sign = 'libra';
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
@@ -82,6 +83,7 @@ class _FabulaShellState extends State<FabulaShell> {
     final prefs = await SharedPreferences.getInstance();
     name = prefs.getString('fabula_name') ?? '';
     phone = prefs.getString('fabula_phone') ?? '';
+    birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
     await Future.wait([_loadForecast(), _refreshVpn()]);
     if (mounted) setState(() => loading = false);
@@ -105,7 +107,7 @@ class _FabulaShellState extends State<FabulaShell> {
       if (vpn.connected) {
         vpn = await tunnel.disconnect();
       } else {
-        final lookup = await api.findClientByPhone(phone);
+        final lookup = await _lookupOrCreateTrial();
         final candidates = lookup.gadgetConfigs.where((c) {
           final text = '${c.productType} ${c.deviceName}'.toLowerCase();
           return Platform.isWindows ? text.contains('windows') || text.contains('pc') || text.contains('пк')
@@ -124,6 +126,26 @@ class _FabulaShellState extends State<FabulaShell> {
         action: SnackBarAction(label: 'Оформить', onPressed: () => launchUrl(
           Uri.parse('https://router1.tech/download'), mode: LaunchMode.externalApplication))));
     } finally { if (mounted) setState(() => vpnBusy = false); }
+  }
+
+  Future<Router1ClientLookup> _lookupOrCreateTrial() async {
+    try {
+      final current = await api.findClientByPhone(phone);
+      if (current.gadgetConfigs.isNotEmpty) return current;
+    } catch (_) {}
+    await api.createDeviceOrder(
+      product: Platform.isWindows ? 'laptop_test' : 'smartphone_test',
+      name: name,
+      phone: phone,
+    );
+    for (var attempt = 0; attempt < 30; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final lookup = await api.findClientByPhone(phone);
+        if (lookup.gadgetConfigs.isNotEmpty) return lookup;
+      } catch (_) {}
+    }
+    throw const FormatException('config_generation_timeout');
   }
 
   Future<void> _chooseSign() async {
@@ -156,7 +178,7 @@ class _FabulaShellState extends State<FabulaShell> {
           const SizedBox(height: 18),
           TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Имя (необязательно)')),
           const SizedBox(height: 12),
-          TextField(controller: phoneController, keyboardType: TextInputType.phone,
+      TextField(controller: phoneController, keyboardType: TextInputType.phone,
             decoration: InputDecoration(labelText: 'Телефон${requirePhone ? ' для подключения' : ''}')),
           const SizedBox(height: 18),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Сохранить')),
@@ -166,6 +188,22 @@ class _FabulaShellState extends State<FabulaShell> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_name', name); await prefs.setString('fabula_phone', phone);
     if (mounted) setState(() {});
+  }
+
+  Future<void> _completeOnboarding(String valueName, String valuePhone, DateTime valueBirthday) async {
+    name = valueName.trim();
+    phone = valuePhone.trim();
+    birthday = '${valueBirthday.year.toString().padLeft(4, '0')}-'
+      '${valueBirthday.month.toString().padLeft(2, '0')}-'
+      '${valueBirthday.day.toString().padLeft(2, '0')}';
+    sign = _zodiacFor(valueBirthday.month, valueBirthday.day);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fabula_name', name);
+    await prefs.setString('fabula_phone', phone);
+    await prefs.setString('fabula_birthday', birthday);
+    await prefs.setString('fabula_sign', sign);
+    if (mounted) setState(() { forecast = null; });
+    await _loadForecast();
   }
 
   Future<void> _share() async {
@@ -178,6 +216,8 @@ class _FabulaShellState extends State<FabulaShell> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(child: loading ? const Center(child: CircularProgressIndicator())
+      : name.isEmpty || phone.isEmpty || birthday.isEmpty
+        ? _OnboardingPage(onComplete: _completeOnboarding)
       : IndexedStack(index: tab, children: [
           _TodayPage(name: name, forecast: forecast, vpn: vpn, vpnBusy: vpnBusy,
             onSign: _chooseSign, onVpn: _toggleVpn, onShare: _share),
@@ -186,7 +226,8 @@ class _FabulaShellState extends State<FabulaShell> {
           const _CompatibilityPage(),
           _ProfilePage(name: name, phone: phone, sign: sign, onEdit: _editProfile),
         ])),
-    bottomNavigationBar: NavigationBar(selectedIndex: tab, onDestinationSelected: (v) => setState(() => tab = v),
+    bottomNavigationBar: loading || name.isEmpty || phone.isEmpty || birthday.isEmpty ? null
+      : NavigationBar(selectedIndex: tab, onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
         NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Сегодня'),
         NavigationDestination(icon: Icon(Icons.dark_mode_outlined), label: 'Прогноз'),
@@ -200,6 +241,77 @@ class _FabulaShellState extends State<FabulaShell> {
 class _Page extends StatelessWidget {
   const _Page({required this.children}); final List<Widget> children;
   @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.fromLTRB(24, 22, 24, 30), children: children);
+}
+
+class _OnboardingPage extends StatefulWidget {
+  const _OnboardingPage({required this.onComplete});
+  final Future<void> Function(String, String, DateTime) onComplete;
+  @override State<_OnboardingPage> createState() => _OnboardingPageState();
+}
+
+class _OnboardingPageState extends State<_OnboardingPage> {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  DateTime? birthday;
+  var saving = false;
+
+  Future<void> _save() async {
+    if (name.text.trim().isEmpty || phone.text.trim().isEmpty || birthday == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Заполните имя, телефон и дату рождения')),
+      );
+      return;
+    }
+    setState(() => saving = true);
+    await widget.onComplete(name.text, phone.text, birthday!);
+    if (mounted) setState(() => saving = false);
+  }
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(28, 36, 28, 30),
+    children: [
+      Center(child: Image.asset('assets/fabula/logo.png', width: 92, height: 92)),
+      const SizedBox(height: 20),
+      Center(child: _editorial('Добро пожаловать в Fabula', size: 34)),
+      const SizedBox(height: 10),
+      const Text(
+        'Познакомимся, чтобы сделать ежедневные материалы персональными.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: _muted, height: 1.45),
+      ),
+      const SizedBox(height: 28),
+      _Card(child: Column(children: [
+        TextField(controller: name, textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Ваше имя')),
+        const SizedBox(height: 14),
+        TextField(controller: phone, keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(labelText: 'Номер телефона')),
+        const SizedBox(height: 14),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Дата рождения'),
+          subtitle: Text(birthday == null ? 'Не выбрана'
+            : '${birthday!.day.toString().padLeft(2, '0')}.${birthday!.month.toString().padLeft(2, '0')}.${birthday!.year}'),
+          trailing: const Icon(Icons.calendar_month_outlined, color: _burgundy),
+          onTap: () async {
+            final value = await showDatePicker(context: context,
+              firstDate: DateTime(1920), lastDate: DateTime.now(),
+              initialDate: birthday ?? DateTime(1990, 1, 1));
+            if (value != null) setState(() => birthday = value);
+          },
+        ),
+        const SizedBox(height: 18),
+        SizedBox(width: double.infinity, child: FilledButton(
+          onPressed: saving ? null : _save,
+          child: Text(saving ? 'Сохраняем...' : 'Продолжить'),
+        )),
+      ])),
+      const SizedBox(height: 14),
+      const Text('Данные используются для персонализации Fabula и подключения сервиса.',
+        textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12)),
+    ],
+  );
 }
 
 class _Card extends StatelessWidget {
@@ -324,4 +436,19 @@ String _date() {
   const months = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
   const weekdays = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
   final d = DateTime.now(); return '${weekdays[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+}
+
+String _zodiacFor(int month, int day) {
+  if ((month == 3 && day >= 21) || (month == 4 && day <= 19)) return 'aries';
+  if ((month == 4 && day >= 20) || (month == 5 && day <= 20)) return 'taurus';
+  if ((month == 5 && day >= 21) || (month == 6 && day <= 20)) return 'gemini';
+  if ((month == 6 && day >= 21) || (month == 7 && day <= 22)) return 'cancer';
+  if ((month == 7 && day >= 23) || (month == 8 && day <= 22)) return 'leo';
+  if ((month == 8 && day >= 23) || (month == 9 && day <= 22)) return 'virgo';
+  if ((month == 9 && day >= 23) || (month == 10 && day <= 22)) return 'libra';
+  if ((month == 10 && day >= 23) || (month == 11 && day <= 21)) return 'scorpio';
+  if ((month == 11 && day >= 22) || (month == 12 && day <= 21)) return 'sagittarius';
+  if ((month == 12 && day >= 22) || (month == 1 && day <= 19)) return 'capricorn';
+  if ((month == 1 && day >= 20) || (month == 2 && day <= 18)) return 'aquarius';
+  return 'pisces';
 }
