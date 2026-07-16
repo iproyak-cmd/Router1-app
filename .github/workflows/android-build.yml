@@ -46,7 +46,7 @@ jobs:
           ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
         run: |
           test -n "$ROUTER1_APP_TOKEN"
-          flutter build apk --release --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
+          flutter build apk --release --target-platform android-arm64 --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
       - name: Prepare Android release
         run: |
           mkdir -p "${RUNNER_TEMP}/fabula-android"
