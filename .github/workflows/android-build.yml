@@ -1,5 +1,9 @@
 name: Fabula Android
 
+concurrency:
+  group: fabula-android-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -19,12 +23,23 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+      - name: Cache Android and native build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/.cxx
+          key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/tunnel/tools/libwg-go/go.sum') }}
+          restore-keys: |
+            fabula-android-${{ runner.os }}-
       - run: flutter pub get
       - run: flutter test
       - name: Build Android APK
