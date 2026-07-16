@@ -713,7 +713,7 @@ class Router1Api {
   }
 
   Future<Router1DailyHoroscope> dailyHoroscope(String sign) async {
-    final data = await _get('/app/horoscope/${Uri.encodeComponent(sign)}');
+    final data = await _get('/fabula/horoscope/${Uri.encodeComponent(sign)}');
     return Router1DailyHoroscope.fromJson(data);
   }
 
