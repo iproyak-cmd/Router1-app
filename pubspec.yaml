@@ -1,7 +1,7 @@
-name: router1_app_mvp
-description: Router1 MVP app for Keenetic customers.
+name: fabula_app
+description: Fabula — ежедневный журнал и защищённое подключение.
 publish_to: "none"
-version: 0.2.0-internal.20+124
+version: 0.1.0+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -25,6 +25,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/fabula/
     - assets/images/
     - assets/illustrations/
     - assets/icons/

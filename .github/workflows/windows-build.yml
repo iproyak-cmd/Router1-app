@@ -1,4 +1,4 @@
-name: Router1 Windows
+name: Fabula Windows
 
 permissions:
   contents: write
@@ -6,7 +6,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [fabula]
     paths:
       - ".github/workflows/windows-build.yml"
       - "lib/**"
@@ -54,7 +54,7 @@ jobs:
         continue-on-error: true
         shell: powershell
         run: .\tool\prepare_windows_engine.ps1
-      - name: Build Router1 installer
+      - name: Build Fabula installer
         id: installer
         continue-on-error: true
         shell: powershell
@@ -64,20 +64,20 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: steps.installer.outcome == 'success'
         with:
-          name: Router1-Windows
-          path: build-output/windows/Router1Setup.exe
+          name: Fabula-Windows
+          path: build-output/windows/FabulaSetup.exe
           if-no-files-found: error
       - name: Prepare latest installer for Router1 delivery
         if: always()
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\router1-release" | Out-Null
-          $Installer = ".\build-output\windows\Router1Setup.exe"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\fabula-release" | Out-Null
+          $Installer = ".\build-output\windows\FabulaSetup.exe"
           if (Test-Path $Installer) {
-            Copy-Item $Installer "$env:RUNNER_TEMP\router1-release\Router1Setup.exe"
+            Copy-Item $Installer "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe"
           }
           if (Test-Path ".\windows-build.log") {
-            Copy-Item ".\windows-build.log" "$env:RUNNER_TEMP\router1-release\windows-build.log"
+            Copy-Item ".\windows-build.log" "$env:RUNNER_TEMP\fabula-release\windows-build.log"
           }
           @"
           pubget=${{ steps.pubget.outcome }}
@@ -87,15 +87,15 @@ jobs:
           engine=${{ steps.engine.outcome }}
           installer=${{ steps.installer.outcome }}
           run=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          "@ | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\router1-release\build-report.txt"
-          if (Test-Path "$env:RUNNER_TEMP\router1-release\Router1Setup.exe") {
-            Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\router1-release\Router1Setup.exe" | ForEach-Object { $_.Hash.ToLowerInvariant() + "  Router1Setup.exe" } | Set-Content -Encoding ASCII "$env:RUNNER_TEMP\router1-release\Router1Setup.exe.sha256"
+          "@ | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\fabula-release\build-report.txt"
+          if (Test-Path "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe") {
+            Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe" | ForEach-Object { $_.Hash.ToLowerInvariant() + "  FabulaSetup.exe" } | Set-Content -Encoding ASCII "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe.sha256"
           }
       - name: Publish latest installer for Router1 delivery
         if: always()
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: builds
-          publish_dir: ${{ runner.temp }}/router1-release
+          publish_branch: fabula-builds
+          publish_dir: ${{ runner.temp }}/fabula-release
           force_orphan: true

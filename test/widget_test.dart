@@ -10,8 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:router1_app_mvp/main.dart';
 
 void main() {
-  testWidgets('Router1 starts', (WidgetTester tester) async {
-    await tester.pumpWidget(const Router1App());
-    expect(find.byType(Router1App), findsOneWidget);
+  testWidgets('Fabula starts', (WidgetTester tester) async {
+    await tester.pumpWidget(const FabulaApp());
+    expect(find.byType(FabulaApp), findsOneWidget);
   });
 }

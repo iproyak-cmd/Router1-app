@@ -1,4 +1,4 @@
-package tech.router1.app
+package tech.router1.fabula
 
 import android.app.Activity
 import android.app.DownloadManager
@@ -31,7 +31,7 @@ class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
     private var state = Tunnel.State.DOWN
     private val tunnel = object : Tunnel {
-        override fun getName() = "Router1"
+        override fun getName() = "Fabula"
         override fun onStateChange(newState: Tunnel.State) { state = newState }
     }
 

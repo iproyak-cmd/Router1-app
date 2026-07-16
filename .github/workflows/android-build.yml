@@ -1,4 +1,4 @@
-name: Router1 Android
+name: Fabula Android
 
 permissions:
   contents: write
@@ -6,7 +6,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [fabula]
     paths:
       - ".github/workflows/android-build.yml"
       - "lib/**"
@@ -34,13 +34,13 @@ jobs:
           flutter build apk --release --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
       - name: Prepare Android release
         run: |
-          mkdir -p "${RUNNER_TEMP}/router1-android"
-          cp build/app/outputs/flutter-apk/app-release.apk "${RUNNER_TEMP}/router1-android/Router1.apk"
-          sha256sum "${RUNNER_TEMP}/router1-android/Router1.apk" > "${RUNNER_TEMP}/router1-android/Router1.apk.sha256"
+          mkdir -p "${RUNNER_TEMP}/fabula-android"
+          cp build/app/outputs/flutter-apk/app-release.apk "${RUNNER_TEMP}/fabula-android/Fabula.apk"
+          sha256sum "${RUNNER_TEMP}/fabula-android/Fabula.apk" > "${RUNNER_TEMP}/fabula-android/Fabula.apk.sha256"
       - name: Publish Android release
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: android-builds
-          publish_dir: ${{ runner.temp }}/router1-android
+          publish_branch: fabula-android-builds
+          publish_dir: ${{ runner.temp }}/fabula-android
           force_orphan: true
