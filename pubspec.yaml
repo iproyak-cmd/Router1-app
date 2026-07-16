@@ -1,7 +1,7 @@
 name: fabula_app
 description: Fabula — ежедневный журнал и защищённое подключение.
 publish_to: "none"
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -26,6 +26,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fabula/
+    - assets/fabula/tarot/
     - assets/images/
     - assets/illustrations/
     - assets/icons/

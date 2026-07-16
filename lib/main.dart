@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.1.1+2';
+const fabulaVersion = '0.1.2+3';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -337,18 +337,16 @@ class _TodayPage extends StatelessWidget {
     ])), Image.asset('assets/fabula/logo.png', width: 58, height: 58)]),
     TextButton.icon(onPressed: onSign, icon: Text(f?.symbol ?? '✦'), label: Text(f?.signTitle ?? 'Выбрать знак')),
     const SizedBox(height: 10),
-    _Card(child: f == null ? const Center(child: CircularProgressIndicator()) : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('ВАШ ДЕНЬ', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-      const SizedBox(height: 14), _editorial(f.overview, size: 27),
-      const SizedBox(height: 18), Text('Настроение: ${f.advice}', style: const TextStyle(color: _muted, height: 1.35)),
-      const SizedBox(height: 16), FilledButton(onPressed: () {}, child: const Text('Читать прогноз  →')),
-    ])),
-    const SizedBox(height: 12),
-    _Card(child: f == null ? const SizedBox() : Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    _Card(child: f == null ? const SizedBox() : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('КАРТА ДНЯ', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
       const SizedBox(height: 12), _editorial(f.tarotTitle), const SizedBox(height: 10),
       Text(f.tarotMeaning, style: const TextStyle(color: _muted, height: 1.4)),
-    ])), const SizedBox(width: 12), const Icon(Icons.auto_awesome, color: Color(0xFFB8A17B), size: 55)])),
+    ])), const SizedBox(width: 14), _TarotArtwork(title: f.tarotTitle, width: 112)])),
+    const SizedBox(height: 12),
+    _Card(child: f == null ? const Center(child: CircularProgressIndicator()) : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('ПРОГНОЗ ЗНАКА', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+      const SizedBox(height: 14), _editorial(f.overview, size: 23),
+    ])),
     const SizedBox(height: 12),
     if (f != null) Row(children: [Expanded(child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('ЦВЕТ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 12),
@@ -390,12 +388,36 @@ class _ForecastPage extends StatelessWidget {
       ])), const SizedBox(height: 12),
       _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('КАРТА ТАРО', style: TextStyle(color: _burgundy, fontSize: 12)), const SizedBox(height: 10),
+        Center(child: _TarotArtwork(title: f.tarotTitle, width: 260)), const SizedBox(height: 18),
         _editorial(f.tarotTitle), const SizedBox(height: 10), Text(f.tarotMeaning, style: const TextStyle(color: _muted, height: 1.4)),
       ])),
     ]
   ]); }
   Widget _detail(String title, String text) => Padding(padding: const EdgeInsets.only(top: 14), child: Column(crossAxisAlignment: CrossAxisAlignment.start,
     children: [Text(title.toUpperCase(), style: const TextStyle(color: _burgundy, fontSize: 11, fontWeight: FontWeight.bold)), const SizedBox(height: 4), Text(text, style: const TextStyle(color: _muted, height: 1.4))]));
+}
+
+class _TarotArtwork extends StatelessWidget {
+  const _TarotArtwork({required this.title, required this.width});
+  final String title;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = switch (title.toLowerCase()) {
+      'звезда' => 'assets/fabula/tarot/star.png',
+      'луна' => 'assets/fabula/tarot/moon.png',
+      'императрица' => 'assets/fabula/tarot/empress.png',
+      _ => null,
+    };
+    if (asset == null) {
+      return SizedBox(width: width, height: width * 1.5,
+        child: const Center(child: Icon(Icons.auto_awesome,
+          color: Color(0xFFB8A17B), size: 55)));
+    }
+    return ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.asset(
+      asset, width: width, height: width * 1.5, fit: BoxFit.cover));
+  }
 }
 
 class _ConnectionPage extends StatelessWidget {
