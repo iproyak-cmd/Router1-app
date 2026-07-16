@@ -133,7 +133,7 @@ class _FabulaShellState extends State<FabulaShell> {
       final current = await api.findClientByPhone(phone);
       if (current.gadgetConfigs.isNotEmpty) return current;
     } catch (_) {}
-    await api.createDeviceOrder(
+    await api.createFabulaAccess(
       product: Platform.isWindows ? 'laptop_test' : 'smartphone_test',
       name: name,
       phone: phone,
@@ -369,6 +369,7 @@ class _VpnCard extends StatelessWidget {
       const Text('ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ', style: TextStyle(color: _burgundy, fontSize: 11)),
       const SizedBox(height: 8), _editorial(vpn.connected ? 'Всё работает' : 'Подключение выключено', size: 24),
       const SizedBox(height: 5), Text(vpn.connected ? 'Соединение защищено' : 'Нажмите, чтобы подключиться', style: const TextStyle(color: _muted)),
+      const SizedBox(height: 5), const Text('Тестовый доступ действует до 20 июля', style: TextStyle(color: _burgundy, fontSize: 11)),
     ])), const SizedBox(width: 12),
     InkWell(onTap: busy ? null : onToggle, borderRadius: BorderRadius.circular(50), child: Container(width: 72, height: 72,
       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: vpn.connected ? _sage : _line, width: 7)),

@@ -821,6 +821,24 @@ class Router1Api {
     return order;
   }
 
+  Future<Router1Order> createFabulaAccess({
+    required String product,
+    required String name,
+    required String phone,
+  }) async {
+    final data = await _post('/fabula/access', {
+      'product': product,
+      'name': name,
+      'phone': phone,
+      'trial_mode': 'standard',
+    });
+    final order = Router1Order.fromJson(data);
+    if (order.orderId.isEmpty || !order.freeTrial) {
+      throw const FormatException('Fabula access was not created');
+    }
+    return order;
+  }
+
   Future<List<Router1RenewalOffer>> renewalOffers(String phone) async {
     final query = Uri(queryParameters: {'phone': phone}).query;
     final data = await _get('/app/renewal-offers?$query');
