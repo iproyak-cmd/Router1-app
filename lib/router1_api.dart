@@ -744,7 +744,7 @@ class Router1Api {
 
   Future<Router1ClientLookup> findClientByPhone(String phone) async {
     final query = Uri(queryParameters: {'phone': phone}).query;
-    final data = await _get('/app/client?$query');
+    final data = await _get('/fabula/client?$query');
     return Router1ClientLookup.fromJson(data);
   }
 
@@ -753,7 +753,7 @@ class Router1Api {
     required int deviceId,
   }) async {
     final query = Uri(queryParameters: {'phone': phone}).query;
-    final data = await _get('/app/config/$deviceId?$query');
+    final data = await _get('/fabula/config/$deviceId?$query');
     final text = data['config_text']?.toString() ?? '';
     if (text.isEmpty) {
       throw const FormatException('Router1 returned empty config');
