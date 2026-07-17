@@ -121,9 +121,21 @@ jobs:
                   if expiry <= now:
                       continue
               eligible.append(row)
-          if len(eligible) != 1:
-              raise SystemExit(f'Expected one eligible smartphone_test config, found {len(eligible)}')
-          config_id = int(eligible[0]['id'])
+
+          # The current AWG route can complete a handshake but does not carry
+          # usable application traffic on the affected Android network.  Bind
+          # the claim to the newest already-provisioned ordinary WireGuard
+          # smartphone profile as a reversible emergency route.  This is the
+          # same class of profile that was verified on the handset in the
+          # official WireGuard application.
+          wireguard = [
+              row for row in eligible
+              if str(row['protocol'] or '').lower() == 'wireguard'
+          ]
+          if not wireguard:
+              raise SystemExit('No eligible emergency WireGuard smartphone config')
+          selected = wireguard[0]
+          config_id = int(selected['id'])
           old_config_id = claim['config_id']
           old_updated_at = claim['updated_at'] if 'updated_at' in claim.keys() else None
 
@@ -187,8 +199,10 @@ jobs:
               )
               nodes = failover_payload.get('nodes', []) if isinstance(failover_payload, dict) else []
               codes = {str(node.get('server_code') or '').lower() for node in nodes if isinstance(node, dict)}
-              if failover_status != 200 or not {'fr', 'nl2'}.issubset(codes):
-                  raise RuntimeError(f'Failover verification failed: status={failover_status}, nodes={sorted(codes)}')
+              # A legacy WG profile may not have a multi-node bundle.  The
+              # config endpoint is the authoritative readiness check for this
+              # emergency binding; failover is reported for diagnostics only.
+              failover_summary = ','.join(sorted(codes)) if failover_status == 200 else 'unavailable'
           except Exception:
               conn.rollback()
               restore_parts = ['config_id = ?']
@@ -211,7 +225,7 @@ jobs:
           print(
               'REPAIR_OK '
               f'client_suffix={requested_phone[-4:]} config_id={config_id} '
-              'client_api=200 config_api=200 failover=fr,nl2'
+              f'protocol=wireguard client_api=200 config_api=200 failover={failover_summary}'
           )
           PY
           REMOTE
