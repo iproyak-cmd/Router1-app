@@ -742,8 +742,11 @@ class Router1Api {
     });
   }
 
-  Future<Router1ClientLookup> findClientByPhone(String phone) async {
-    final query = Uri(queryParameters: {'phone': phone}).query;
+  Future<Router1ClientLookup> findClientByPhone(String phone, {String? deviceType}) async {
+    final query = Uri(queryParameters: {
+      'phone': phone,
+      if (deviceType != null) 'device_type': deviceType,
+    }).query;
     final data = await _get('/fabula/client?$query');
     return Router1ClientLookup.fromJson(data);
   }

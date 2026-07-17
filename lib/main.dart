@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.0+5';
+const fabulaVersion = '0.2.1+6';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -130,19 +130,20 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<Router1ClientLookup> _lookupOrCreateTrial() async {
+    final deviceType = Platform.isWindows ? 'laptop_test' : 'smartphone_test';
     try {
-      final current = await api.findClientByPhone(phone);
+      final current = await api.findClientByPhone(phone, deviceType: deviceType);
       if (_fabulaConfigs(current).isNotEmpty) return current;
     } catch (_) {}
     await api.createFabulaAccess(
-      product: Platform.isWindows ? 'laptop_test' : 'smartphone_test',
+      product: deviceType,
       name: name,
       phone: phone,
     );
     for (var attempt = 0; attempt < 30; attempt++) {
       await Future<void>.delayed(const Duration(seconds: 2));
       try {
-        final lookup = await api.findClientByPhone(phone);
+        final lookup = await api.findClientByPhone(phone, deviceType: deviceType);
         if (_fabulaConfigs(lookup).isNotEmpty) return lookup;
       } catch (_) {}
     }
