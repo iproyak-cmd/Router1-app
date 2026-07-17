@@ -115,6 +115,17 @@ jobs:
                   if '[Interface]' in value and '[Peer]' in value:
                       config_text = value
                       break
+                  if any(part in key.lower() for part in ('config', 'path', 'file')):
+                      candidate = Path(value)
+                      if not candidate.is_absolute():
+                          candidate = Path('/opt/vpn_bot') / candidate
+                      try:
+                          file_text = candidate.read_text(encoding='utf-8')
+                      except (OSError, UnicodeError):
+                          continue
+                      if '[Interface]' in file_text and '[Peer]' in file_text:
+                          config_text = file_text
+                          break
               safe_lines = []
               allowed = {'address', 'dns', 'mtu', 'jc', 'jmin', 'jmax', 's1', 's2',
                          's3', 's4', 'h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3',
