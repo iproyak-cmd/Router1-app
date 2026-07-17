@@ -132,7 +132,10 @@ jobs:
                   if not any(value.endswith(PHONE_SUFFIX) for value in values):
                       continue
                   direct_matches.append((table, row))
-                  matched_phones.update(value for value in values if value.endswith(PHONE_SUFFIX))
+                  matched_phones.update(
+                      value[-10:] for value in values
+                      if len(value) >= 10 and value.endswith(PHONE_SUFFIX)
+                  )
                   if 'client_id' in row.keys() and row['client_id'] is not None:
                       client_ids.add(int(row['client_id']))
                   if table.lower() in {'clients', 'client'} and 'id' in row.keys():
@@ -144,7 +147,7 @@ jobs:
               raise SystemExit(
                   f'Expected exactly one phone ending in {PHONE_SUFFIX}; found {len(matched_phones)}'
               )
-          matched_phone = next(iter(matched_phones))
+          matched_phone = '7' + next(iter(matched_phones))
           print(
               'CLIENT_MATCH_OK '
               f'suffix={PHONE_SUFFIX} direct_rows={len(direct_matches)} '
