@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.1.3+4';
+const fabulaVersion = '0.2.0+5';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -228,7 +228,7 @@ class _FabulaShellState extends State<FabulaShell> {
         ? _OnboardingPage(onComplete: _completeOnboarding)
       : IndexedStack(index: tab, children: [
           _TodayPage(name: name, forecast: forecast, vpn: vpn, vpnBusy: vpnBusy,
-            onSign: _chooseSign, onVpn: _toggleVpn, onShare: _share),
+            onSign: _chooseSign, onForecast: () => setState(() => tab = 1), onVpn: _toggleVpn, onShare: _share),
           _ForecastPage(forecast: forecast, onSign: _chooseSign),
           _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
           const _CompatibilityPage(),
@@ -239,8 +239,8 @@ class _FabulaShellState extends State<FabulaShell> {
       destinations: const [
         NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Сегодня'),
         NavigationDestination(icon: Icon(Icons.dark_mode_outlined), label: 'Прогноз'),
-        NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'Связь'),
-        NavigationDestination(icon: Icon(Icons.favorite_border), label: 'Совместимость'),
+        NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'VPN'),
+        NavigationDestination(icon: Icon(Icons.favorite_border), label: 'Пара'),
         NavigationDestination(icon: Icon(Icons.person_outline), label: 'Профиль'),
       ]),
   );
@@ -337,37 +337,47 @@ Text _editorial(String text, {double size = 30}) => Text(text,
 
 class _TodayPage extends StatelessWidget {
   const _TodayPage({required this.name, required this.forecast, required this.vpn,
-    required this.vpnBusy, required this.onSign, required this.onVpn, required this.onShare});
+    required this.vpnBusy, required this.onSign, required this.onForecast, required this.onVpn, required this.onShare});
   final String name; final Router1DailyHoroscope? forecast; final AwgTunnelStatus vpn; final bool vpnBusy;
-  final VoidCallback onSign, onVpn, onShare;
+  final VoidCallback onSign, onForecast, onVpn, onShare;
   @override Widget build(BuildContext context) { final f = forecast; return _Page(children: [
     Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _editorial(name.isEmpty ? 'Доброе утро' : 'Доброе утро, $name', size: 31),
-      const SizedBox(height: 5), Text(_date(), style: const TextStyle(color: _muted)),
-    ])), Image.asset('assets/fabula/logo.png', width: 58, height: 58)]),
-    TextButton.icon(onPressed: onSign, icon: Text(f?.symbol ?? '✦'), label: Text(f?.signTitle ?? 'Выбрать знак')),
-    const SizedBox(height: 10),
-    _Card(child: f == null ? const SizedBox() : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('КАРТА ДНЯ', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-      const SizedBox(height: 12), _editorial(f.tarotTitle), const SizedBox(height: 10),
-      Text(f.tarotMeaning, style: const TextStyle(color: _muted, height: 1.4)),
-    ])), const SizedBox(width: 14), _TarotArtwork(title: f.tarotTitle, width: 112)])),
-    const SizedBox(height: 12),
-    _Card(child: f == null ? const Center(child: CircularProgressIndicator()) : Stack(children: [
-      Positioned(right: -30, top: -24, child: Opacity(opacity: .68,
-        child: Image.asset('assets/fabula/branch.png', width: 250))),
-      Padding(padding: const EdgeInsets.only(right: 115), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('ПРОГНОЗ ЗНАКА', style: TextStyle(color: _burgundy, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
-        const SizedBox(height: 14), _editorial(f.overview, size: 23),
+      _editorial(name.isEmpty ? 'Доброе утро' : 'Доброе утро, $name', size: 28),
+      const SizedBox(height: 4), Text(_date(), style: const TextStyle(color: _muted, fontSize: 13)),
+    ])), ClipOval(child: Image.asset('assets/fabula/logo.png', width: 52, height: 52, fit: BoxFit.cover))]),
+    Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: onSign,
+      style: TextButton.styleFrom(foregroundColor: _muted, padding: const EdgeInsets.symmetric(horizontal: 4)),
+      icon: Text(f?.symbol ?? '✦', style: const TextStyle(color: _burgundy)), label: Text(f?.signTitle ?? 'Выбрать знак'))),
+    const SizedBox(height: 4),
+    _Card(padding: const EdgeInsets.all(20), child: f == null ? const Center(child: CircularProgressIndicator()) : Stack(children: [
+      Positioned(right: -36, top: -18, bottom: -30, child: Opacity(opacity: .58,
+        child: Image.asset('assets/fabula/branch.png', width: 190, fit: BoxFit.cover))),
+      Padding(padding: const EdgeInsets.only(right: 92), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _SectionLabel('ВАШ ДЕНЬ'), const SizedBox(height: 10),
+        Text(f.overview, maxLines: 5, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontFamily: 'Serif', color: _ink, fontSize: 21, height: 1.17)),
+        const SizedBox(height: 16), Row(children: [
+          _DayMetric(icon: Icons.sentiment_satisfied_alt_outlined, label: 'Настроение', value: _mood(f.number)),
+          const SizedBox(width: 12), _DayMetric(icon: Icons.auto_awesome, label: 'Энергия дня', value: '${76 + (f.number * 3) % 19}%'),
+        ]),
       ])),
     ])),
+    const SizedBox(height: 10),
+    _Card(padding: const EdgeInsets.all(20), child: f == null ? const SizedBox() : Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _SectionLabel('КАРТА ДНЯ'), const SizedBox(height: 10), _editorial(f.tarotTitle, size: 27), const SizedBox(height: 10),
+        Text(f.tarotMeaning, maxLines: 4, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: _muted, fontSize: 13, height: 1.35)),
+        const SizedBox(height: 14), OutlinedButton(onPressed: onForecast, child: const Text('Открыть толкование')),
+      ])), const SizedBox(width: 14), _TarotArtwork(title: f.tarotTitle, width: 122)])),
     const SizedBox(height: 12),
-    if (f != null) Row(children: [Expanded(child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('ЦВЕТ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 12),
-      Row(children: [CircleAvatar(backgroundColor: _colorForName(f.color)), const SizedBox(width: 10), Expanded(child: Text(f.color))])]))),
-      const SizedBox(width: 10), Expanded(child: _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('ЧИСЛО ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 6),
-        Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'Serif', fontSize: 42))])))]),
+    if (f != null) Row(children: [Expanded(child: _Card(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const _SectionLabel('ЦВЕТ ДНЯ'), const SizedBox(height: 12), Row(children: [Container(width: 40, height: 40,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: _colorForName(f.color))), const SizedBox(width: 10),
+        Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(f.color, style: const TextStyle(fontSize: 15))))])]))),
+      const SizedBox(width: 10), Expanded(child: _Card(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _SectionLabel('ЧИСЛО ДНЯ'), const SizedBox(height: 5), Row(children: [Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'Serif', fontSize: 40)),
+          const SizedBox(width: 10), const Expanded(child: Text('Внимание\nк деталям', style: TextStyle(color: _muted, fontSize: 11, height: 1.25)))])])))]),
     const SizedBox(height: 12), _VpnCard(vpn: vpn, busy: vpnBusy, onToggle: onVpn),
     const SizedBox(height: 12), _Card(child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('АФФИРМАЦИЯ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 8),
@@ -375,14 +385,34 @@ class _TodayPage extends StatelessWidget {
   ]); }
 }
 
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text); final String text;
+  @override Widget build(BuildContext context) => Text(text,
+    style: const TextStyle(color: _burgundy, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.05));
+}
+
+class _DayMetric extends StatelessWidget {
+  const _DayMetric({required this.icon, required this.label, required this.value});
+  final IconData icon; final String label, value;
+  @override Widget build(BuildContext context) => Expanded(child: Row(children: [
+    Container(width: 30, height: 30, decoration: const BoxDecoration(color: Color(0xFFE8E9DE), shape: BoxShape.circle),
+      child: Icon(icon, size: 15, color: _muted)), const SizedBox(width: 7),
+    Expanded(child: Text('$label:\n$value', maxLines: 2, style: const TextStyle(color: _muted, fontSize: 9.5, height: 1.25))),
+  ]));
+}
+
+String _mood(int number) => switch (number % 4) {
+  0 => 'ясность', 1 => 'лёгкость', 2 => 'уверенность', _ => 'гармония',
+};
+
 class _VpnCard extends StatelessWidget {
   const _VpnCard({required this.vpn, required this.busy, required this.onToggle});
   final AwgTunnelStatus vpn; final bool busy; final VoidCallback onToggle;
-  @override Widget build(BuildContext context) => _Card(child: Row(children: [
+  @override Widget build(BuildContext context) => _Card(padding: const EdgeInsets.all(20), child: Row(children: [
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ', style: TextStyle(color: _burgundy, fontSize: 11)),
-      const SizedBox(height: 8), _editorial(vpn.connected ? 'Всё работает' : 'Подключение выключено', size: 24),
-      const SizedBox(height: 5), Text(vpn.connected ? 'Соединение защищено' : 'Нажмите, чтобы подключиться', style: const TextStyle(color: _muted)),
+      const SizedBox(height: 7), _editorial(vpn.connected ? 'Всё работает' : 'Подключить', size: 22),
+      const SizedBox(height: 4), Text(vpn.connected ? 'Соединение защищено' : 'Нажмите на кнопку справа', style: const TextStyle(color: _muted, fontSize: 12)),
       const SizedBox(height: 5), const Text('Тестовый доступ действует до 20 июля', style: TextStyle(color: _burgundy, fontSize: 11)),
     ])), const SizedBox(width: 12),
     InkWell(onTap: busy ? null : onToggle, borderRadius: BorderRadius.circular(50), child: Container(width: 72, height: 72,
@@ -424,6 +454,7 @@ class _TarotArtwork extends StatelessWidget {
       'луна' => 'assets/fabula/tarot/moon.png',
       'императрица' => 'assets/fabula/tarot/empress.png',
       'башня' => 'assets/fabula/tarot/tower.png',
+      'шут' => 'assets/fabula/tarot/fool.png',
       _ => null,
     };
     if (asset == null) {
