@@ -215,7 +215,10 @@ class MainActivity : FlutterActivity() {
         executor.execute {
             try {
                 if (backend.getState(tunnel) == Tunnel.State.UP) return@execute
-                val config = file.inputStream().use { Config.parse(it) }
+                val safeConfigText = ipv4OnlyConfig(file.readText(Charsets.UTF_8))
+                file.writeText(safeConfigText, Charsets.UTF_8)
+                val config = Config.parse(
+                    ByteArrayInputStream(safeConfigText.toByteArray(Charsets.UTF_8)))
                 backend.setState(tunnel, Tunnel.State.UP, config)
             } catch (_: Exception) {
                 // Статус и точная ошибка будут доступны через MethodChannel после запуска UI.
