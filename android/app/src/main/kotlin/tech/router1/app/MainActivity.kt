@@ -122,13 +122,13 @@ class MainActivity : FlutterActivity() {
             ))
             result.error(
                 "INSTALL_PERMISSION",
-                "Разрешите установку обновлений для Router1 и нажмите «Обновить» ещё раз",
+                "Разрешите установку обновлений для Fabula и нажмите «Обновить» ещё раз",
                 null
             )
             return
         }
         val request = DownloadManager.Request(uri)
-            .setTitle("Обновление Router1")
+            .setTitle("Обновление Fabula")
             .setDescription("Скачиваем новую версию")
             .setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)

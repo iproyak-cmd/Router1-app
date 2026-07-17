@@ -40,6 +40,7 @@ jobs:
           restore-keys: |
             fabula-android-${{ runner.os }}-
       - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - name: Build Android APK
         env:

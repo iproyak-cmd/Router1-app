@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import 'fabula_ui_text.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.1+6';
+const fabulaVersion = '0.2.2+7';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -65,6 +66,7 @@ class _FabulaShellState extends State<FabulaShell> {
   String phone = '';
   String birthday = '';
   String sign = 'libra';
+  DateTime? accessUntil;
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
   Timer? timer;
@@ -85,7 +87,11 @@ class _FabulaShellState extends State<FabulaShell> {
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
-    await Future.wait([_loadForecast(), _refreshVpn()]);
+    await Future.wait([
+      _loadForecast(),
+      _refreshVpn(),
+      if (phone.trim().isNotEmpty) _refreshAccess(),
+    ]);
     if (mounted) setState(() => loading = false);
   }
 
@@ -97,6 +103,16 @@ class _FabulaShellState extends State<FabulaShell> {
   Future<void> _refreshVpn() async {
     try { final v = await tunnel.status(); if (mounted) setState(() => vpn = v); }
     catch (_) {}
+  }
+
+  Future<void> _refreshAccess() async {
+    try {
+      final lookup = await api.findClientByPhone(phone, deviceType: _deviceType);
+      final configs = _fabulaConfigs(lookup);
+      if (mounted && configs.isNotEmpty) {
+        setState(() => accessUntil = configs.first.paidUntil);
+      }
+    } catch (_) {}
   }
 
   Future<void> _toggleVpn() async {
@@ -117,33 +133,35 @@ class _FabulaShellState extends State<FabulaShell> {
         final config = candidates.isNotEmpty ? candidates.first
           : (available.isNotEmpty ? available.first : null);
         if (config == null) throw const FormatException('no_config');
+        if (mounted) setState(() => accessUntil = config.paidUntil);
         final text = await api.fetchClientConfigText(phone: phone, deviceId: config.id);
-        await tunnel.prepare();
+        final prepared = await tunnel.prepare();
+        if (!prepared) throw PlatformException(code: 'VPN_DENIED');
         vpn = await tunnel.connect(text, serverCode: config.serverCode);
       }
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Подключение пока не оформлено'),
-        action: SnackBarAction(label: 'Оформить', onPressed: () => launchUrl(
-          Uri.parse('https://router1.tech/download'), mode: LaunchMode.externalApplication))));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(fabulaConnectionErrorMessage(error))));
     } finally { if (mounted) setState(() => vpnBusy = false); }
   }
 
+  String get _deviceType =>
+    Platform.isWindows ? 'laptop_test' : 'smartphone_test';
+
   Future<Router1ClientLookup> _lookupOrCreateTrial() async {
-    final deviceType = Platform.isWindows ? 'laptop_test' : 'smartphone_test';
     try {
-      final current = await api.findClientByPhone(phone, deviceType: deviceType);
+      final current = await api.findClientByPhone(phone, deviceType: _deviceType);
       if (_fabulaConfigs(current).isNotEmpty) return current;
     } catch (_) {}
     await api.createFabulaAccess(
-      product: deviceType,
+      product: _deviceType,
       name: name,
       phone: phone,
     );
     for (var attempt = 0; attempt < 30; attempt++) {
       await Future<void>.delayed(const Duration(seconds: 2));
       try {
-        final lookup = await api.findClientByPhone(phone, deviceType: deviceType);
+        final lookup = await api.findClientByPhone(phone, deviceType: _deviceType);
         if (_fabulaConfigs(lookup).isNotEmpty) return lookup;
       } catch (_) {}
     }
@@ -196,7 +214,8 @@ class _FabulaShellState extends State<FabulaShell> {
     name = nameController.text.trim(); phone = phoneController.text.trim();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_name', name); await prefs.setString('fabula_phone', phone);
-    if (mounted) setState(() {});
+    if (mounted) setState(() => accessUntil = null);
+    if (phone.isNotEmpty) await _refreshAccess();
   }
 
   Future<void> _completeOnboarding(String valueName, String valuePhone, DateTime valueBirthday) async {
@@ -211,7 +230,7 @@ class _FabulaShellState extends State<FabulaShell> {
     await prefs.setString('fabula_phone', phone);
     await prefs.setString('fabula_birthday', birthday);
     await prefs.setString('fabula_sign', sign);
-    if (mounted) setState(() { forecast = null; });
+    if (mounted) setState(() { forecast = null; accessUntil = null; });
     await _loadForecast();
   }
 
@@ -229,9 +248,11 @@ class _FabulaShellState extends State<FabulaShell> {
         ? _OnboardingPage(onComplete: _completeOnboarding)
       : IndexedStack(index: tab, children: [
           _TodayPage(name: name, forecast: forecast, vpn: vpn, vpnBusy: vpnBusy,
-            onSign: _chooseSign, onForecast: () => setState(() => tab = 1), onVpn: _toggleVpn, onShare: _share),
+            accessUntil: accessUntil, onSign: _chooseSign,
+            onForecast: () => setState(() => tab = 1), onVpn: _toggleVpn, onShare: _share),
           _ForecastPage(forecast: forecast, onSign: _chooseSign),
-          _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
+          _ConnectionPage(vpn: vpn, busy: vpnBusy,
+            accessUntil: accessUntil, onToggle: _toggleVpn),
           const _CompatibilityPage(),
           _ProfilePage(name: name, phone: phone, sign: sign, onEdit: _editProfile),
         ])),
@@ -338,8 +359,10 @@ Text _editorial(String text, {double size = 30}) => Text(text,
 
 class _TodayPage extends StatelessWidget {
   const _TodayPage({required this.name, required this.forecast, required this.vpn,
-    required this.vpnBusy, required this.onSign, required this.onForecast, required this.onVpn, required this.onShare});
+    required this.vpnBusy, required this.accessUntil, required this.onSign,
+    required this.onForecast, required this.onVpn, required this.onShare});
   final String name; final Router1DailyHoroscope? forecast; final AwgTunnelStatus vpn; final bool vpnBusy;
+  final DateTime? accessUntil;
   final VoidCallback onSign, onForecast, onVpn, onShare;
   @override Widget build(BuildContext context) { final f = forecast; return _Page(children: [
     Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -379,7 +402,8 @@ class _TodayPage extends StatelessWidget {
       const SizedBox(width: 10), Expanded(child: _Card(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionLabel('ЧИСЛО ДНЯ'), const SizedBox(height: 5), Row(children: [Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'Serif', fontSize: 40)),
           const SizedBox(width: 10), const Expanded(child: Text('Внимание\nк деталям', style: TextStyle(color: _muted, fontSize: 11, height: 1.25)))])])))]),
-    const SizedBox(height: 12), _VpnCard(vpn: vpn, busy: vpnBusy, onToggle: onVpn),
+    const SizedBox(height: 12), _VpnCard(vpn: vpn, busy: vpnBusy,
+      accessUntil: accessUntil, onToggle: onVpn),
     const SizedBox(height: 12), _Card(child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('АФФИРМАЦИЯ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 8),
       _editorial('Сегодня я выбираю ясность вместо спешки.', size: 22)])), IconButton(onPressed: onShare, icon: const Icon(Icons.ios_share, color: _burgundy))])),
@@ -407,14 +431,17 @@ String _mood(int number) => switch (number % 4) {
 };
 
 class _VpnCard extends StatelessWidget {
-  const _VpnCard({required this.vpn, required this.busy, required this.onToggle});
-  final AwgTunnelStatus vpn; final bool busy; final VoidCallback onToggle;
+  const _VpnCard({required this.vpn, required this.busy,
+    required this.accessUntil, required this.onToggle});
+  final AwgTunnelStatus vpn; final bool busy; final DateTime? accessUntil;
+  final VoidCallback onToggle;
   @override Widget build(BuildContext context) => _Card(padding: const EdgeInsets.all(20), child: Row(children: [
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ', style: TextStyle(color: _burgundy, fontSize: 11)),
       const SizedBox(height: 7), _editorial(vpn.connected ? 'Всё работает' : 'Подключить', size: 22),
       const SizedBox(height: 4), Text(vpn.connected ? 'Соединение защищено' : 'Нажмите на кнопку справа', style: const TextStyle(color: _muted, fontSize: 12)),
-      const SizedBox(height: 5), const Text('Тестовый доступ действует до 20 июля', style: TextStyle(color: _burgundy, fontSize: 11)),
+      const SizedBox(height: 5), Text(fabulaAccessLabel(accessUntil),
+        style: const TextStyle(color: _burgundy, fontSize: 11)),
     ])), const SizedBox(width: 12),
     InkWell(onTap: busy ? null : onToggle, borderRadius: BorderRadius.circular(50), child: Container(width: 72, height: 72,
       decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: vpn.connected ? _sage : _line, width: 7)),
@@ -469,12 +496,15 @@ class _TarotArtwork extends StatelessWidget {
 }
 
 class _ConnectionPage extends StatelessWidget {
-  const _ConnectionPage({required this.vpn, required this.busy, required this.onToggle});
-  final AwgTunnelStatus vpn; final bool busy; final VoidCallback onToggle;
+  const _ConnectionPage({required this.vpn, required this.busy,
+    required this.accessUntil, required this.onToggle});
+  final AwgTunnelStatus vpn; final bool busy; final DateTime? accessUntil;
+  final VoidCallback onToggle;
   @override Widget build(BuildContext context) => _Page(children: [
     _editorial('Защищённая связь'), const SizedBox(height: 8),
     const Text('Для привычных сайтов, сервисов и приложений.', style: TextStyle(color: _muted)),
-    const SizedBox(height: 22), _VpnCard(vpn: vpn, busy: busy, onToggle: onToggle),
+    const SizedBox(height: 22), _VpnCard(vpn: vpn, busy: busy,
+      accessUntil: accessUntil, onToggle: onToggle),
     const SizedBox(height: 16), const _Card(child: Text('Fabula использует защищённое подключение Router1. Технические настройки выполняются автоматически.', style: TextStyle(color: _muted, height: 1.45))),
   ]);
 }

@@ -41,7 +41,7 @@ class WindowsAwgTunnelService {
       }
     }
     throw const WindowsAwgTunnelException(
-      'Компонент подключения Router1 повреждён. Переустановите Router1.',
+      'Компонент подключения Fabula повреждён. Переустановите Fabula.',
     );
   }
 
@@ -129,7 +129,7 @@ class WindowsAwgTunnelService {
       final message = result.stderr.toString().trim();
       throw WindowsAwgTunnelException(
         message.isEmpty
-            ? 'Windows не разрешила включить подключение. Запустите Router1 от имени администратора.'
+            ? 'Windows не разрешила включить подключение. Запустите Fabula от имени администратора.'
             : message,
       );
     }
@@ -152,7 +152,7 @@ class WindowsAwgTunnelService {
     );
     if (result.exitCode != 0) {
       throw const WindowsAwgTunnelException(
-        'Не удалось выключить предыдущее подключение Router1.',
+        'Не удалось выключить предыдущее подключение Fabula.',
       );
     }
     for (var attempt = 0; attempt < 20; attempt++) {
