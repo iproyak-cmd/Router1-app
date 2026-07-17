@@ -11,7 +11,7 @@ import 'router1_api.dart';
 import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.7+12';
+const fabulaVersion = '0.3.0+13';
 const _fabulaDemoDeviceId = int.fromEnvironment(
   'FABULA_DEMO_DEVICE_ID',
   defaultValue: 0,
@@ -32,6 +32,24 @@ const zodiacSigns = <(String, String, String)>[
   ('aquarius', 'Водолей', '♒'), ('pisces', 'Рыбы', '♓'),
 ];
 
+enum FabulaModule { compatibility, tarot, moon, affirmations }
+
+extension FabulaModuleUi on FabulaModule {
+  String get title => switch (this) {
+    FabulaModule.compatibility => 'Совместимость',
+    FabulaModule.tarot => 'Таро',
+    FabulaModule.moon => 'Луна',
+    FabulaModule.affirmations => 'Настрой',
+  };
+
+  IconData get icon => switch (this) {
+    FabulaModule.compatibility => Icons.favorite_border,
+    FabulaModule.tarot => Icons.auto_awesome_outlined,
+    FabulaModule.moon => Icons.dark_mode_outlined,
+    FabulaModule.affirmations => Icons.spa_outlined,
+  };
+}
+
 void main() => runApp(const FabulaApp());
 
 class FabulaApp extends StatelessWidget {
@@ -50,6 +68,12 @@ class FabulaApp extends StatelessWidget {
       filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
         backgroundColor: _burgundy, foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16))),
+      navigationBarTheme: const NavigationBarThemeData(
+        backgroundColor: Color(0xFFFFFAF7),
+        indicatorColor: Color(0xFFF4DDE3),
+        height: 72,
+        labelTextStyle: WidgetStatePropertyAll(TextStyle(fontSize: 11)),
+      ),
     ),
     home: const FabulaShell(),
   );
@@ -71,6 +95,7 @@ class _FabulaShellState extends State<FabulaShell> {
   String phone = '';
   String birthday = '';
   String sign = 'libra';
+  FabulaModule module = FabulaModule.compatibility;
   DateTime? accessUntil;
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
@@ -95,6 +120,10 @@ class _FabulaShellState extends State<FabulaShell> {
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
+    module = FabulaModule.values.firstWhere(
+      (value) => value.name == prefs.getString('fabula_module'),
+      orElse: () => FabulaModule.compatibility,
+    );
     await Future.wait([
       _loadForecast(),
       _refreshVpn(),
@@ -296,6 +325,42 @@ class _FabulaShellState extends State<FabulaShell> {
     await _loadForecast();
   }
 
+  Future<void> _chooseModule() async {
+    final value = await showModalBottomSheet<FabulaModule>(
+      context: context,
+      backgroundColor: _cream,
+      builder: (context) => SafeArea(child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 28),
+        child: Column(mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _editorial('Что добавить в Fabula?', size: 28),
+          const SizedBox(height: 8),
+          const Text('Раздел можно менять в любое время.',
+            style: TextStyle(color: _muted)),
+          const SizedBox(height: 16),
+          ...FabulaModule.values.map((item) => ListTile(
+            leading: Icon(item.icon, color: _burgundy),
+            title: Text(item.title),
+            trailing: item == module
+              ? const Icon(Icons.check_circle, color: _sage) : null,
+            onTap: () => Navigator.pop(context, item),
+          )),
+        ]),
+      )),
+    );
+    if (value == null || value == module) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fabula_module', value.name);
+    if (mounted) setState(() { module = value; tab = 0; });
+  }
+
+  Widget _modulePage() => switch (module) {
+    FabulaModule.compatibility => const _CompatibilityPage(),
+    FabulaModule.tarot => _ForecastPage(forecast: forecast, onSign: _chooseSign),
+    FabulaModule.moon => const _MoonPage(),
+    FabulaModule.affirmations => const _AffirmationsPage(),
+  };
+
   Future<void> _editProfile({bool requirePhone = false}) async {
     final nameController = TextEditingController(text: name);
     final phoneController = TextEditingController(text: phone);
@@ -343,6 +408,25 @@ class _FabulaShellState extends State<FabulaShell> {
       'Карта дня: ${f.tarotTitle}\n${f.tarotMeaning}\n\nFabula'));
   }
 
+  Future<void> _showTarot() async {
+    final f = forecast;
+    if (f == null) return;
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      backgroundColor: _cream, builder: (context) => DraggableScrollableSheet(
+        expand: false, initialChildSize: .78, maxChildSize: .92,
+        builder: (context, controller) => ListView(controller: controller,
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 32), children: [
+          Center(child: Container(width: 42, height: 4,
+            decoration: BoxDecoration(color: _line, borderRadius: BorderRadius.circular(4)))),
+          const SizedBox(height: 22), const _SectionLabel('КАРТА ДНЯ'),
+          const SizedBox(height: 14), Center(child: _TarotArtwork(title: f.tarotTitle, width: 210)),
+          const SizedBox(height: 20), _editorial(f.tarotTitle),
+          const SizedBox(height: 10), Text(f.tarotMeaning,
+            style: const TextStyle(color: _muted, height: 1.5, fontSize: 16)),
+        ]),
+      ));
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(child: loading ? const Center(child: CircularProgressIndicator())
@@ -351,19 +435,20 @@ class _FabulaShellState extends State<FabulaShell> {
       : IndexedStack(index: tab, children: [
           _TodayPage(name: name, forecast: forecast, vpn: vpn, vpnBusy: vpnBusy,
             accessUntil: accessUntil, onSign: _chooseSign,
-            onForecast: () => setState(() => tab = 1), onVpn: _toggleVpn, onShare: _share),
-          _ForecastPage(forecast: forecast, onSign: _chooseSign),
+            onForecast: _showTarot, onVpn: _toggleVpn, onShare: _share),
+          _modulePage(),
           _ConnectionPage(vpn: vpn, busy: vpnBusy,
             accessUntil: accessUntil, onToggle: _toggleVpn),
-          _ProfilePage(name: name, phone: phone, sign: sign, onEdit: _editProfile),
+          _ProfilePage(name: name, phone: phone, sign: sign, module: module,
+            onEdit: _editProfile, onModule: _chooseModule),
         ])),
     bottomNavigationBar: loading || name.isEmpty || phone.isEmpty || birthday.isEmpty ? null
       : NavigationBar(selectedIndex: tab, onDestinationSelected: (v) => setState(() => tab = v),
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Сегодня'),
-        NavigationDestination(icon: Icon(Icons.dark_mode_outlined), label: 'Прогноз'),
-        NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'VPN'),
-        NavigationDestination(icon: Icon(Icons.person_outline), label: 'Профиль'),
+      destinations: [
+        const NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Сегодня'),
+        NavigationDestination(icon: Icon(module.icon), label: module.title),
+        const NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'VPN'),
+        const NavigationDestination(icon: Icon(Icons.person_outline), label: 'Профиль'),
       ]),
   );
 }
@@ -450,8 +535,11 @@ class _Card extends StatelessWidget {
   const _Card({required this.child, this.padding = const EdgeInsets.all(24)});
   final Widget child; final EdgeInsets padding;
   @override Widget build(BuildContext context) => Container(padding: padding,
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(26),
-      border: Border.all(color: _line), boxShadow: const [BoxShadow(color: Color(0x0D000000), blurRadius: 18, offset: Offset(0, 6))]), child: child);
+    decoration: BoxDecoration(color: const Color(0xFFFFFEFC), borderRadius: BorderRadius.circular(26),
+      border: Border.all(color: const Color(0xFFEDE5DE)), boxShadow: const [
+        BoxShadow(color: Color(0x10000000), blurRadius: 24, offset: Offset(0, 8)),
+        BoxShadow(color: Color(0x18FFFFFF), blurRadius: 2, offset: Offset(0, -1)),
+      ]), child: child);
 }
 
 Text _editorial(String text, {double size = 30}) => Text(text,
@@ -476,7 +564,7 @@ class _TodayPage extends StatelessWidget {
     _Card(padding: const EdgeInsets.all(20), child: f == null ? const Center(child: CircularProgressIndicator()) : Stack(children: [
       Positioned(right: -36, top: -18, bottom: -30, child: Opacity(opacity: .58,
         child: Image.asset('assets/fabula/branch.png', width: 190, fit: BoxFit.cover))),
-      Padding(padding: const EdgeInsets.only(right: 92), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.only(right: 82), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SectionLabel('ВАШ ДЕНЬ'), const SizedBox(height: 10),
         Text(f.overview, maxLines: 5, overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontFamily: 'Serif', color: _ink, fontSize: 21, height: 1.17)),
@@ -484,6 +572,9 @@ class _TodayPage extends StatelessWidget {
           _DayMetric(icon: Icons.sentiment_satisfied_alt_outlined, label: 'Настроение', value: _mood(f.number)),
           const SizedBox(width: 12), _DayMetric(icon: Icons.auto_awesome, label: 'Энергия дня', value: '${76 + (f.number * 3) % 19}%'),
         ]),
+        const SizedBox(height: 17), FilledButton.icon(onPressed: onForecast,
+          iconAlignment: IconAlignment.end, icon: const Icon(Icons.arrow_forward, size: 18),
+          label: const Text('Читать прогноз')),
       ])),
     ])),
     const SizedBox(height: 10),
@@ -636,16 +727,164 @@ class _ConnectionPage extends StatelessWidget {
   ]);
 }
 
+class _CompatibilityPage extends StatefulWidget {
+  const _CompatibilityPage();
+  @override State<_CompatibilityPage> createState() => _CompatibilityPageState();
+}
+
+class _CompatibilityPageState extends State<_CompatibilityPage> {
+  var first = 'libra';
+  var second = 'leo';
+
+  (String, String, String) _zodiac(String value) =>
+    zodiacSigns.firstWhere((item) => item.$1 == value);
+
+  Future<void> _pick(bool isFirst) async {
+    final value = await showModalBottomSheet<String>(context: context,
+      backgroundColor: _cream, builder: (context) => SafeArea(child: Padding(
+        padding: const EdgeInsets.all(20), child: GridView.count(
+          shrinkWrap: true, crossAxisCount: 3, childAspectRatio: 1.55,
+          mainAxisSpacing: 8, crossAxisSpacing: 8,
+          children: zodiacSigns.map((z) => OutlinedButton(
+            onPressed: () => Navigator.pop(context, z.$1),
+            child: Text('${z.$3} ${z.$2}'))).toList(),
+        ))));
+    if (value != null) {
+      setState(() {
+        if (isFirst) {
+          first = value;
+        } else {
+          second = value;
+        }
+      });
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    final left = _zodiac(first);
+    final right = _zodiac(second);
+    final score = 68 + ((first.length * 7 + second.length * 3) % 27);
+    return _Page(children: [
+      _editorial('Совместимость'),
+      const SizedBox(height: 7),
+      const Text('Посмотрите, где вы совпадаете, а где важно услышать друг друга.',
+        style: TextStyle(color: _muted, height: 1.4)),
+      const SizedBox(height: 20),
+      _Card(child: Column(children: [
+        Row(children: [
+          Expanded(child: _SignButton(sign: left, onTap: () => _pick(true))),
+          Container(width: 54, height: 54, decoration: const BoxDecoration(
+            color: Color(0xFFF7E8EC), shape: BoxShape.circle),
+            child: const Icon(Icons.favorite, color: _burgundy)),
+          Expanded(child: _SignButton(sign: right, onTap: () => _pick(false))),
+        ]),
+        const SizedBox(height: 22),
+        Text('$score%', style: const TextStyle(fontFamily: 'Serif',
+          fontSize: 52, color: _burgundy)),
+        const Text('ваша энергия пары', style: TextStyle(color: _muted)),
+        const SizedBox(height: 18),
+        const Divider(color: _line),
+        const SizedBox(height: 14),
+        const Text('Вместе вы умеете поддерживать сильные стороны друг друга. '
+          'Главное — не замалчивать ожидания и оставлять место для личной свободы.',
+          textAlign: TextAlign.center, style: TextStyle(color: _muted, height: 1.5)),
+      ])),
+      const SizedBox(height: 14),
+      const _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionLabel('ПОДСКАЗКА ДЛЯ ОТНОШЕНИЙ'), SizedBox(height: 10),
+          Text('Сегодня лучше говорить прямо, но мягко. Один честный вопрос даст больше, чем долгие догадки.',
+            style: TextStyle(fontFamily: 'Serif', fontSize: 21, height: 1.25)),
+        ])),
+    ]);
+  }
+}
+
+class _SignButton extends StatelessWidget {
+  const _SignButton({required this.sign, required this.onTap});
+  final (String, String, String) sign;
+  final VoidCallback onTap;
+  @override Widget build(BuildContext context) => InkWell(onTap: onTap,
+    borderRadius: BorderRadius.circular(18), child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(children: [
+        Text(sign.$3, style: const TextStyle(fontSize: 35, color: _burgundy)),
+        const SizedBox(height: 5), Text(sign.$2),
+        const SizedBox(height: 3), const Text('изменить',
+          style: TextStyle(color: _muted, fontSize: 10)),
+      ]),
+    ));
+}
+
+class _MoonPage extends StatelessWidget {
+  const _MoonPage();
+  @override Widget build(BuildContext context) => _Page(children: [
+    _editorial('Лунный день'), const SizedBox(height: 7),
+    const Text('Ритм дня и бережные подсказки для себя.', style: TextStyle(color: _muted)),
+    const SizedBox(height: 20),
+    _Card(child: Column(children: [
+      Container(width: 132, height: 132, decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(colors: [Color(0xFFFFFBF3), Color(0xFFD9C8AD)])),
+        child: const Icon(Icons.dark_mode, size: 70, color: _burgundy)),
+      const SizedBox(height: 18), _editorial('Растущая Луна', size: 28),
+      const SizedBox(height: 8), const Text('Время укреплять начатое и спокойно двигаться вперёд.',
+        textAlign: TextAlign.center, style: TextStyle(color: _muted, height: 1.45)),
+    ])),
+    const SizedBox(height: 14),
+    const _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _SectionLabel('ХОРОШО СЕГОДНЯ'), SizedBox(height: 10),
+      Text('Планировать · заботиться о теле · завершать небольшие дела',
+        style: TextStyle(fontFamily: 'Serif', fontSize: 21, height: 1.35)),
+    ])),
+  ]);
+}
+
+class _AffirmationsPage extends StatelessWidget {
+  const _AffirmationsPage();
+  @override Widget build(BuildContext context) => _Page(children: [
+    _editorial('Ваш настрой'), const SizedBox(height: 7),
+    const Text('Короткая мысль, к которой можно вернуться в течение дня.',
+      style: TextStyle(color: _muted)),
+    const SizedBox(height: 20),
+    _Card(child: Stack(children: [
+      Positioned(right: -45, top: -35, bottom: -45, child: Opacity(opacity: .42,
+        child: Image.asset('assets/fabula/branch.png', width: 220, fit: BoxFit.cover))),
+      Padding(padding: const EdgeInsets.fromLTRB(2, 30, 76, 30), child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const _SectionLabel('АФФИРМАЦИЯ ДНЯ'), const SizedBox(height: 18),
+          _editorial('Я выбираю ясность, доверяю себе и не тороплю собственный путь.', size: 28),
+        ])),
+    ])),
+    const SizedBox(height: 14),
+    const _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _SectionLabel('ПРАКТИКА НА МИНУТУ'), SizedBox(height: 10),
+      Text('Сделайте медленный вдох. Назовите одну вещь, которую вы уже сделали хорошо сегодня.',
+        style: TextStyle(color: _muted, height: 1.5)),
+    ])),
+  ]);
+}
+
 class _ProfilePage extends StatelessWidget {
-  const _ProfilePage({required this.name, required this.phone, required this.sign, required this.onEdit});
-  final String name, phone, sign; final VoidCallback onEdit;
+  const _ProfilePage({required this.name, required this.phone, required this.sign,
+    required this.module, required this.onEdit, required this.onModule});
+  final String name, phone, sign;
+  final FabulaModule module;
+  final VoidCallback onEdit, onModule;
   @override Widget build(BuildContext context) { final z = zodiacSigns.firstWhere((e) => e.$1 == sign); return _Page(children: [
     _editorial('Профиль'), const SizedBox(height: 18), _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(name.isEmpty ? 'Гость Fabula' : name, style: const TextStyle(fontFamily: 'Serif', fontSize: 28)), const SizedBox(height: 8),
       Text('${z.$3} ${z.$2}', style: const TextStyle(color: _burgundy)), const SizedBox(height: 6),
       Text(phone.isEmpty ? 'Телефон не указан' : phone, style: const TextStyle(color: _muted)), const SizedBox(height: 18),
       FilledButton(onPressed: onEdit, child: const Text('Изменить профиль')),
-    ])), const SizedBox(height: 16), Text('Fabula $fabulaVersion', textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontSize: 12)),
+    ])), const SizedBox(height: 14),
+    _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const _SectionLabel('МОЯ FABULA'), const SizedBox(height: 9),
+      ListTile(contentPadding: EdgeInsets.zero, leading: Icon(module.icon, color: _burgundy),
+        title: Text(module.title), subtitle: const Text('Выбранный дополнительный раздел'),
+        trailing: const Icon(Icons.chevron_right), onTap: onModule),
+    ])),
+    const SizedBox(height: 16), Text('Fabula $fabulaVersion', textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontSize: 12)),
   ]); }
 }
 
