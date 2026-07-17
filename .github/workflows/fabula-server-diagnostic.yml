@@ -226,44 +226,120 @@ jobs:
           if not api_token:
               raise SystemExit('APP_API_TOKEN is missing')
 
-          query = urllib.parse.urlencode({'phone': matched_phone, 'device_type': 'smartphone_test'})
-          request = urllib.request.Request(
-              'http://127.0.0.1:8000/api/fabula/client?' + query,
-              headers={'Authorization': 'Bearer ' + api_token},
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  api_status = response.status
-                  payload = json.loads(response.read().decode('utf-8'))
-          except urllib.error.HTTPError as error:
-              api_status = error.code
+          def api_get(path: str, query_values: dict[str, str] | None = None) -> tuple[int, object]:
+              url = 'http://127.0.0.1:8000/api' + path
+              if query_values:
+                  url += '?' + urllib.parse.urlencode(query_values)
+              request = urllib.request.Request(
+                  url,
+                  headers={'Authorization': 'Bearer ' + api_token},
+              )
               try:
-                  payload = json.loads(error.read().decode('utf-8'))
-              except Exception:
-                  payload = {'detail': 'non-json error'}
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      return response.status, json.loads(response.read().decode('utf-8'))
+              except urllib.error.HTTPError as error:
+                  try:
+                      payload = json.loads(error.read().decode('utf-8'))
+                  except Exception:
+                      payload = {'detail': 'non-json error'}
+                  return error.code, payload
 
-          sanitized_api: dict[str, object] = {'status_code': api_status}
-          if isinstance(payload, dict):
-              for key in ('found', 'client_id', 'paid_until', 'access_until', 'status', 'detail'):
+          def sanitize_client_payload(status_code: int, payload: object) -> dict[str, object]:
+              result: dict[str, object] = {'status_code': status_code}
+              if not isinstance(payload, dict):
+                  return result
+              client = payload.get('client')
+              if isinstance(client, dict):
+                  result['client_id'] = client.get('id')
+              for key in ('found', 'paid_until', 'access_until', 'status', 'detail'):
                   if key in payload:
                       value = payload[key]
-                      sanitized_api[key] = str(value)[:180] if value is not None else None
+                      result[key] = str(value)[:180] if value is not None else None
               configs = payload.get('configs')
               if isinstance(configs, list):
-                  sanitized_api['config_count'] = len(configs)
-                  sanitized_api['configs'] = [
+                  result['config_count'] = len(configs)
+                  result['configs'] = [
                       {
                           key: item.get(key)
                           for key in (
-                              'id', 'device_id', 'device_type', 'protocol', 'status',
-                              'paid_until', 'server_code', 'recommended',
+                              'id', 'device_id', 'device_type', 'product_type',
+                              'protocol', 'status', 'payment_status', 'paid_until',
+                              'server_code', 'recommended', 'has_config', 'is_test',
                           )
                           if key in item
                       }
                       for item in configs
                       if isinstance(item, dict)
                   ]
-          print('API_REPORT=' + json.dumps(sanitized_api, ensure_ascii=False, sort_keys=True))
+              trial = payload.get('trial')
+              if isinstance(trial, dict):
+                  result['trial'] = {
+                      key: trial.get(key)
+                      for key in ('available', 'active', 'device_type', 'paid_until')
+                      if key in trial
+                  }
+              return result
+
+          api_reports: dict[str, object] = {}
+          for label, device_type in (
+              ('unfiltered', None),
+              ('smartphone', 'smartphone'),
+              ('smartphone_test', 'smartphone_test'),
+          ):
+              query_values = {'phone': matched_phone}
+              if device_type:
+                  query_values['device_type'] = device_type
+              status_code, payload = api_get('/fabula/client', query_values)
+              api_reports[label] = sanitize_client_payload(status_code, payload)
+          print('API_REPORT=' + json.dumps(api_reports, ensure_ascii=False, sort_keys=True))
+
+          config_row = conn.execute(
+              "SELECT * FROM client_configs "
+              "WHERE client_id = ? AND device_type = 'smartphone_test' "
+              "ORDER BY id DESC LIMIT 1",
+              (next(iter(client_ids)),),
+          ).fetchone()
+          if config_row is None:
+              raise SystemExit('No smartphone_test config found for matched client')
+          config_id = int(config_row['id'])
+          material: dict[str, object] = {'config_id': config_id}
+          for key in config_row.keys():
+              lowered = key.lower()
+              if any(part in lowered for part in ('key', 'config', 'filename', 'path')):
+                  value = config_row[key]
+                  material[lowered + '_present'] = value not in (None, '')
+                  material[lowered + '_length'] = len(str(value or ''))
+          print('CONFIG_MATERIAL=' + json.dumps(material, ensure_ascii=False, sort_keys=True))
+
+          config_status, config_payload = api_get(
+              f'/fabula/config/{config_id}', {'phone': matched_phone}
+          )
+          config_probe: dict[str, object] = {'status_code': config_status}
+          if isinstance(config_payload, dict):
+              config_probe['config_text_length'] = len(str(config_payload.get('config_text') or ''))
+              if 'detail' in config_payload:
+                  config_probe['detail'] = str(config_payload['detail'])[:180]
+          print('CONFIG_API_PROBE=' + json.dumps(config_probe, ensure_ascii=False, sort_keys=True))
+
+          failover_status, failover_payload = api_get(
+              f'/app/failover/{config_id}', {'phone': matched_phone}
+          )
+          failover_probe: dict[str, object] = {'status_code': failover_status}
+          if isinstance(failover_payload, dict):
+              nodes = failover_payload.get('nodes')
+              if isinstance(nodes, list):
+                  failover_probe['nodes'] = [
+                      {
+                          'role': node.get('role'),
+                          'server_code': node.get('server_code'),
+                          'config_text_length': len(str(node.get('config_text') or '')),
+                      }
+                      for node in nodes
+                      if isinstance(node, dict)
+                  ]
+              if 'detail' in failover_payload:
+                  failover_probe['detail'] = str(failover_payload['detail'])[:180]
+          print('FAILOVER_API_PROBE=' + json.dumps(failover_probe, ensure_ascii=False, sort_keys=True))
           conn.close()
           PY
           REMOTE
