@@ -73,8 +73,7 @@ jobs:
               raise SystemExit(f'Expected one client; found {len(matched)}')
           client_id = int(matched[0]['id'])
           configs = conn.execute(
-              "SELECT id, device_type, protocol, server_code, status, payment_status, "
-              "paid_until, public_key FROM client_configs WHERE client_id = ? ORDER BY id DESC",
+              "SELECT * FROM client_configs WHERE client_id = ? ORDER BY id DESC",
               (client_id,),
           ).fetchall()
           safe_configs = [
@@ -110,6 +109,23 @@ jobs:
                   'PRIMARY_TARGET '
                   f"config_id={primary['id']} server={primary['server_code']} key_ready=true"
               )
+              config_text = ''
+              for key in primary.keys():
+                  value = str(primary[key] or '')
+                  if '[Interface]' in value and '[Peer]' in value:
+                      config_text = value
+                      break
+              safe_lines = []
+              allowed = {'address', 'dns', 'mtu', 'jc', 'jmin', 'jmax', 's1', 's2',
+                         's3', 's4', 'h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3',
+                         'i4', 'i5', 'allowedips', 'endpoint', 'persistentkeepalive'}
+              for raw_line in config_text.splitlines():
+                  if '=' not in raw_line:
+                      continue
+                  key, value = (part.strip() for part in raw_line.split('=', 1))
+                  if key.lower() in allowed:
+                      safe_lines.append(f'{key}={value}')
+              print('PRIMARY_CONFIG_SHAPE=' + json.dumps(safe_lines, sort_keys=True))
           else:
               print('PRIMARY_TARGET key_ready=false')
 
