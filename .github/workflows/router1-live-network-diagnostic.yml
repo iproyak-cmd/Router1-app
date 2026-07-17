@@ -261,13 +261,27 @@ jobs:
           http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || true)
           target=$(printf '%s' "$TARGET_B64" | base64 -d)
           target_age=missing
+          target_allowed=missing
+          target_rx=missing
+          target_tx=missing
           while read -r key stamp; do
             if [ "$key" = "$target" ]; then
               if [ "${stamp:-0}" -gt 0 ]; then target_age=$((now-stamp)); else target_age=never; fi
               break
             fi
           done < <("$tool" show "$iface" latest-handshakes 2>/dev/null || true)
-          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age target_peer_handshake_age=$target_age xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          while read -r key allowed; do
+            if [ "$key" = "$target" ]; then target_allowed=$allowed; break; fi
+          done < <("$tool" show "$iface" allowed-ips 2>/dev/null || true)
+          while read -r key rx tx; do
+            if [ "$key" = "$target" ]; then target_rx=$rx; target_tx=$tx; break; fi
+          done < <("$tool" show "$iface" transfer 2>/dev/null || true)
+          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age target_peer_handshake_age=$target_age target_allowed=$target_allowed target_rx=$target_rx target_tx=$target_tx xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          echo "DATA_PLANE label=$iface forward_policy=$(iptables -S FORWARD 2>/dev/null | head -n1 | tr ' ' '_')"
+          iptables -S FORWARD 2>/dev/null | grep -E "$iface|RELATED|ESTABLISHED" | sed 's/^/FORWARD_RULE /' || true
+          iptables -t nat -S POSTROUTING 2>/dev/null | grep -E "$iface|MASQUERADE|SNAT" | sed 's/^/NAT_RULE /' || true
+          ip rule show 2>/dev/null | sed 's/^/IP_RULE /' || true
+          ip route show table all 2>/dev/null | grep -E "$iface|default" | head -n 20 | sed 's/^/IP_ROUTE /' || true
           NODE
           )
             output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
