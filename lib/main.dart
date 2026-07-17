@@ -8,9 +8,10 @@ import 'package:share_plus/share_plus.dart';
 
 import 'fabula_ui_text.dart';
 import 'router1_api.dart';
+import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.2+7';
+const fabulaVersion = '0.2.3+8';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -69,6 +70,9 @@ class _FabulaShellState extends State<FabulaShell> {
   DateTime? accessUntil;
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
+  AwgFailoverController? failover;
+  int? failoverDeviceId;
+  var failoverEvaluating = false;
   Timer? timer;
 
   @override
@@ -101,7 +105,11 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _refreshVpn() async {
-    try { final v = await tunnel.status(); if (mounted) setState(() => vpn = v); }
+    try {
+      final value = await tunnel.status();
+      if (mounted) setState(() => vpn = value);
+      if (!vpnBusy) await _evaluateFailover(value);
+    }
     catch (_) {}
   }
 
@@ -124,20 +132,15 @@ class _FabulaShellState extends State<FabulaShell> {
         vpn = await tunnel.disconnect();
       } else {
         final lookup = await _lookupOrCreateTrial();
-        final available = _fabulaConfigs(lookup);
-        final candidates = available.where((c) {
-          final text = '${c.productType} ${c.deviceName}'.toLowerCase();
-          return Platform.isWindows ? text.contains('windows') || text.contains('pc') || text.contains('пк')
-            : text.contains('android') || text.contains('smartphone') || text.contains('смартфон');
-        }).toList();
-        final config = candidates.isNotEmpty ? candidates.first
-          : (available.isNotEmpty ? available.first : null);
+        final config = _selectFabulaConfig(lookup);
         if (config == null) throw const FormatException('no_config');
         if (mounted) setState(() => accessUntil = config.paidUntil);
         final text = await api.fetchClientConfigText(phone: phone, deviceId: config.id);
+        await _initializeFailover(config.id);
         final prepared = await tunnel.prepare();
         if (!prepared) throw PlatformException(code: 'VPN_DENIED');
         vpn = await tunnel.connect(text, serverCode: config.serverCode);
+        vpn = await _waitForHandshake();
       }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -169,11 +172,83 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   List<Router1ClientConfig> _fabulaConfigs(Router1ClientLookup lookup) =>
-    lookup.configs.where((config) {
+    (lookup.configs.where((config) {
       final status = config.status.toLowerCase();
+      final paidUntil = config.paidUntil;
       return !config.routerCandidate && config.hasConfig &&
-        const {'active', 'paid'}.contains(status);
+        const {'active', 'paid'}.contains(status) &&
+        (paidUntil == null || paidUntil.isAfter(DateTime.now()));
+    }).toList(growable: true)
+      ..sort((left, right) {
+        int score(Router1ClientConfig value) {
+          var result = value.id == lookup.recommendedConfigId ? 100 : 0;
+          if (value.recommended) result += 50;
+          return result;
+        }
+        final byScore = score(right).compareTo(score(left));
+        return byScore != 0 ? byScore : right.id.compareTo(left.id);
+      })).toList(growable: false);
+
+  Router1ClientConfig? _selectFabulaConfig(Router1ClientLookup lookup) {
+    final available = _fabulaConfigs(lookup);
+    final platform = available.where((config) {
+      final text = '${config.productType} ${config.deviceName}'.toLowerCase();
+      return Platform.isWindows
+        ? text.contains('windows') || text.contains('pc') || text.contains('пк')
+        : text.contains('android') || text.contains('smartphone') || text.contains('смартфон');
     }).toList(growable: false);
+    return platform.isNotEmpty ? platform.first
+      : (available.isNotEmpty ? available.first : null);
+  }
+
+  Future<void> _initializeFailover(int deviceId) async {
+    if (Platform.isWindows || failoverDeviceId == deviceId) return;
+    final controller = AwgFailoverController(
+      api: api,
+      tunnel: tunnel,
+      phone: phone,
+      deviceId: deviceId,
+    );
+    await controller.initialize();
+    failover = controller;
+    failoverDeviceId = deviceId;
+  }
+
+  Future<void> _evaluateFailover(AwgTunnelStatus status) async {
+    final controller = failover;
+    if (controller == null || failoverEvaluating || !status.connected) return;
+    failoverEvaluating = true;
+    try {
+      final result = await controller.evaluate(status);
+      if (result.switched) {
+        final current = await tunnel.status();
+        if (mounted) {
+          setState(() => vpn = current);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result.message ?? 'Выбран резервный сервер')),
+          );
+        }
+      }
+    } catch (_) {
+      // Ошибка резервного маршрута не должна оставлять приложение без управления.
+    } finally {
+      failoverEvaluating = false;
+    }
+  }
+
+  Future<AwgTunnelStatus> _waitForHandshake() async {
+    if (Platform.isWindows) return tunnel.status();
+    for (var attempt = 0; attempt < 15; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      var status = await tunnel.status();
+      if (status.handshake > 0) return status;
+      await _evaluateFailover(status);
+      status = await tunnel.status();
+      if (status.handshake > 0) return status;
+    }
+    await tunnel.disconnect();
+    throw const FormatException('tunnel_handshake_timeout');
+  }
 
   Future<void> _chooseSign() async {
     final value = await showModalBottomSheet<String>(context: context,
@@ -253,7 +328,6 @@ class _FabulaShellState extends State<FabulaShell> {
           _ForecastPage(forecast: forecast, onSign: _chooseSign),
           _ConnectionPage(vpn: vpn, busy: vpnBusy,
             accessUntil: accessUntil, onToggle: _toggleVpn),
-          const _CompatibilityPage(),
           _ProfilePage(name: name, phone: phone, sign: sign, onEdit: _editProfile),
         ])),
     bottomNavigationBar: loading || name.isEmpty || phone.isEmpty || birthday.isEmpty ? null
@@ -262,7 +336,6 @@ class _FabulaShellState extends State<FabulaShell> {
         NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Сегодня'),
         NavigationDestination(icon: Icon(Icons.dark_mode_outlined), label: 'Прогноз'),
         NavigationDestination(icon: Icon(Icons.shield_outlined), selectedIcon: Icon(Icons.shield), label: 'VPN'),
-        NavigationDestination(icon: Icon(Icons.favorite_border), label: 'Пара'),
         NavigationDestination(icon: Icon(Icons.person_outline), label: 'Профиль'),
       ]),
   );
@@ -435,11 +508,19 @@ class _VpnCard extends StatelessWidget {
     required this.accessUntil, required this.onToggle});
   final AwgTunnelStatus vpn; final bool busy; final DateTime? accessUntil;
   final VoidCallback onToggle;
-  @override Widget build(BuildContext context) => _Card(padding: const EdgeInsets.all(20), child: Row(children: [
+  @override Widget build(BuildContext context) {
+    final confirmed = vpn.connected && (Platform.isWindows || vpn.handshake > 0);
+    final title = busy ? 'Подключаемся'
+      : confirmed ? 'Всё работает'
+      : vpn.connected ? 'Проверяем соединение' : 'Подключить';
+    final subtitle = busy ? 'Ждём ответ защищённого сервера'
+      : confirmed ? 'Соединение защищено'
+      : vpn.connected ? 'Сервер ещё не ответил' : 'Нажмите на кнопку справа';
+    return _Card(padding: const EdgeInsets.all(20), child: Row(children: [
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('ЗАЩИЩЁННОЕ ПОДКЛЮЧЕНИЕ', style: TextStyle(color: _burgundy, fontSize: 11)),
-      const SizedBox(height: 7), _editorial(vpn.connected ? 'Всё работает' : 'Подключить', size: 22),
-      const SizedBox(height: 4), Text(vpn.connected ? 'Соединение защищено' : 'Нажмите на кнопку справа', style: const TextStyle(color: _muted, fontSize: 12)),
+      const SizedBox(height: 7), _editorial(title, size: 22),
+      const SizedBox(height: 4), Text(subtitle, style: const TextStyle(color: _muted, fontSize: 12)),
       const SizedBox(height: 5), Text(fabulaAccessLabel(accessUntil),
         style: const TextStyle(color: _burgundy, fontSize: 11)),
     ])), const SizedBox(width: 12),
@@ -448,6 +529,7 @@ class _VpnCard extends StatelessWidget {
       child: busy ? const Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator())
         : Icon(Icons.shield_outlined, color: vpn.connected ? _sage : _burgundy, size: 30))),
   ]));
+  }
 }
 
 class _ForecastPage extends StatelessWidget {
@@ -505,17 +587,7 @@ class _ConnectionPage extends StatelessWidget {
     const Text('Для привычных сайтов, сервисов и приложений.', style: TextStyle(color: _muted)),
     const SizedBox(height: 22), _VpnCard(vpn: vpn, busy: busy,
       accessUntil: accessUntil, onToggle: onToggle),
-    const SizedBox(height: 16), const _Card(child: Text('Fabula использует защищённое подключение Router1. Технические настройки выполняются автоматически.', style: TextStyle(color: _muted, height: 1.45))),
-  ]);
-}
-
-class _CompatibilityPage extends StatelessWidget {
-  const _CompatibilityPage();
-  @override Widget build(BuildContext context) => _Page(children: [
-    _editorial('Совместимость'), const SizedBox(height: 8),
-    const Text('Новый раздел скоро появится', style: TextStyle(color: _muted)), const SizedBox(height: 22),
-    const _Card(child: Column(children: [Icon(Icons.favorite_border, color: _burgundy, size: 54), SizedBox(height: 14),
-      Text('Вы сможете сравнить два знака и получить подсказки для отношений и общения.', textAlign: TextAlign.center, style: TextStyle(color: _muted, height: 1.45))])),
+    const SizedBox(height: 16), const _Card(child: Text('Fabula автоматически проверяет соединение и выбирает доступный защищённый сервер.', style: TextStyle(color: _muted, height: 1.45))),
   ]);
 }
 

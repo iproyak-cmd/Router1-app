@@ -44,5 +44,9 @@ String fabulaConnectionErrorMessage(Object error) {
       error.message == 'config_generation_timeout') {
     return 'Подключение ещё создаётся. Подождите минуту и повторите.';
   }
+  if (error is FormatException &&
+      error.message == 'tunnel_handshake_timeout') {
+    return 'Сервер не ответил. Подключение выключено, чтобы интернет продолжил работать.';
+  }
   return 'Не удалось включить подключение. Проверьте интернет и повторите.';
 }

@@ -35,6 +35,15 @@ void main() {
       );
     });
 
+    test('does not claim success when the server never handshakes', () {
+      expect(
+        fabulaConnectionErrorMessage(
+          const FormatException('tunnel_handshake_timeout'),
+        ),
+        contains('Сервер не ответил'),
+      );
+    });
+
     test('does not expose an authorization error', () {
       expect(
         fabulaConnectionErrorMessage(
