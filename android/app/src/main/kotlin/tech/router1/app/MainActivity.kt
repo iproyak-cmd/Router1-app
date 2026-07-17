@@ -163,8 +163,18 @@ class MainActivity : FlutterActivity() {
             backend.setState(tunnel, Tunnel.State.UP, config)
             if (serverCode.isNotBlank()) backend.setActiveFailoverServer(serverCode)
             getSharedPreferences("router1_awg", MODE_PRIVATE)
-                .edit().putBoolean("enabled", true).apply()
-            mapOf("state" to "up", "version" to backend.version)
+                .edit()
+                .putBoolean("enabled", true)
+                .putString("active_server", serverCode)
+                .apply()
+            mapOf(
+                "state" to "up",
+                "handshake" to backend.getLastHandshake(tunnel),
+                "rx" to backend.getStatistics(tunnel).totalRx(),
+                "tx" to backend.getStatistics(tunnel).totalTx(),
+                "serverCode" to backend.activeFailoverServer,
+                "version" to backend.version
+            )
         }
     }
 

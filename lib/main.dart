@@ -11,7 +11,7 @@ import 'router1_api.dart';
 import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.6+11';
+const fabulaVersion = '0.2.7+12';
 const _fabulaDemoDeviceId = int.fromEnvironment(
   'FABULA_DEMO_DEVICE_ID',
   defaultValue: 0,

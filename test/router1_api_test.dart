@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fabula_app/router1_api.dart';
+import 'package:fabula_app/services/awg_failover_service.dart';
 
 void main() {
   group('Router1RouteProfileKind', () {
@@ -152,6 +153,75 @@ void main() {
       expect(bundle.health['fr'], 'down');
       expect(bundle.node('nl2')?.configText, 'standby');
       expect(bundle.policy.switchCooldownSeconds, 300);
+    });
+
+    test('walks through every reserve before cycling back', () {
+      const nodes = [
+        Router1FailoverNode(
+          role: 'primary',
+          serverCode: 'fr',
+          configText: 'fr-config',
+        ),
+        Router1FailoverNode(
+          role: 'standby',
+          serverCode: 'nl2',
+          configText: 'nl2-config',
+        ),
+        Router1FailoverNode(
+          role: 'emergency',
+          serverCode: 'nl-wg',
+          configText: 'wg-config',
+        ),
+      ];
+
+      expect(
+        selectNextFailoverServer(
+          nodes: nodes,
+          activeServer: 'fr',
+          attemptedServers: {'fr'},
+          health: const {},
+        ),
+        'nl2',
+      );
+      expect(
+        selectNextFailoverServer(
+          nodes: nodes,
+          activeServer: 'nl2',
+          attemptedServers: {'fr', 'nl2'},
+          health: const {},
+        ),
+        'nl-wg',
+      );
+    });
+
+    test('skips a route that the control plane marked down', () {
+      const nodes = [
+        Router1FailoverNode(
+          role: 'primary',
+          serverCode: 'fr',
+          configText: 'fr-config',
+        ),
+        Router1FailoverNode(
+          role: 'standby',
+          serverCode: 'nl2',
+          configText: 'nl2-config',
+        ),
+        Router1FailoverNode(
+          role: 'emergency',
+          serverCode: 'nl-wg',
+          configText: 'wg-config',
+        ),
+      ];
+
+      expect(
+        selectNextFailoverServer(
+          nodes: nodes,
+          activeServer: 'fr',
+          attemptedServers: {'fr'},
+          health: const {'nl2': 'down'},
+        ),
+        'nl-wg',
+      );
     });
   });
 }

@@ -16,6 +16,8 @@ jobs:
     env:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
       FABULA_TEST_PHONE: ${{ secrets.FABULA_TEST_PHONE }}
+      FR_SSH_PASSWORD: ${{ secrets.FR_SSH_PASSWORD }}
+      NL2_SSH_PASSWORD: ${{ secrets.NL2_SSH_PASSWORD }}
     steps:
       - name: Check MSK and VPN nodes without exposing keys
         shell: bash
@@ -197,11 +199,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${FR_SSH_PASSWORD:-}"
+          test -n "${NL2_SSH_PASSWORD:-}"
           inspect_with_password() {
             label=$1
             host=$2
             iface=$3
-            output=$(sshpass -e ssh \
+            password=$4
+            output=$(SSHPASS="$password" sshpass -e ssh \
               -o ConnectTimeout=8 \
               -o StrictHostKeyChecking=accept-new \
               -p 22 "root@$host" "bash -s -- '$iface'" <<'NODE' 2>&1 || true
@@ -227,5 +232,5 @@ jobs:
             output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
             echo "PASSWORD_NODE label=$label $output"
           }
-          inspect_with_password FR 213.176.93.13 awgfr1
-          inspect_with_password NL2 201.51.23.60 awgnl2
+          inspect_with_password FR 213.176.93.13 awgfr1 "$FR_SSH_PASSWORD"
+          inspect_with_password NL2 201.51.23.60 awgnl2 "$NL2_SSH_PASSWORD"
