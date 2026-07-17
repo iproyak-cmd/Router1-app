@@ -161,8 +161,10 @@ jobs:
             echo "VPN_NODE label=$label $output"
           }
 
-          node_diag FR 213.176.93.13 5443 awgfr1
-          node_diag NL2 201.51.23.60 5445 awgnl2
+          node_diag FR-custom 213.176.93.13 5443 awgfr1
+          node_diag FR-22 213.176.93.13 22 awgfr1
+          node_diag NL2-custom 201.51.23.60 5445 awgnl2
+          node_diag NL2-22 201.51.23.60 22 awgnl2
 
           if [ -s /tmp/router1_diag_primary_public_key ]; then
             target_b64=$(base64 -w0 /tmp/router1_diag_primary_public_key)
