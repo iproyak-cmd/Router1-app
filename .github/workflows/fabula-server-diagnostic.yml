@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 10
     env:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+      FABULA_TEST_PHONE: ${{ secrets.FABULA_TEST_PHONE }}
     steps:
       - name: Verify secret is configured
         shell: bash
@@ -24,6 +25,10 @@ jobs:
             echo "MSK_SSH_PASSWORD is not configured"
             exit 2
           fi
+          if [[ -z "${FABULA_TEST_PHONE:-}" ]]; then
+            echo "FABULA_TEST_PHONE is not configured"
+            exit 2
+          fi
 
       - name: Back up database and collect sanitized diagnostics
         shell: bash
@@ -31,10 +36,9 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
-          sshpass -e ssh \
-            -o StrictHostKeyChecking=accept-new \
-            -o ConnectTimeout=15 \
-            root@201.51.4.89 'bash -s' <<'REMOTE'
+          {
+            printf '%s\n' "$FABULA_TEST_PHONE"
+            cat <<'REMOTE'
           set -euo pipefail
           cd /opt/vpn_bot
           umask 077
@@ -53,7 +57,7 @@ jobs:
 
           ROOT = Path('/opt/vpn_bot')
           DB_PATH = ROOT / 'database.db'
-          PHONE_SUFFIX = '8050'
+          PHONE_INPUT = os.environ.get('FABULA_TEST_PHONE', '')
           SAFE_FIELDS = {
               'id', 'client_id', 'device_id', 'order_id', 'payment_id',
               'status', 'payment_status', 'paid_until', 'subscription_type',
@@ -67,6 +71,12 @@ jobs:
 
           def digits(value: object) -> str:
               return ''.join(ch for ch in str(value or '') if ch.isdigit())
+
+          def canonical_phone(value: object) -> str:
+              value_digits = digits(value)
+              if len(value_digits) < 10:
+                  return ''
+              return value_digits[-10:]
 
           def safe_record(row: sqlite3.Row) -> dict[str, object]:
               result: dict[str, object] = {}
@@ -89,6 +99,9 @@ jobs:
 
           if not DB_PATH.exists():
               raise SystemExit('database.db is missing')
+          requested_phone = canonical_phone(PHONE_INPUT)
+          if len(requested_phone) != 10:
+              raise SystemExit('FABULA_TEST_PHONE has an invalid format')
 
           stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
           backup_dir = ROOT / 'backups' / f'fabula_access_{stamp}'
@@ -129,12 +142,12 @@ jobs:
               rows = conn.execute(f'SELECT rowid AS __rowid__, * FROM {quoted_table}').fetchall()
               for row in rows:
                   values = [digits(row[name]) for name in phone_columns]
-                  if not any(value.endswith(PHONE_SUFFIX) for value in values):
+                  if not any(canonical_phone(value) == requested_phone for value in values):
                       continue
                   direct_matches.append((table, row))
                   matched_phones.update(
-                      value[-10:] for value in values
-                      if len(value) >= 10 and value.endswith(PHONE_SUFFIX)
+                      canonical_phone(value) for value in values
+                      if canonical_phone(value) == requested_phone
                   )
                   if 'client_id' in row.keys() and row['client_id'] is not None:
                       client_ids.add(int(row['client_id']))
@@ -145,12 +158,12 @@ jobs:
 
           if len(matched_phones) != 1:
               raise SystemExit(
-                  f'Expected exactly one phone ending in {PHONE_SUFFIX}; found {len(matched_phones)}'
+                  f'Expected exactly one normalized phone; found {len(matched_phones)}'
               )
           matched_phone = '7' + next(iter(matched_phones))
           print(
               'CLIENT_MATCH_OK '
-              f'suffix={PHONE_SUFFIX} direct_rows={len(direct_matches)} '
+              f'suffix={requested_phone[-4:]} direct_rows={len(direct_matches)} '
               f'client_ids={sorted(client_ids)} device_ids={sorted(device_ids)}'
           )
 
@@ -254,3 +267,8 @@ jobs:
           conn.close()
           PY
           REMOTE
+          } | sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 \
+            'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'
