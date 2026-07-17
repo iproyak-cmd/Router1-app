@@ -40,7 +40,9 @@ jobs:
           ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
         run: |
           test -n "$ROUTER1_APP_TOKEN"
-          flutter build apk --debug --target-platform android-arm64 --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
+          flutter build apk --debug --target-platform android-arm64 \
+            --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN" \
+            --dart-define=FABULA_DEMO_DEVICE_ID=148
           cp build/app/outputs/flutter-apk/app-debug.apk Fabula-test.apk
       - name: Upload Android test APK
         uses: actions/upload-artifact@v4
