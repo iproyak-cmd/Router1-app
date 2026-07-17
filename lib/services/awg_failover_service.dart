@@ -68,6 +68,8 @@ class AwgFailoverController {
 
   String get activeServer => _activeServer;
   bool get available => (_bundle?.nodes.length ?? 0) > 1;
+  List<Router1FailoverNode> get nodes =>
+      List<Router1FailoverNode>.unmodifiable(_bundle?.nodes ?? const []);
 
   String get _cacheKey => 'router1_failover_bundle_$deviceId';
   String get _serverKey => 'router1_failover_server_$deviceId';

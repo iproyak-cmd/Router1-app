@@ -10,8 +10,9 @@ import 'fabula_ui_text.dart';
 import 'router1_api.dart';
 import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/tunnel_connectivity_probe.dart';
 
-const fabulaVersion = '0.3.2+15';
+const fabulaVersion = '0.4.0+16';
 const _fabulaDemoDeviceId = int.fromEnvironment(
   'FABULA_DEMO_DEVICE_ID',
   defaultValue: 0,
@@ -33,6 +34,18 @@ const zodiacSigns = <(String, String, String)>[
 ];
 
 enum FabulaModule { compatibility, tarot, moon, affirmations }
+
+class _VpnRoute {
+  const _VpnRoute({
+    required this.code,
+    required this.config,
+    required this.protocol,
+  });
+
+  final String code;
+  final String config;
+  final String protocol;
+}
 
 extension FabulaModuleUi on FabulaModule {
   String get title => switch (this) {
@@ -88,6 +101,7 @@ class _FabulaShellState extends State<FabulaShell> {
   final api = Router1Api(baseUrl: 'https://router1.tech/api',
     token: const String.fromEnvironment('ROUTER1_APP_TOKEN'), demoFallback: false);
   final tunnel = AwgTunnelService();
+  final connectivity = const TunnelConnectivityProbe();
   var tab = 0;
   var loading = true;
   var vpnBusy = false;
@@ -102,6 +116,11 @@ class _FabulaShellState extends State<FabulaShell> {
   AwgFailoverController? failover;
   int? failoverDeviceId;
   var failoverEvaluating = false;
+  var routeRecovering = false;
+  var connectivityFailures = 0;
+  var routes = <_VpnRoute>[];
+  String activeRoute = '';
+  DateTime? lastConnectivityProbe;
   Timer? timer;
 
   @override
@@ -141,7 +160,7 @@ class _FabulaShellState extends State<FabulaShell> {
     try {
       final value = await tunnel.status();
       if (mounted) setState(() => vpn = value);
-      if (!vpnBusy) await _evaluateFailover(value);
+      if (!vpnBusy && value.connected) await _monitorConnectivity(value);
     }
     catch (_) {}
   }
@@ -165,9 +184,10 @@ class _FabulaShellState extends State<FabulaShell> {
         vpn = await tunnel.disconnect();
       } else {
         Router1ClientConfig? config;
+        Router1ClientLookup? lookup;
         Object? lookupError;
         try {
-          final lookup = await _lookupOrCreateTrial();
+          lookup = await _lookupOrCreateTrial();
           config = _selectFabulaConfig(lookup);
         } catch (error) {
           lookupError = error;
@@ -185,13 +205,14 @@ class _FabulaShellState extends State<FabulaShell> {
           deviceId: deviceId,
         );
         await _initializeFailover(deviceId);
+        routes = await _buildRoutes(
+          lookup: lookup,
+          selected: config,
+          selectedText: text,
+        );
         final prepared = await tunnel.prepare();
         if (!prepared) throw PlatformException(code: 'VPN_DENIED');
-        vpn = await tunnel.connect(
-          text,
-          serverCode: config?.serverCode ?? 'fr',
-        );
-        vpn = await _waitForHandshake();
+        vpn = await _connectFirstWorkingRoute();
       }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -252,6 +273,167 @@ class _FabulaShellState extends State<FabulaShell> {
       : (available.isNotEmpty ? available.first : null);
   }
 
+  Future<List<_VpnRoute>> _buildRoutes({
+    required Router1ClientLookup? lookup,
+    required Router1ClientConfig? selected,
+    required String selectedText,
+  }) async {
+    final values = <_VpnRoute>[];
+    void add(_VpnRoute route) {
+      if (route.config.trim().isEmpty ||
+          values.any((value) => value.config.trim() == route.config.trim())) {
+        return;
+      }
+      values.add(route);
+    }
+
+    final selectedCode = selected?.serverCode.isNotEmpty == true
+        ? selected!.serverCode
+        : '${selected?.protocol ?? 'vpn'}-${selected?.id ?? 0}';
+    add(_VpnRoute(
+      code: selectedCode,
+      config: selectedText,
+      protocol: selected?.protocol ?? 'amneziawg',
+    ));
+
+    for (final node in failover?.nodes ?? const <Router1FailoverNode>[]) {
+      add(_VpnRoute(
+        code: node.serverCode,
+        config: node.configText,
+        protocol: node.role == 'emergency' ? 'wireguard' : 'amneziawg',
+      ));
+    }
+
+    if (lookup != null) {
+      final alternatives = _fabulaConfigs(lookup)
+          .where((value) => value.id != selected?.id)
+          .take(4);
+      for (final config in alternatives) {
+        try {
+          final text = await api.fetchClientConfigText(
+            phone: phone,
+            deviceId: config.id,
+          );
+          add(_VpnRoute(
+            code: config.serverCode.isNotEmpty
+                ? '${config.serverCode}-${config.id}'
+                : '${config.protocol}-${config.id}',
+            config: text,
+            protocol: config.protocol,
+          ));
+        } catch (_) {}
+      }
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final preferred = prefs.getString('fabula_last_working_route') ?? '';
+    final preferredIndex = values.indexWhere((route) => route.code == preferred);
+    if (preferredIndex > 0) {
+      final route = values.removeAt(preferredIndex);
+      values.insert(0, route);
+    }
+    return values;
+  }
+
+  Future<AwgTunnelStatus> _connectFirstWorkingRoute() async {
+    Object? lastError;
+    for (final route in routes) {
+      try {
+        final status = await _connectAndVerify(route);
+        if (status.connected) return status;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    await tunnel.disconnect();
+    throw lastError ?? const FormatException('tunnel_no_working_route');
+  }
+
+  Future<AwgTunnelStatus> _connectAndVerify(_VpnRoute route) async {
+    await tunnel.connect(route.config, serverCode: route.code);
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    AwgTunnelStatus status = await tunnel.status();
+    while (DateTime.now().isBefore(deadline)) {
+      status = await tunnel.status();
+      if (status.handshake > 0 &&
+          await connectivity.isUsable(timeout: const Duration(seconds: 2))) {
+        activeRoute = route.code;
+        connectivityFailures = 0;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('fabula_last_working_route', route.code);
+        return status;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+    }
+    throw FormatException('route_unusable:${route.code}');
+  }
+
+  Future<void> _monitorConnectivity(AwgTunnelStatus status) async {
+    if (routeRecovering) return;
+    final now = DateTime.now();
+    if (lastConnectivityProbe != null &&
+        now.difference(lastConnectivityProbe!) < const Duration(seconds: 4)) {
+      return;
+    }
+    lastConnectivityProbe = now;
+    final usable = await connectivity.isUsable(timeout: const Duration(seconds: 2));
+    if (usable) {
+      connectivityFailures = 0;
+      return;
+    }
+    connectivityFailures += 1;
+    if (connectivityFailures < 2) return;
+    await _recoverRoute();
+  }
+
+  Future<void> _recoverRoute() async {
+    if (routeRecovering) return;
+    routeRecovering = true;
+    try {
+      if (routes.isEmpty && phone.trim().isNotEmpty) {
+        final lookup = await _lookupOrCreateTrial();
+        final selected = _selectFabulaConfig(lookup);
+        if (selected != null) {
+          final text = await api.fetchClientConfigText(
+            phone: phone,
+            deviceId: selected.id,
+          );
+          await _initializeFailover(selected.id);
+          routes = await _buildRoutes(
+            lookup: lookup,
+            selected: selected,
+            selectedText: text,
+          );
+        }
+      }
+      if (routes.length < 2) return;
+      final current = routes.indexWhere((route) => route.code == activeRoute);
+      for (var offset = 1; offset < routes.length; offset++) {
+        final route = routes[(current < 0 ? offset - 1 : current + offset) % routes.length];
+        try {
+          vpn = await _connectAndVerify(route);
+          if (mounted) {
+            setState(() {});
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Соединение восстановлено автоматически'),
+            ));
+          }
+          return;
+        } catch (_) {}
+      }
+      await tunnel.disconnect();
+      if (mounted) {
+        setState(() => vpn = const AwgTunnelStatus(state: 'down'));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Не удалось найти рабочий защищённый маршрут'),
+        ));
+      }
+    } finally {
+      connectivityFailures = 0;
+      routeRecovering = false;
+    }
+  }
+
   Future<void> _initializeFailover(int deviceId) async {
     if (Platform.isWindows || failoverDeviceId == deviceId) return;
     final controller = AwgFailoverController(
@@ -290,20 +472,6 @@ class _FabulaShellState extends State<FabulaShell> {
     } finally {
       failoverEvaluating = false;
     }
-  }
-
-  Future<AwgTunnelStatus> _waitForHandshake() async {
-    if (Platform.isWindows) return tunnel.status();
-    for (var attempt = 0; attempt < 15; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
-      var status = await tunnel.status();
-      if (status.handshake > 0) return status;
-      await _evaluateFailover(status);
-      status = await tunnel.status();
-      if (status.handshake > 0) return status;
-    }
-    await tunnel.disconnect();
-    throw const FormatException('tunnel_handshake_timeout');
   }
 
   Future<void> _chooseSign() async {
