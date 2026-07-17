@@ -14,7 +14,7 @@ class SavedRouterCredentials {
 
 class RouterCredentialsService {
   static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    aOptions: AndroidOptions(),
   );
 
   static const _addressKey = 'router1_router_address';

@@ -115,7 +115,6 @@ class _FabulaShellState extends State<FabulaShell> {
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
   AwgFailoverController? failover;
   int? failoverDeviceId;
-  var failoverEvaluating = false;
   var routeRecovering = false;
   var connectivityFailures = 0;
   var routes = <_VpnRoute>[];
@@ -215,8 +214,10 @@ class _FabulaShellState extends State<FabulaShell> {
         vpn = await _connectFirstWorkingRoute();
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(fabulaConnectionErrorMessage(error))));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(fabulaConnectionErrorMessage(error))));
+      }
     } finally { if (mounted) setState(() => vpnBusy = false); }
   }
 
@@ -449,28 +450,6 @@ class _FabulaShellState extends State<FabulaShell> {
     } catch (_) {
       failover = null;
       failoverDeviceId = null;
-    }
-  }
-
-  Future<void> _evaluateFailover(AwgTunnelStatus status) async {
-    final controller = failover;
-    if (controller == null || failoverEvaluating || !status.connected) return;
-    failoverEvaluating = true;
-    try {
-      final result = await controller.evaluate(status);
-      if (result.switched) {
-        final current = await tunnel.status();
-        if (mounted) {
-          setState(() => vpn = current);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result.message ?? 'Выбран резервный сервер')),
-          );
-        }
-      }
-    } catch (_) {
-      // Ошибка резервного маршрута не должна оставлять приложение без управления.
-    } finally {
-      failoverEvaluating = false;
     }
   }
 
@@ -1052,7 +1031,7 @@ class _ProfilePage extends StatelessWidget {
         title: Text(module.title), subtitle: const Text('Выбранный дополнительный раздел'),
         trailing: const Icon(Icons.chevron_right), onTap: onModule),
     ])),
-    const SizedBox(height: 16), Text('Fabula $fabulaVersion', textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontSize: 12)),
+    const SizedBox(height: 16), const Text('Fabula $fabulaVersion', textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12)),
   ]); }
 }
 
