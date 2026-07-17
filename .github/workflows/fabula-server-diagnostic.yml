@@ -99,7 +99,7 @@ jobs:
           config_columns = {
               str(row[1]) for row in conn.execute("PRAGMA table_info('client_configs')")
           }
-          select_fields = ['id', 'client_id', 'device_type']
+          select_fields = ['id', 'client_id', 'device_type', 'protocol']
           select_fields += [name for name in ('status', 'payment_status', 'paid_until', 'server_code') if name in config_columns]
           configs = conn.execute(
               f"SELECT {', '.join(select_fields)} FROM client_configs "
@@ -112,7 +112,7 @@ jobs:
           for row in configs:
               if 'status' in row.keys() and str(row['status'] or '').lower() not in {'active', 'paid'}:
                   continue
-              if 'payment_status' in row.keys() and str(row['payment_status'] or '').lower() not in {'paid', 'active'}:
+              if 'payment_status' in row.keys() and str(row['payment_status'] or '').lower() not in {'paid', 'active', 'manual_grant'}:
                   continue
               if 'paid_until' in row.keys() and row['paid_until']:
                   expiry = dt.datetime.fromisoformat(str(row['paid_until']).replace('Z', '+00:00'))
