@@ -53,6 +53,15 @@ void main() {
       );
     });
 
+    test('explains that an existing trial needs server reactivation', () {
+      expect(
+        fabulaConnectionErrorMessage(
+          const Router1ApiException(409, 'trial already claimed'),
+        ),
+        contains('повторной активации'),
+      );
+    });
+
     test('keeps safe Windows guidance', () {
       expect(
         fabulaConnectionErrorMessage(

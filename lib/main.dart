@@ -11,7 +11,7 @@ import 'router1_api.dart';
 import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.3+8';
+const fabulaVersion = '0.2.4+9';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -563,14 +563,32 @@ class _TarotArtwork extends StatelessWidget {
       'звезда' => 'assets/fabula/tarot/star.png',
       'луна' => 'assets/fabula/tarot/moon.png',
       'императрица' => 'assets/fabula/tarot/empress.png',
+      'император' => 'assets/fabula/tarot/emperor.webp',
       'башня' => 'assets/fabula/tarot/tower.png',
       'шут' => 'assets/fabula/tarot/fool.png',
       _ => null,
     };
     if (asset == null) {
-      return SizedBox(width: width, height: width * 1.5,
-        child: const Center(child: Icon(Icons.auto_awesome,
-          color: Color(0xFFB8A17B), size: 55)));
+      return Container(width: width, height: width * 1.5,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: const LinearGradient(begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF2B2023), Color(0xFF7A3045)]),
+          border: Border.all(color: const Color(0xFFB8A17B), width: 2),
+        ),
+        child: Stack(alignment: Alignment.center, children: [
+          Positioned.fill(child: Opacity(opacity: .14,
+            child: Image.asset('assets/fabula/branch.png', fit: BoxFit.cover))),
+          Padding(padding: const EdgeInsets.all(14), child: Column(
+            mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Icon(Icons.auto_awesome, color: Color(0xFFD7C29A), size: 42),
+              const SizedBox(height: 12),
+              Text(title, textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontFamily: 'Serif',
+                  fontSize: 18, height: 1.1)),
+            ])),
+        ]));
     }
     return ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.asset(
       asset, width: width, height: width * 1.5, fit: BoxFit.cover));

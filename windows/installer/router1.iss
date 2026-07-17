@@ -1,5 +1,5 @@
 #define AppName "Fabula"
-#define AppVersion "0.2.3.8"
+#define AppVersion "0.2.4.9"
 #define AppPublisher "Fabula"
 #define AppExeName "Fabula.exe"
 

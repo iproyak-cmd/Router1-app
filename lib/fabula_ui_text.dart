@@ -38,7 +38,13 @@ String fabulaConnectionErrorMessage(Object error) {
     if (error.statusCode == 401 || error.statusCode == 403) {
       return 'Не удалось подтвердить доступ. Обновите Fabula и повторите.';
     }
-    return 'Сервис подключения временно недоступен. Повторите чуть позже.';
+    if (error.statusCode == 409) {
+      return 'Доступ для этого номера требует повторной активации.';
+    }
+    if (error.statusCode == 422) {
+      return 'Проверьте номер телефона в профиле Fabula.';
+    }
+    return 'Сервис подключения временно недоступен (код ${error.statusCode}).';
   }
   if (error is FormatException &&
       error.message == 'config_generation_timeout') {
