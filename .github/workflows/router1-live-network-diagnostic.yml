@@ -199,8 +199,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${SSHPASS:-}"
+          test -n "${FABULA_TEST_PHONE:-}"
           test -n "${FR_SSH_PASSWORD:-}"
           test -n "${NL2_SSH_PASSWORD:-}"
+          target_key=$(SSHPASS="$SSHPASS" sshpass -e ssh \
+            -o ConnectTimeout=12 -o StrictHostKeyChecking=accept-new \
+            root@201.51.4.89 \
+            "FABULA_TEST_PHONE='$FABULA_TEST_PHONE' /opt/vpn_bot/venv/bin/python -" <<'PY'
+          import os
+          import sqlite3
+
+          def canonical(value):
+              digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+              return digits[-10:] if len(digits) >= 10 else ''
+
+          requested = canonical(os.environ['FABULA_TEST_PHONE'])
+          conn = sqlite3.connect('/opt/vpn_bot/database.db')
+          conn.row_factory = sqlite3.Row
+          clients = [row for row in conn.execute('SELECT id, phone FROM clients')
+                     if canonical(row['phone']) == requested]
+          if len(clients) != 1:
+              raise SystemExit('client lookup failed')
+          row = conn.execute(
+              "SELECT public_key FROM client_configs WHERE client_id = ? "
+              "AND device_type = 'smartphone_test' AND status IN ('active','paid') "
+              "AND public_key IS NOT NULL ORDER BY id DESC LIMIT 1",
+              (clients[0]['id'],),
+          ).fetchone()
+          if row is None:
+              raise SystemExit('active key missing')
+          print(row['public_key'])
+          PY
+          )
+          test -n "$target_key"
+          target_b64=$(printf '%s' "$target_key" | base64 -w0)
           inspect_with_password() {
             label=$1
             host=$2
@@ -209,7 +242,7 @@ jobs:
             output=$(SSHPASS="$password" sshpass -e ssh \
               -o ConnectTimeout=8 \
               -o StrictHostKeyChecking=accept-new \
-              -p 22 "root@$host" "bash -s -- '$iface'" <<'NODE' 2>&1 || true
+              -p 22 "root@$host" "TARGET_B64='$target_b64' bash -s -- '$iface'" <<'NODE' 2>&1 || true
           set -u
           iface=$1
           tool=$(command -v awg || command -v wg || true)
@@ -226,7 +259,15 @@ jobs:
           enabled=$(systemctl is-enabled xray 2>/dev/null || true)
           forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || true)
           http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || true)
-          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          target=$(printf '%s' "$TARGET_B64" | base64 -d)
+          target_age=missing
+          while read -r key stamp; do
+            if [ "$key" = "$target" ]; then
+              if [ "${stamp:-0}" -gt 0 ]; then target_age=$((now-stamp)); else target_age=never; fi
+              break
+            fi
+          done < <("$tool" show "$iface" latest-handshakes 2>/dev/null || true)
+          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age target_peer_handshake_age=$target_age xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
           NODE
           )
             output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
