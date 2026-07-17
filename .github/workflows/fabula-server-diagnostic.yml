@@ -1,0 +1,253 @@
+name: Fabula server diagnostic
+
+on:
+  pull_request:
+    branches:
+      - fabula
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-fabula-access:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - name: Verify secret is configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SSHPASS:-}" ]]; then
+            echo "MSK_SSH_PASSWORD is not configured"
+            exit 2
+          fi
+
+      - name: Back up database and collect sanitized diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/vpn_bot
+          umask 077
+          venv/bin/python - <<'PY'
+          from __future__ import annotations
+
+          import datetime as dt
+          import json
+          import os
+          import re
+          import sqlite3
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          ROOT = Path('/opt/vpn_bot')
+          DB_PATH = ROOT / 'database.db'
+          PHONE_SUFFIX = '8050'
+          SAFE_FIELDS = {
+              'id', 'client_id', 'device_id', 'order_id', 'payment_id',
+              'status', 'payment_status', 'paid_until', 'subscription_type',
+              'product', 'product_type', 'device_type', 'protocol',
+              'server_code', 'server_id', 'config_status', 'is_active',
+              'active', 'enabled', 'trial_used', 'free_trial', 'created_at',
+              'updated_at', 'activated_at', 'blocked_at', 'expires_at',
+              'trial_end', 'interface', 'interface_name', 'iface',
+          }
+          SENSITIVE_PARTS = ('phone', 'name', 'email', 'key', 'config', 'token', 'secret')
+
+          def digits(value: object) -> str:
+              return ''.join(ch for ch in str(value or '') if ch.isdigit())
+
+          def safe_record(row: sqlite3.Row) -> dict[str, object]:
+              result: dict[str, object] = {}
+              for key in row.keys():
+                  lowered = key.lower()
+                  if lowered not in SAFE_FIELDS:
+                      continue
+                  if any(part in lowered for part in SENSITIVE_PARTS):
+                      continue
+                  value = row[key]
+                  if value is None or isinstance(value, (bool, int, float)):
+                      result[key] = value
+                  else:
+                      result[key] = str(value)[:160]
+              return result
+
+          def columns(conn: sqlite3.Connection, table: str) -> list[str]:
+              escaped = table.replace("'", "''")
+              return [str(row[1]) for row in conn.execute(f"PRAGMA table_info('{escaped}')")]
+
+          if not DB_PATH.exists():
+              raise SystemExit('database.db is missing')
+
+          stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+          backup_dir = ROOT / 'backups' / f'fabula_access_{stamp}'
+          backup_dir.mkdir(parents=True, mode=0o700)
+          backup_path = backup_dir / 'database.db'
+
+          source = sqlite3.connect(DB_PATH)
+          destination = sqlite3.connect(backup_path)
+          try:
+              source.backup(destination)
+          finally:
+              destination.close()
+              source.close()
+          os.chmod(backup_path, 0o600)
+          print(f'BACKUP_OK path={backup_path}')
+
+          conn = sqlite3.connect(DB_PATH)
+          conn.row_factory = sqlite3.Row
+          tables = [
+              str(row[0])
+              for row in conn.execute(
+                  "SELECT name FROM sqlite_master "
+                  "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+              )
+          ]
+
+          direct_matches: list[tuple[str, sqlite3.Row]] = []
+          matched_phones: set[str] = set()
+          client_ids: set[int] = set()
+          device_ids: set[int] = set()
+
+          for table in tables:
+              table_columns = columns(conn, table)
+              phone_columns = [name for name in table_columns if 'phone' in name.lower()]
+              if not phone_columns:
+                  continue
+              quoted_table = '"' + table.replace('"', '""') + '"'
+              rows = conn.execute(f'SELECT rowid AS __rowid__, * FROM {quoted_table}').fetchall()
+              for row in rows:
+                  values = [digits(row[name]) for name in phone_columns]
+                  if not any(value.endswith(PHONE_SUFFIX) for value in values):
+                      continue
+                  direct_matches.append((table, row))
+                  matched_phones.update(value for value in values if value.endswith(PHONE_SUFFIX))
+                  if 'client_id' in row.keys() and row['client_id'] is not None:
+                      client_ids.add(int(row['client_id']))
+                  if table.lower() in {'clients', 'client'} and 'id' in row.keys():
+                      client_ids.add(int(row['id']))
+                  if 'device_id' in row.keys() and row['device_id'] is not None:
+                      device_ids.add(int(row['device_id']))
+
+          if len(matched_phones) != 1:
+              raise SystemExit(
+                  f'Expected exactly one phone ending in {PHONE_SUFFIX}; found {len(matched_phones)}'
+              )
+          matched_phone = next(iter(matched_phones))
+          print(
+              'CLIENT_MATCH_OK '
+              f'suffix={PHONE_SUFFIX} direct_rows={len(direct_matches)} '
+              f'client_ids={sorted(client_ids)} device_ids={sorted(device_ids)}'
+          )
+
+          report: list[dict[str, object]] = []
+          seen: set[tuple[str, int]] = set()
+
+          def add_report(table: str, row: sqlite3.Row, relation: str) -> None:
+              rowid = int(row['__rowid__'])
+              marker = (table, rowid)
+              if marker in seen:
+                  return
+              seen.add(marker)
+              safe = safe_record(row)
+              safe['table'] = table
+              safe['relation'] = relation
+              report.append(safe)
+              if 'device_id' in row.keys() and row['device_id'] is not None:
+                  device_ids.add(int(row['device_id']))
+              if table.lower() in {'devices', 'device', 'client_devices', 'vpn_devices'} and 'id' in row.keys():
+                  device_ids.add(int(row['id']))
+
+          for table, row in direct_matches:
+              add_report(table, row, 'phone')
+
+          for table in tables:
+              table_columns = columns(conn, table)
+              quoted_table = '"' + table.replace('"', '""') + '"'
+              clauses: list[str] = []
+              params: list[int] = []
+              if client_ids and 'client_id' in table_columns:
+                  clauses.append('client_id IN (' + ','.join('?' for _ in client_ids) + ')')
+                  params.extend(sorted(client_ids))
+              if device_ids and 'device_id' in table_columns:
+                  clauses.append('device_id IN (' + ','.join('?' for _ in device_ids) + ')')
+                  params.extend(sorted(device_ids))
+              if device_ids and table.lower() in {'devices', 'device', 'client_devices', 'vpn_devices'} and 'id' in table_columns:
+                  clauses.append('id IN (' + ','.join('?' for _ in device_ids) + ')')
+                  params.extend(sorted(device_ids))
+              if not clauses:
+                  continue
+              rows = conn.execute(
+                  f'SELECT rowid AS __rowid__, * FROM {quoted_table} WHERE ' + ' OR '.join(clauses),
+                  params,
+              ).fetchall()
+              for row in rows:
+                  add_report(table, row, 'linked')
+
+          print('DB_REPORT=' + json.dumps(report, ensure_ascii=False, sort_keys=True))
+
+          env_values: dict[str, str] = {}
+          env_path = ROOT / '.env'
+          if env_path.exists():
+              for raw_line in env_path.read_text(encoding='utf-8').splitlines():
+                  line = raw_line.strip()
+                  if not line or line.startswith('#') or '=' not in line:
+                      continue
+                  key, value = line.split('=', 1)
+                  env_values[key.strip()] = value.strip().strip('"').strip("'")
+          api_token = env_values.get('APP_API_TOKEN', '')
+          if not api_token:
+              raise SystemExit('APP_API_TOKEN is missing')
+
+          query = urllib.parse.urlencode({'phone': matched_phone, 'device_type': 'smartphone_test'})
+          request = urllib.request.Request(
+              'http://127.0.0.1:8000/api/fabula/client?' + query,
+              headers={'Authorization': 'Bearer ' + api_token},
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  api_status = response.status
+                  payload = json.loads(response.read().decode('utf-8'))
+          except urllib.error.HTTPError as error:
+              api_status = error.code
+              try:
+                  payload = json.loads(error.read().decode('utf-8'))
+              except Exception:
+                  payload = {'detail': 'non-json error'}
+
+          sanitized_api: dict[str, object] = {'status_code': api_status}
+          if isinstance(payload, dict):
+              for key in ('found', 'client_id', 'paid_until', 'access_until', 'status', 'detail'):
+                  if key in payload:
+                      value = payload[key]
+                      sanitized_api[key] = str(value)[:180] if value is not None else None
+              configs = payload.get('configs')
+              if isinstance(configs, list):
+                  sanitized_api['config_count'] = len(configs)
+                  sanitized_api['configs'] = [
+                      {
+                          key: item.get(key)
+                          for key in (
+                              'id', 'device_id', 'device_type', 'protocol', 'status',
+                              'paid_until', 'server_code', 'recommended',
+                          )
+                          if key in item
+                      }
+                      for item in configs
+                      if isinstance(item, dict)
+                  ]
+          print('API_REPORT=' + json.dumps(sanitized_api, ensure_ascii=False, sort_keys=True))
+          conn.close()
+          PY
+          REMOTE
