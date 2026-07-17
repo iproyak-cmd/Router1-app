@@ -11,7 +11,11 @@ import 'router1_api.dart';
 import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.4+9';
+const fabulaVersion = '0.2.5+10';
+const _fabulaDemoDeviceId = int.fromEnvironment(
+  'FABULA_DEMO_DEVICE_ID',
+  defaultValue: 0,
+);
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -131,15 +135,33 @@ class _FabulaShellState extends State<FabulaShell> {
       if (vpn.connected) {
         vpn = await tunnel.disconnect();
       } else {
-        final lookup = await _lookupOrCreateTrial();
-        final config = _selectFabulaConfig(lookup);
-        if (config == null) throw const FormatException('no_config');
-        if (mounted) setState(() => accessUntil = config.paidUntil);
-        final text = await api.fetchClientConfigText(phone: phone, deviceId: config.id);
-        await _initializeFailover(config.id);
+        Router1ClientConfig? config;
+        Object? lookupError;
+        try {
+          final lookup = await _lookupOrCreateTrial();
+          config = _selectFabulaConfig(lookup);
+        } catch (error) {
+          lookupError = error;
+        }
+        final deviceId = config?.id ?? _fabulaDemoDeviceId;
+        if (deviceId <= 0) {
+          if (lookupError != null) throw lookupError;
+          throw const FormatException('no_config');
+        }
+        if (mounted && config != null) {
+          setState(() => accessUntil = config!.paidUntil);
+        }
+        final text = await api.fetchClientConfigText(
+          phone: phone,
+          deviceId: deviceId,
+        );
+        await _initializeFailover(deviceId);
         final prepared = await tunnel.prepare();
         if (!prepared) throw PlatformException(code: 'VPN_DENIED');
-        vpn = await tunnel.connect(text, serverCode: config.serverCode);
+        vpn = await tunnel.connect(
+          text,
+          serverCode: config?.serverCode ?? 'fr',
+        );
         vpn = await _waitForHandshake();
       }
     } catch (error) {
