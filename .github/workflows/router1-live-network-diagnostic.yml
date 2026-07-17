@@ -192,3 +192,40 @@ jobs:
             -o ConnectTimeout=15 \
             root@201.51.4.89 \
             'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'
+
+      - name: Try protected port 22 access to AWG nodes
+        shell: bash
+        run: |
+          set -euo pipefail
+          inspect_with_password() {
+            label=$1
+            host=$2
+            iface=$3
+            output=$(sshpass -e ssh \
+              -o ConnectTimeout=8 \
+              -o StrictHostKeyChecking=accept-new \
+              -p 22 "root@$host" "bash -s -- '$iface'" <<'NODE' 2>&1 || true
+          set -u
+          iface=$1
+          tool=$(command -v awg || command -v wg || true)
+          if [ -z "$tool" ]; then echo "authenticated=true tool=missing"; exit 0; fi
+          if ! "$tool" show "$iface" >/dev/null 2>&1; then
+            echo "authenticated=true interface=down tool=$(basename "$tool")"
+            exit 0
+          fi
+          peers=$("$tool" show "$iface" peers 2>/dev/null | wc -l | tr -d ' ')
+          newest=$("$tool" show "$iface" latest-handshakes 2>/dev/null | awk 'BEGIN{m=0} {if($2>m)m=$2} END{print m}')
+          now=$(date +%s)
+          if [ "${newest:-0}" -gt 0 ]; then age=$((now-newest)); else age=-1; fi
+          xray=$(systemctl is-active xray 2>/dev/null || true)
+          enabled=$(systemctl is-enabled xray 2>/dev/null || true)
+          forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || true)
+          http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || true)
+          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          NODE
+          )
+            output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            echo "PASSWORD_NODE label=$label $output"
+          }
+          inspect_with_password FR 213.176.93.13 awgfr1
+          inspect_with_password NL2 201.51.23.60 awgnl2
