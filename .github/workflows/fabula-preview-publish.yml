@@ -1,0 +1,82 @@
+name: Publish Fabula Android preview
+
+on:
+  pull_request:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/fabula-preview-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - name: Download latest successful Fabula APK for this branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "Fabula PR Checks" \
+            --branch "${{ github.event.pull_request.head.ref || github.ref_name }}" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId')
+          test -n "$run_id"
+          mkdir -p /tmp/fabula-preview
+          gh run download "$run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name Fabula-Android-Test \
+            --dir /tmp/fabula-preview
+          test -s /tmp/fabula-preview/Fabula-test.apk
+
+      - name: Publish direct APK with rollback copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          SSHPASS="$SSHPASS" sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            /tmp/fabula-preview/Fabula-test.apk \
+            root@201.51.4.89:/tmp/Fabula-0.4.0-Android.apk
+          SSHPASS="$SSHPASS" sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          web=/var/www/html/app
+          source=/tmp/Fabula-0.4.0-Android.apk
+          test -s "$source"
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          backup="$web/backups/before_0.4.0_${stamp}"
+          install -d -m 0755 "$backup"
+          if [ -s "$web/router1.apk" ]; then
+            cp -a "$web/router1.apk" "$backup/router1.apk"
+          fi
+          if [ -s "$web/version.json" ]; then
+            cp -a "$web/version.json" "$backup/version.json"
+          fi
+          install -m 0644 "$source" "$web/router1.apk.new"
+          sha=$(sha256sum "$web/router1.apk.new" | awk '{print $1}')
+          size=$(stat -c '%s' "$web/router1.apk.new")
+          mv -f "$web/router1.apk.new" "$web/router1.apk"
+          printf '{\n  "version": "0.4.0",\n  "build": 16,\n  "url": "https://router1.tech/app/router1.apk",\n  "sha256": "%s",\n  "size": %s,\n  "notes": "Проверка реального трафика и автоматический резерв AWG/WG"\n}\n' \
+            "$sha" "$size" > "$web/version.json.new"
+          chmod 0644 "$web/version.json.new"
+          mv -f "$web/version.json.new" "$web/version.json"
+          rm -f "$source"
+          curl -fsS http://127.0.0.1/app/version.json >/dev/null || true
+          echo "PUBLISH_OK version=0.4.0 build=16 size=$size sha256=$sha"
+          REMOTE
+
