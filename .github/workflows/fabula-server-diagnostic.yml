@@ -1,4 +1,4 @@
-name: Fabula server diagnostic
+name: Fabula server repair
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-fabula-access:
+  repair-fabula-access:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -17,23 +17,12 @@ jobs:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
       FABULA_TEST_PHONE: ${{ secrets.FABULA_TEST_PHONE }}
     steps:
-      - name: Verify secret is configured
+      - name: Repair missing Fabula config binding and verify failover
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${SSHPASS:-}" ]]; then
-            echo "MSK_SSH_PASSWORD is not configured"
-            exit 2
-          fi
-          if [[ -z "${FABULA_TEST_PHONE:-}" ]]; then
-            echo "FABULA_TEST_PHONE is not configured"
-            exit 2
-          fi
-
-      - name: Back up database and collect sanitized diagnostics
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          test -n "${FABULA_TEST_PHONE:-}"
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
           {
@@ -48,7 +37,7 @@ jobs:
           import datetime as dt
           import json
           import os
-          import re
+          import shutil
           import sqlite3
           import urllib.error
           import urllib.parse
@@ -57,54 +46,17 @@ jobs:
 
           ROOT = Path('/opt/vpn_bot')
           DB_PATH = ROOT / 'database.db'
-          PHONE_INPUT = os.environ.get('FABULA_TEST_PHONE', '')
-          SAFE_FIELDS = {
-              'id', 'client_id', 'device_id', 'order_id', 'payment_id',
-              'status', 'payment_status', 'paid_until', 'subscription_type',
-              'product', 'product_type', 'device_type', 'protocol',
-              'server_code', 'server_id', 'config_status', 'is_active',
-              'active', 'enabled', 'trial_used', 'free_trial', 'created_at',
-              'updated_at', 'activated_at', 'blocked_at', 'expires_at',
-              'trial_end', 'interface', 'interface_name', 'iface',
-          }
-          SENSITIVE_PARTS = ('phone', 'name', 'email', 'key', 'config', 'token', 'secret')
-
-          def digits(value: object) -> str:
-              return ''.join(ch for ch in str(value or '') if ch.isdigit())
 
           def canonical_phone(value: object) -> str:
-              value_digits = digits(value)
-              if len(value_digits) < 10:
-                  return ''
-              return value_digits[-10:]
+              digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+              return digits[-10:] if len(digits) >= 10 else ''
 
-          def safe_record(row: sqlite3.Row) -> dict[str, object]:
-              result: dict[str, object] = {}
-              for key in row.keys():
-                  lowered = key.lower()
-                  if lowered not in SAFE_FIELDS:
-                      continue
-                  if any(part in lowered for part in SENSITIVE_PARTS):
-                      continue
-                  value = row[key]
-                  if value is None or isinstance(value, (bool, int, float)):
-                      result[key] = value
-                  else:
-                      result[key] = str(value)[:160]
-              return result
-
-          def columns(conn: sqlite3.Connection, table: str) -> list[str]:
-              escaped = table.replace("'", "''")
-              return [str(row[1]) for row in conn.execute(f"PRAGMA table_info('{escaped}')")]
-
-          if not DB_PATH.exists():
-              raise SystemExit('database.db is missing')
-          requested_phone = canonical_phone(PHONE_INPUT)
+          requested_phone = canonical_phone(os.environ.get('FABULA_TEST_PHONE', ''))
           if len(requested_phone) != 10:
               raise SystemExit('FABULA_TEST_PHONE has an invalid format')
 
           stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-          backup_dir = ROOT / 'backups' / f'fabula_access_{stamp}'
+          backup_dir = ROOT / 'backups' / f'fabula_claim_repair_{stamp}'
           backup_dir.mkdir(parents=True, mode=0o700)
           backup_path = backup_dir / 'database.db'
 
@@ -120,312 +72,147 @@ jobs:
 
           conn = sqlite3.connect(DB_PATH)
           conn.row_factory = sqlite3.Row
-          tables = [
-              str(row[0])
-              for row in conn.execute(
-                  "SELECT name FROM sqlite_master "
-                  "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-              )
-          ]
+          conn.execute('PRAGMA busy_timeout=10000')
 
-          direct_matches: list[tuple[str, sqlite3.Row]] = []
-          matched_phones: set[str] = set()
-          client_ids: set[int] = set()
-          device_ids: set[int] = set()
+          client_rows = conn.execute('SELECT id, phone FROM clients').fetchall()
+          matches = [row for row in client_rows if canonical_phone(row['phone']) == requested_phone]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one client, found {len(matches)}')
+          client_id = int(matches[0]['id'])
 
-          for table in tables:
-              table_columns = columns(conn, table)
-              phone_columns = [name for name in table_columns if 'phone' in name.lower()]
-              if not phone_columns:
+          claim_columns = {
+              str(row[1]) for row in conn.execute("PRAGMA table_info('fabula_access_claims')")
+          }
+          required = {'client_id', 'device_type', 'status', 'config_id'}
+          if not required.issubset(claim_columns):
+              raise SystemExit('fabula_access_claims schema is incompatible')
+
+          claims = conn.execute(
+              "SELECT rowid AS claim_rowid, * FROM fabula_access_claims "
+              "WHERE client_id = ? AND device_type = 'smartphone_test' AND status = 'active'",
+              (client_id,),
+          ).fetchall()
+          if len(claims) != 1:
+              raise SystemExit(f'Expected one active smartphone_test claim, found {len(claims)}')
+          claim = claims[0]
+
+          config_columns = {
+              str(row[1]) for row in conn.execute("PRAGMA table_info('client_configs')")
+          }
+          select_fields = ['id', 'client_id', 'device_type']
+          select_fields += [name for name in ('status', 'payment_status', 'paid_until', 'server_code') if name in config_columns]
+          configs = conn.execute(
+              f"SELECT {', '.join(select_fields)} FROM client_configs "
+              "WHERE client_id = ? AND device_type = 'smartphone_test' ORDER BY id DESC",
+              (client_id,),
+          ).fetchall()
+
+          now = dt.datetime.now(dt.timezone.utc)
+          eligible = []
+          for row in configs:
+              if 'status' in row.keys() and str(row['status'] or '').lower() not in {'active', 'paid'}:
                   continue
-              quoted_table = '"' + table.replace('"', '""') + '"'
-              rows = conn.execute(f'SELECT rowid AS __rowid__, * FROM {quoted_table}').fetchall()
-              for row in rows:
-                  values = [digits(row[name]) for name in phone_columns]
-                  if not any(canonical_phone(value) == requested_phone for value in values):
+              if 'payment_status' in row.keys() and str(row['payment_status'] or '').lower() not in {'paid', 'active'}:
+                  continue
+              if 'paid_until' in row.keys() and row['paid_until']:
+                  expiry = dt.datetime.fromisoformat(str(row['paid_until']).replace('Z', '+00:00'))
+                  if expiry.tzinfo is None:
+                      expiry = expiry.replace(tzinfo=dt.timezone.utc)
+                  if expiry <= now:
                       continue
-                  direct_matches.append((table, row))
-                  matched_phones.update(
-                      canonical_phone(value) for value in values
-                      if canonical_phone(value) == requested_phone
-                  )
-                  if 'client_id' in row.keys() and row['client_id'] is not None:
-                      client_ids.add(int(row['client_id']))
-                  if table.lower() in {'clients', 'client'} and 'id' in row.keys():
-                      client_ids.add(int(row['id']))
-                  if 'device_id' in row.keys() and row['device_id'] is not None:
-                      device_ids.add(int(row['device_id']))
-
-          if len(matched_phones) != 1:
-              raise SystemExit(
-                  f'Expected exactly one normalized phone; found {len(matched_phones)}'
-              )
-          matched_phone = '7' + next(iter(matched_phones))
-          print(
-              'CLIENT_MATCH_OK '
-              f'suffix={requested_phone[-4:]} direct_rows={len(direct_matches)} '
-              f'client_ids={sorted(client_ids)} device_ids={sorted(device_ids)}'
-          )
-
-          report: list[dict[str, object]] = []
-          seen: set[tuple[str, int]] = set()
-
-          def add_report(table: str, row: sqlite3.Row, relation: str) -> None:
-              rowid = int(row['__rowid__'])
-              marker = (table, rowid)
-              if marker in seen:
-                  return
-              seen.add(marker)
-              safe = safe_record(row)
-              safe['table'] = table
-              safe['relation'] = relation
-              report.append(safe)
-              if 'device_id' in row.keys() and row['device_id'] is not None:
-                  device_ids.add(int(row['device_id']))
-              if table.lower() in {'devices', 'device', 'client_devices', 'vpn_devices'} and 'id' in row.keys():
-                  device_ids.add(int(row['id']))
-
-          for table, row in direct_matches:
-              add_report(table, row, 'phone')
-
-          for table in tables:
-              table_columns = columns(conn, table)
-              quoted_table = '"' + table.replace('"', '""') + '"'
-              clauses: list[str] = []
-              params: list[int] = []
-              if client_ids and 'client_id' in table_columns:
-                  clauses.append('client_id IN (' + ','.join('?' for _ in client_ids) + ')')
-                  params.extend(sorted(client_ids))
-              if device_ids and 'device_id' in table_columns:
-                  clauses.append('device_id IN (' + ','.join('?' for _ in device_ids) + ')')
-                  params.extend(sorted(device_ids))
-              if device_ids and table.lower() in {'devices', 'device', 'client_devices', 'vpn_devices'} and 'id' in table_columns:
-                  clauses.append('id IN (' + ','.join('?' for _ in device_ids) + ')')
-                  params.extend(sorted(device_ids))
-              if not clauses:
-                  continue
-              rows = conn.execute(
-                  f'SELECT rowid AS __rowid__, * FROM {quoted_table} WHERE ' + ' OR '.join(clauses),
-                  params,
-              ).fetchall()
-              for row in rows:
-                  add_report(table, row, 'linked')
-
-          print('DB_REPORT=' + json.dumps(report, ensure_ascii=False, sort_keys=True))
+              eligible.append(row)
+          if len(eligible) != 1:
+              raise SystemExit(f'Expected one eligible smartphone_test config, found {len(eligible)}')
+          config_id = int(eligible[0]['id'])
+          old_config_id = claim['config_id']
+          old_updated_at = claim['updated_at'] if 'updated_at' in claim.keys() else None
 
           env_values: dict[str, str] = {}
-          env_path = ROOT / '.env'
-          if env_path.exists():
-              for raw_line in env_path.read_text(encoding='utf-8').splitlines():
-                  line = raw_line.strip()
-                  if not line or line.startswith('#') or '=' not in line:
-                      continue
+          for raw_line in (ROOT / '.env').read_text(encoding='utf-8').splitlines():
+              line = raw_line.strip()
+              if line and not line.startswith('#') and '=' in line:
                   key, value = line.split('=', 1)
                   env_values[key.strip()] = value.strip().strip('"').strip("'")
           api_token = env_values.get('APP_API_TOKEN', '')
           if not api_token:
               raise SystemExit('APP_API_TOKEN is missing')
 
-          def api_get(path: str, query_values: dict[str, str] | None = None) -> tuple[int, object]:
-              url = 'http://127.0.0.1:8000/api' + path
-              if query_values:
-                  url += '?' + urllib.parse.urlencode(query_values)
-              request = urllib.request.Request(
-                  url,
-                  headers={'Authorization': 'Bearer ' + api_token},
-              )
+          def api_get(path: str, query: dict[str, str]) -> tuple[int, object]:
+              url = 'http://127.0.0.1:8000/api' + path + '?' + urllib.parse.urlencode(query)
+              request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + api_token})
               try:
                   with urllib.request.urlopen(request, timeout=20) as response:
                       return response.status, json.loads(response.read().decode('utf-8'))
               except urllib.error.HTTPError as error:
-                  try:
-                      payload = json.loads(error.read().decode('utf-8'))
-                  except Exception:
-                      payload = {'detail': 'non-json error'}
-                  return error.code, payload
+                  return error.code, {'detail': 'HTTP error'}
 
-          def sanitize_client_payload(status_code: int, payload: object) -> dict[str, object]:
-              result: dict[str, object] = {'status_code': status_code}
-              if not isinstance(payload, dict):
-                  return result
-              client = payload.get('client')
-              if isinstance(client, dict):
-                  result['client_id'] = client.get('id')
-              for key in ('found', 'paid_until', 'access_until', 'status', 'detail'):
-                  if key in payload:
-                      value = payload[key]
-                      result[key] = str(value)[:180] if value is not None else None
-              configs = payload.get('configs')
-              if isinstance(configs, list):
-                  result['config_count'] = len(configs)
-                  result['configs'] = [
-                      {
-                          key: item.get(key)
-                          for key in (
-                              'id', 'device_id', 'device_type', 'product_type',
-                              'protocol', 'status', 'payment_status', 'paid_until',
-                              'server_code', 'recommended', 'has_config', 'is_test',
-                          )
-                          if key in item
-                      }
-                      for item in configs
-                      if isinstance(item, dict)
-                  ]
-              trial = payload.get('trial')
-              if isinstance(trial, dict):
-                  result['trial'] = {
-                      key: trial.get(key)
-                      for key in ('available', 'active', 'device_type', 'paid_until')
-                      if key in trial
-                  }
-              return result
+          update_parts = ['config_id = ?']
+          update_params: list[object] = [config_id]
+          if 'updated_at' in claim_columns:
+              update_parts.append('updated_at = ?')
+              update_params.append(now.isoformat())
+          update_params.append(int(claim['claim_rowid']))
 
-          api_reports: dict[str, object] = {}
-          for label, device_type in (
-              ('unfiltered', None),
-              ('smartphone', 'smartphone'),
-              ('smartphone_test', 'smartphone_test'),
-          ):
-              query_values = {'phone': matched_phone}
-              if device_type:
-                  query_values['device_type'] = device_type
-              status_code, payload = api_get('/fabula/client', query_values)
-              api_reports[label] = sanitize_client_payload(status_code, payload)
-          print('API_REPORT=' + json.dumps(api_reports, ensure_ascii=False, sort_keys=True))
+          try:
+              conn.execute('BEGIN IMMEDIATE')
+              cursor = conn.execute(
+                  f"UPDATE fabula_access_claims SET {', '.join(update_parts)} WHERE rowid = ?",
+                  update_params,
+              )
+              if cursor.rowcount != 1:
+                  raise RuntimeError(f'Expected one updated claim, got {cursor.rowcount}')
+              conn.commit()
 
-          config_row = conn.execute(
-              "SELECT * FROM client_configs "
-              "WHERE client_id = ? AND device_type = 'smartphone_test' "
-              "ORDER BY id DESC LIMIT 1",
-              (next(iter(client_ids)),),
-          ).fetchone()
-          if config_row is None:
-              raise SystemExit('No smartphone_test config found for matched client')
-          config_id = int(config_row['id'])
-          material: dict[str, object] = {'config_id': config_id}
-          for key in config_row.keys():
-              lowered = key.lower()
-              if any(part in lowered for part in ('key', 'config', 'filename', 'path')):
-                  value = config_row[key]
-                  material[lowered + '_present'] = value not in (None, '')
-                  material[lowered + '_length'] = len(str(value or ''))
-          print('CONFIG_MATERIAL=' + json.dumps(material, ensure_ascii=False, sort_keys=True))
+              phone_for_api = '7' + requested_phone
+              status, payload = api_get('/fabula/client', {
+                  'phone': phone_for_api,
+                  'device_type': 'smartphone_test',
+              })
+              returned_ids = {
+                  int(item.get('id') or 0)
+                  for item in payload.get('configs', [])
+                  if isinstance(payload, dict) and isinstance(item, dict)
+              } if isinstance(payload, dict) else set()
+              if status != 200 or config_id not in returned_ids:
+                  raise RuntimeError(f'Client API verification failed: status={status}, configs={len(returned_ids)}')
 
-          config_status, config_payload = api_get(
-              f'/fabula/config/{config_id}', {'phone': matched_phone}
+              config_status, config_payload = api_get(
+                  f'/fabula/config/{config_id}', {'phone': phone_for_api}
+              )
+              if config_status != 200 or not isinstance(config_payload, dict) or not config_payload.get('config_text'):
+                  raise RuntimeError(f'Config API verification failed: status={config_status}')
+
+              failover_status, failover_payload = api_get(
+                  f'/app/failover/{config_id}', {'phone': phone_for_api}
+              )
+              nodes = failover_payload.get('nodes', []) if isinstance(failover_payload, dict) else []
+              codes = {str(node.get('server_code') or '').lower() for node in nodes if isinstance(node, dict)}
+              if failover_status != 200 or not {'fr', 'nl2'}.issubset(codes):
+                  raise RuntimeError(f'Failover verification failed: status={failover_status}, nodes={sorted(codes)}')
+          except Exception:
+              conn.rollback()
+              restore_parts = ['config_id = ?']
+              restore_params: list[object] = [old_config_id]
+              if 'updated_at' in claim_columns:
+                  restore_parts.append('updated_at = ?')
+                  restore_params.append(old_updated_at)
+              restore_params.append(int(claim['claim_rowid']))
+              conn.execute('BEGIN IMMEDIATE')
+              conn.execute(
+                  f"UPDATE fabula_access_claims SET {', '.join(restore_parts)} WHERE rowid = ?",
+                  restore_params,
+              )
+              conn.commit()
+              print('ROLLBACK_OK')
+              raise
+          finally:
+              conn.close()
+
+          print(
+              'REPAIR_OK '
+              f'client_suffix={requested_phone[-4:]} config_id={config_id} '
+              'client_api=200 config_api=200 failover=fr,nl2'
           )
-          config_probe: dict[str, object] = {'status_code': config_status}
-          if isinstance(config_payload, dict):
-              config_probe['config_text_length'] = len(str(config_payload.get('config_text') or ''))
-              if 'detail' in config_payload:
-                  config_probe['detail'] = str(config_payload['detail'])[:180]
-          print('CONFIG_API_PROBE=' + json.dumps(config_probe, ensure_ascii=False, sort_keys=True))
-
-          failover_status, failover_payload = api_get(
-              f'/app/failover/{config_id}', {'phone': matched_phone}
-          )
-          failover_probe: dict[str, object] = {'status_code': failover_status}
-          if isinstance(failover_payload, dict):
-              nodes = failover_payload.get('nodes')
-              if isinstance(nodes, list):
-                  failover_probe['nodes'] = [
-                      {
-                          'role': node.get('role'),
-                          'server_code': node.get('server_code'),
-                          'config_text_length': len(str(node.get('config_text') or '')),
-                      }
-                      for node in nodes
-                      if isinstance(node, dict)
-                  ]
-              if 'detail' in failover_payload:
-                  failover_probe['detail'] = str(failover_payload['detail'])[:180]
-          print('FAILOVER_API_PROBE=' + json.dumps(failover_probe, ensure_ascii=False, sort_keys=True))
-          conn.close()
-          PY
-          REMOTE
-          } | sshpass -e ssh \
-            -o StrictHostKeyChecking=accept-new \
-            -o ConnectTimeout=15 \
-            root@201.51.4.89 \
-            'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'
-
-      - name: Inspect Fabula endpoint implementation without exposing secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            cat <<'REMOTE'
-          set -euo pipefail
-          cd /opt/vpn_bot
-          venv/bin/python - <<'PY'
-          import ast
-          import re
-          from pathlib import Path
-
-          ROOT = Path('/opt/vpn_bot')
-
-          secret_assignment = re.compile(
-              r'(?i)^(\s*[A-Za-z_]*(?:token|secret|password|api_key)[A-Za-z_]*\s*=\s*).*$'
-          )
-
-          def safe_source(lines: list[str], start: int, end: int) -> str:
-              output = []
-              for number in range(start, end + 1):
-                  line = lines[number - 1]
-                  line = secret_assignment.sub(r'\1<redacted>', line)
-                  output.append(f'{number:04d}: {line}')
-              return '\n'.join(output)
-
-          found = False
-          for path in sorted(ROOT.rglob('*.py')):
-              if any(part in {'venv', '.venv', '__pycache__', 'backups'} for part in path.parts):
-                  continue
-              try:
-                  text = path.read_text(encoding='utf-8')
-              except (OSError, UnicodeError):
-                  continue
-              if '/fabula/client' not in text:
-                  continue
-              found = True
-              lines = text.splitlines()
-              print(f'FABULA_ROUTE_FILE={path.relative_to(ROOT)}')
-              try:
-                  tree = ast.parse(text)
-              except SyntaxError as error:
-                  print(f'PARSE_ERROR line={error.lineno}')
-                  continue
-              functions = {
-                  node.name: node
-                  for node in ast.walk(tree)
-                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-              }
-              targets = []
-              for node in functions.values():
-                  decorator_text = ' '.join(
-                      ast.get_source_segment(text, decorator) or ''
-                      for decorator in node.decorator_list
-                  )
-                  if '/fabula/client' in decorator_text:
-                      targets.append(node)
-              for target in targets:
-                  called = {
-                      call.func.id
-                      for call in ast.walk(target)
-                      if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-                  }
-                  selected = [target] + [
-                      functions[name] for name in sorted(called)
-                      if name in functions and name != target.name
-                  ]
-                  for node in selected:
-                      start = min(
-                          [node.lineno] + [item.lineno for item in node.decorator_list]
-                      )
-                      end = int(node.end_lineno or node.lineno)
-                      print(f'--- FUNCTION {node.name} ---')
-                      print(safe_source(lines, start, end))
-          if not found:
-              raise SystemExit('Fabula route source was not found')
           PY
           REMOTE
           } | sshpass -e ssh \
