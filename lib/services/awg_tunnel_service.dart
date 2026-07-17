@@ -24,6 +24,15 @@ class AwgTunnelService {
   static const _channel = MethodChannel('tech.router1.app/awg');
   final _windows = WindowsAwgTunnelService();
 
+  AwgTunnelStatus _androidStatus(Map<dynamic, dynamic> value) =>
+      AwgTunnelStatus(
+        state: value['state']?.toString() ?? 'down',
+        handshake: (value['handshake'] as num?)?.toInt() ?? -3,
+        rxBytes: (value['rx'] as num?)?.toInt() ?? 0,
+        txBytes: (value['tx'] as num?)?.toInt() ?? 0,
+        serverCode: value['serverCode']?.toString() ?? '',
+      );
+
   Future<bool> prepare() async {
     if (Platform.isWindows) return true;
     return await _channel.invokeMethod<bool>('prepare') ?? false;
@@ -45,7 +54,7 @@ class AwgTunnelService {
           {'config': config, 'serverCode': serverCode},
         ) ??
         const {};
-    return AwgTunnelStatus(state: value['state']?.toString() ?? 'down');
+    return _androidStatus(value);
   }
 
   Future<bool> configureFailover({
@@ -78,7 +87,7 @@ class AwgTunnelService {
     final value =
         await _channel.invokeMapMethod<String, dynamic>('disconnect') ??
             const {};
-    return AwgTunnelStatus(state: value['state']?.toString() ?? 'down');
+    return _androidStatus(value);
   }
 
   Future<AwgTunnelStatus> status() async {
@@ -92,12 +101,6 @@ class AwgTunnelService {
     }
     final value =
         await _channel.invokeMapMethod<String, dynamic>('status') ?? const {};
-    return AwgTunnelStatus(
-      state: value['state']?.toString() ?? 'down',
-      handshake: (value['handshake'] as num?)?.toInt() ?? -3,
-      rxBytes: (value['rx'] as num?)?.toInt() ?? 0,
-      txBytes: (value['tx'] as num?)?.toInt() ?? 0,
-      serverCode: value['serverCode']?.toString() ?? '',
-    );
+    return _androidStatus(value);
   }
 }

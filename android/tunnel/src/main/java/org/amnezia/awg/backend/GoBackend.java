@@ -29,8 +29,12 @@ import org.amnezia.awg.util.NonNullForAll;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -69,6 +73,7 @@ public final class GoBackend implements Backend {
     private int failoverFailures = 0;
     private long failoverLastSwitchMillis = 0;
     private boolean failoverSwitching = false;
+    private final Set<String> failoverAttemptedServers = new HashSet<>();
 
     /**
      * Public constructor for GoBackend.
@@ -100,16 +105,27 @@ public final class GoBackend implements Backend {
         failoverConfigs.clear();
         failoverConfigs.putAll(configs);
         failoverPrimaryServer = primaryServer;
-        failoverActiveServer = configs.containsKey(activeServer) ? activeServer : primaryServer;
+        final String persistedServer = context
+                .getSharedPreferences("router1_awg", Context.MODE_PRIVATE)
+                .getString("active_server", "");
+        if (configs.containsKey(activeServer))
+            failoverActiveServer = activeServer;
+        else if (configs.containsKey(persistedServer))
+            failoverActiveServer = persistedServer;
+        else
+            failoverActiveServer = primaryServer;
         failoverFailureSamples = Math.max(2, failureSamples);
         failoverHandshakeStaleSeconds = Math.max(60, handshakeStaleSeconds);
         failoverSwitchCooldownSeconds = Math.max(60, switchCooldownSeconds);
         failoverFailures = 0;
+        failoverAttemptedServers.clear();
     }
 
     public synchronized void setActiveFailoverServer(final String serverCode) {
-        if (failoverConfigs.containsKey(serverCode))
+        if (!serverCode.isEmpty()) {
             failoverActiveServer = serverCode;
+            persistActiveServer(serverCode);
+        }
     }
 
     public synchronized String getActiveFailoverServer() {
@@ -281,6 +297,9 @@ public final class GoBackend implements Backend {
                         : fresh;
                 if (reachable) {
                     failoverFailures = 0;
+                    synchronized (GoBackend.this) {
+                        failoverAttemptedServers.clear();
+                    }
                     if (statusCallback != null)
                         statusCallback.onStatusChanged(true);
                 } else if (failoverConfigured || lastHandshake >= 0L) {
@@ -290,7 +309,7 @@ public final class GoBackend implements Backend {
                 }
 
                 try {
-                    Thread.sleep(10000);
+                    Thread.sleep(5000);
                 } catch (final InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -329,15 +348,42 @@ public final class GoBackend implements Backend {
     private synchronized boolean scheduleFailover(@Nullable final Tunnel tunnel) {
         if (tunnel == null || failoverSwitching)
             return false;
-        String targetServer = "";
-        Config targetConfig = null;
-        for (final Map.Entry<String, Config> entry : failoverConfigs.entrySet()) {
-            if (!entry.getKey().equals(failoverActiveServer)) {
-                targetServer = entry.getKey();
-                targetConfig = entry.getValue();
+        failoverAttemptedServers.add(failoverActiveServer);
+        final List<Map.Entry<String, Config>> nodes =
+                new ArrayList<>(failoverConfigs.entrySet());
+        int activeIndex = -1;
+        for (int i = 0; i < nodes.size(); i++) {
+            if (nodes.get(i).getKey().equals(failoverActiveServer)) {
+                activeIndex = i;
                 break;
             }
         }
+        if (activeIndex < 0)
+            activeIndex = 0;
+        Map.Entry<String, Config> selected = null;
+        for (int offset = 1; offset <= nodes.size(); offset++) {
+            final Map.Entry<String, Config> candidate =
+                    nodes.get((activeIndex + offset) % nodes.size());
+            if (!candidate.getKey().equals(failoverActiveServer)
+                    && !failoverAttemptedServers.contains(candidate.getKey())) {
+                selected = candidate;
+                break;
+            }
+        }
+        if (selected == null) {
+            failoverAttemptedServers.clear();
+            failoverAttemptedServers.add(failoverActiveServer);
+            for (int offset = 1; offset <= nodes.size(); offset++) {
+                final Map.Entry<String, Config> candidate =
+                        nodes.get((activeIndex + offset) % nodes.size());
+                if (!candidate.getKey().equals(failoverActiveServer)) {
+                    selected = candidate;
+                    break;
+                }
+            }
+        }
+        final String targetServer = selected == null ? "" : selected.getKey();
+        final Config targetConfig = selected == null ? null : selected.getValue();
         if (targetConfig == null)
             return false;
         final String selectedServer = targetServer;
@@ -351,8 +397,12 @@ public final class GoBackend implements Backend {
                     failoverLastSwitchMillis = System.currentTimeMillis();
                     failoverFailures = 0;
                 }
+                persistActiveConfig(selectedServer, selectedConfig);
                 Log.w(TAG, "Router1 failover switched to " + selectedServer);
             } catch (final Exception error) {
+                synchronized (GoBackend.this) {
+                    failoverAttemptedServers.add(selectedServer);
+                }
                 Log.e(TAG, "Router1 failover failed", error);
             } finally {
                 synchronized (GoBackend.this) {
@@ -361,6 +411,21 @@ public final class GoBackend implements Backend {
             }
         }, "Router1Failover").start();
         return true;
+    }
+
+    private void persistActiveServer(final String serverCode) {
+        context.getSharedPreferences("router1_awg", Context.MODE_PRIVATE)
+                .edit().putString("active_server", serverCode).apply();
+    }
+
+    private void persistActiveConfig(final String serverCode, final Config config) {
+        try (final java.io.FileOutputStream output = context.openFileOutput(
+                "router1-awg.conf", Context.MODE_PRIVATE)) {
+            output.write(config.toAwgQuickString().getBytes(StandardCharsets.UTF_8));
+            persistActiveServer(serverCode);
+        } catch (final Exception error) {
+            Log.e(TAG, "Failed to persist active failover config", error);
+        }
     }
 
     /**
@@ -609,7 +674,7 @@ public final class GoBackend implements Backend {
                     ? new Notification.Builder(this, channelId)
                     : new Notification.Builder(this);
             final Notification notification = builder
-                    .setContentTitle("Router1 подключён")
+                    .setContentTitle("Fabula подключена")
                     .setContentText("Защищённый туннель работает")
                     .setSmallIcon(android.R.drawable.ic_lock_lock)
                     .setOngoing(true)

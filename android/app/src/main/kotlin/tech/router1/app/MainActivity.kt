@@ -65,8 +65,9 @@ class MainActivity : FlutterActivity() {
                                 val code = node["serverCode"]?.toString().orEmpty()
                                 val text = node["config"]?.toString().orEmpty()
                                 if (code.isNotBlank() && text.isNotBlank()) {
+                                    val safeText = ipv4OnlyConfig(text)
                                     configs[code] = Config.parse(
-                                        ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)))
+                                        ByteArrayInputStream(safeText.toByteArray(Charsets.UTF_8)))
                                 }
                             }
                             backend.configureFailover(
@@ -122,13 +123,13 @@ class MainActivity : FlutterActivity() {
             ))
             result.error(
                 "INSTALL_PERMISSION",
-                "Разрешите установку обновлений для Router1 и нажмите «Обновить» ещё раз",
+                "Разрешите установку обновлений для Fabula и нажмите «Обновить» ещё раз",
                 null
             )
             return
         }
         val request = DownloadManager.Request(uri)
-            .setTitle("Обновление Router1")
+            .setTitle("Обновление Fabula")
             .setDescription("Скачиваем новую версию")
             .setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -158,15 +159,53 @@ class MainActivity : FlutterActivity() {
             return
         }
         runAsync(result) {
-            val config = Config.parse(ByteArrayInputStream(configText.toByteArray(Charsets.UTF_8)))
-            openFileOutput("router1-awg.conf", MODE_PRIVATE).use { it.write(configText.toByteArray()) }
+            val safeConfigText = ipv4OnlyConfig(configText)
+            val config = Config.parse(
+                ByteArrayInputStream(safeConfigText.toByteArray(Charsets.UTF_8)))
+            openFileOutput("router1-awg.conf", MODE_PRIVATE).use {
+                it.write(safeConfigText.toByteArray())
+            }
             backend.setState(tunnel, Tunnel.State.UP, config)
             if (serverCode.isNotBlank()) backend.setActiveFailoverServer(serverCode)
             getSharedPreferences("router1_awg", MODE_PRIVATE)
-                .edit().putBoolean("enabled", true).apply()
-            mapOf("state" to "up", "version" to backend.version)
+                .edit()
+                .putBoolean("enabled", true)
+                .putString("active_server", serverCode)
+                .apply()
+            mapOf(
+                "state" to "up",
+                "handshake" to backend.getLastHandshake(tunnel),
+                "rx" to backend.getStatistics(tunnel).totalRx(),
+                "tx" to backend.getStatistics(tunnel).totalTx(),
+                "serverCode" to backend.activeFailoverServer,
+                "version" to backend.version
+            )
         }
     }
+
+    /**
+     * The current AWG gateways advertise an IPv6 route but do not yet provide
+     * a reliable routed/NAT66 data path for client ULA addresses. Android may
+     * prefer that route, making apps appear offline even after a valid AWG
+     * handshake. Keep the production mobile tunnel IPv4-only until the
+     * gateways pass an end-to-end IPv6 probe.
+     */
+    private fun ipv4OnlyConfig(configText: String): String = configText
+        .lineSequence()
+        .mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator < 0) return@mapNotNull line
+            val key = line.substring(0, separator).trim()
+            if (key.lowercase() !in setOf("address", "dns", "allowedips")) {
+                return@mapNotNull line
+            }
+            val ipv4Values = line.substring(separator + 1)
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.contains(':') }
+            if (ipv4Values.isEmpty()) null else "$key = ${ipv4Values.joinToString(", ")}"
+        }
+        .joinToString("\n", postfix = "\n")
 
     private fun restoreTunnelIfRequested() {
         val enabled = getSharedPreferences("router1_awg", MODE_PRIVATE)
@@ -176,7 +215,10 @@ class MainActivity : FlutterActivity() {
         executor.execute {
             try {
                 if (backend.getState(tunnel) == Tunnel.State.UP) return@execute
-                val config = file.inputStream().use { Config.parse(it) }
+                val safeConfigText = ipv4OnlyConfig(file.readText(Charsets.UTF_8))
+                file.writeText(safeConfigText, Charsets.UTF_8)
+                val config = Config.parse(
+                    ByteArrayInputStream(safeConfigText.toByteArray(Charsets.UTF_8)))
                 backend.setState(tunnel, Tunnel.State.UP, config)
             } catch (_: Exception) {
                 // Статус и точная ошибка будут доступны через MethodChannel после запуска UI.

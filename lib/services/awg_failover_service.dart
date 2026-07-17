@@ -5,6 +5,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../router1_api.dart';
 import 'awg_tunnel_service.dart';
 
+String? selectNextFailoverServer({
+  required List<Router1FailoverNode> nodes,
+  required String activeServer,
+  required Set<String> attemptedServers,
+  required Map<String, String> health,
+}) {
+  if (nodes.length < 2) return null;
+  final activeIndex = nodes.indexWhere(
+    (node) => node.serverCode == activeServer,
+  );
+  final start = activeIndex < 0 ? 0 : activeIndex;
+  for (var offset = 1; offset <= nodes.length; offset++) {
+    final node = nodes[(start + offset) % nodes.length];
+    if (node.serverCode == activeServer ||
+        attemptedServers.contains(node.serverCode) ||
+        health[node.serverCode] == 'down') {
+      continue;
+    }
+    return node.serverCode;
+  }
+  return null;
+}
+
 class AwgFailoverResult {
   const AwgFailoverResult({
     required this.switched,
@@ -41,9 +64,12 @@ class AwgFailoverController {
   DateTime? _lastSwitch;
   DateTime? _lastBundleRefresh;
   bool _switching = false;
+  final Set<String> _attemptedServers = <String>{};
 
   String get activeServer => _activeServer;
   bool get available => (_bundle?.nodes.length ?? 0) > 1;
+  List<Router1FailoverNode> get nodes =>
+      List<Router1FailoverNode>.unmodifiable(_bundle?.nodes ?? const []);
 
   String get _cacheKey => 'router1_failover_bundle_$deviceId';
   String get _serverKey => 'router1_failover_server_$deviceId';
@@ -122,6 +148,7 @@ class AwgFailoverController {
 
     if (handshakeFresh) {
       _failureSamples = 0;
+      _attemptedServers.clear();
       if (_activeServer != bundle.primaryServer &&
           bundle.health[bundle.primaryServer] == 'healthy') {
         _primaryHealthySamples += 1;
@@ -149,20 +176,34 @@ class AwgFailoverController {
       );
     }
 
-    final candidates = bundle.nodes.where(
-      (node) =>
-          node.serverCode != _activeServer &&
-          bundle.health[node.serverCode] != 'down',
+    _attemptedServers.add(_activeServer);
+    var candidate = selectNextFailoverServer(
+      nodes: bundle.nodes,
+      activeServer: _activeServer,
+      attemptedServers: _attemptedServers,
+      health: bundle.health,
     );
-    if (candidates.isEmpty) {
+    if (candidate == null) {
+      // Every configured route was tried. Start a new ordered cycle without
+      // immediately selecting the route that just failed.
+      _attemptedServers
+        ..clear()
+        ..add(_activeServer);
+      candidate = selectNextFailoverServer(
+        nodes: bundle.nodes,
+        activeServer: _activeServer,
+        attemptedServers: _attemptedServers,
+        health: bundle.health,
+      );
+    }
+    if (candidate == null) {
       return AwgFailoverResult(
         switched: false,
         serverCode: _activeServer,
         message: 'Резервный маршрут временно недоступен',
       );
     }
-    return _switchTo(
-        candidates.first.serverCode, 'Переключено на резервный маршрут');
+    return _switchTo(candidate, 'Переключено на резервный маршрут');
   }
 
   bool _cooldownPassed(Router1FailoverPolicy policy, DateTime now) =>
@@ -214,6 +255,7 @@ class AwgFailoverController {
         serverCode: node.serverCode,
       );
       if (!status.connected) {
+        _attemptedServers.add(node.serverCode);
         return AwgFailoverResult(
           switched: false,
           serverCode: _activeServer,

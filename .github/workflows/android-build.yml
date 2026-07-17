@@ -36,10 +36,11 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/libs/tunnel-release.aar') }}
+          key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/tunnel/**') }}
           restore-keys: |
             fabula-android-${{ runner.os }}-
       - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - name: Build Android APK
         env:

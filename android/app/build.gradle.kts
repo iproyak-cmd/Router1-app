@@ -35,7 +35,7 @@ android {
 }
 
 dependencies {
-    implementation(files("../libs/tunnel-release.aar"))
+    implementation(project(":tunnel"))
     implementation("androidx.annotation:annotation:1.9.1")
     implementation("androidx.collection:collection:1.4.5")
 }

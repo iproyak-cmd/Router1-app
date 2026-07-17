@@ -1,0 +1,318 @@
+name: Router1 live network diagnostic
+
+on:
+  pull_request:
+    branches:
+      - fabula
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-live-network:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+      FABULA_TEST_PHONE: ${{ secrets.FABULA_TEST_PHONE }}
+      FR_SSH_PASSWORD: ${{ secrets.FR_SSH_PASSWORD }}
+      NL2_SSH_PASSWORD: ${{ secrets.NL2_SSH_PASSWORD }}
+    steps:
+      - name: Check MSK and VPN nodes without exposing keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          test -n "${FABULA_TEST_PHONE:-}"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          {
+            printf '%s\n' "$FABULA_TEST_PHONE"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd /opt/vpn_bot
+          umask 077
+          echo "DIAG_TIME_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for unit in vpn-bot router1-site-api platega-webhook; do
+            state=$(systemctl is-active "$unit" 2>/dev/null || true)
+            echo "MSK_SERVICE name=$unit state=${state:-missing}"
+          done
+          api_code=$(curl -sS -m 10 -o /tmp/router1_health.json -w '%{http_code}' \
+            http://127.0.0.1:8000/api/health || true)
+          echo "MSK_API_HEALTH http=${api_code:-000}"
+
+          venv/bin/python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import sqlite3
+          from pathlib import Path
+
+          def digits(value: object) -> str:
+              return ''.join(ch for ch in str(value or '') if ch.isdigit())
+
+          def canonical(value: object) -> str:
+              value_digits = digits(value)
+              return value_digits[-10:] if len(value_digits) >= 10 else ''
+
+          requested = canonical(os.environ.get('FABULA_TEST_PHONE', ''))
+          conn = sqlite3.connect('/opt/vpn_bot/database.db')
+          conn.row_factory = sqlite3.Row
+          clients = conn.execute('SELECT * FROM clients').fetchall()
+          matched = [
+              row for row in clients
+              if any(
+                  canonical(row[key]) == requested
+                  for key in row.keys()
+                  if 'phone' in key.lower()
+              )
+          ]
+          if len(matched) != 1:
+              raise SystemExit(f'Expected one client; found {len(matched)}')
+          client_id = int(matched[0]['id'])
+          configs = conn.execute(
+              "SELECT * FROM client_configs WHERE client_id = ? ORDER BY id DESC",
+              (client_id,),
+          ).fetchall()
+          safe_configs = [
+              {
+                  'id': row['id'],
+                  'device_type': row['device_type'],
+                  'protocol': row['protocol'],
+                  'server_code': row['server_code'],
+                  'status': row['status'],
+                  'payment_status': row['payment_status'],
+                  'paid_until': row['paid_until'],
+                  'public_key_present': bool(row['public_key']),
+              }
+              for row in configs[:12]
+          ]
+          print('CLIENT_NETWORK_CONFIGS=' + json.dumps(safe_configs, sort_keys=True))
+
+          primary = next(
+              (
+                  row for row in configs
+                  if row['device_type'] == 'smartphone_test'
+                  and row['protocol'] == 'amneziawg'
+                  and row['status'] in ('active', 'paid')
+                  and row['public_key']
+              ),
+              None,
+          )
+          key_path = Path('/tmp/router1_diag_primary_public_key')
+          if primary is not None:
+              key_path.write_text(str(primary['public_key']), encoding='utf-8')
+              os.chmod(key_path, 0o600)
+              print(
+                  'PRIMARY_TARGET '
+                  f"config_id={primary['id']} server={primary['server_code']} key_ready=true"
+              )
+              config_text = ''
+              for key in primary.keys():
+                  value = str(primary[key] or '')
+                  if '[Interface]' in value and '[Peer]' in value:
+                      config_text = value
+                      break
+                  if any(part in key.lower() for part in ('config', 'path', 'file')):
+                      candidate = Path(value)
+                      if not candidate.is_absolute():
+                          candidate = Path('/opt/vpn_bot') / candidate
+                      try:
+                          file_text = candidate.read_text(encoding='utf-8')
+                      except (OSError, UnicodeError):
+                          continue
+                      if '[Interface]' in file_text and '[Peer]' in file_text:
+                          config_text = file_text
+                          break
+              safe_lines = []
+              allowed = {'address', 'dns', 'mtu', 'jc', 'jmin', 'jmax', 's1', 's2',
+                         's3', 's4', 'h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3',
+                         'i4', 'i5', 'allowedips', 'endpoint', 'persistentkeepalive'}
+              for raw_line in config_text.splitlines():
+                  if '=' not in raw_line:
+                      continue
+                  key, value = (part.strip() for part in raw_line.split('=', 1))
+                  if key.lower() in allowed:
+                      safe_lines.append(f'{key}={value}')
+              print('PRIMARY_CONFIG_SHAPE=' + json.dumps(safe_lines, sort_keys=True))
+          else:
+              print('PRIMARY_TARGET key_ready=false')
+
+          try:
+              servers = conn.execute('SELECT * FROM vpn_servers ORDER BY priority, id').fetchall()
+          except sqlite3.Error:
+              servers = []
+          server_report = []
+          for row in servers:
+              item = {}
+              for key in (
+                  'id', 'code', 'server_code', 'protocol', 'health_status',
+                  'status', 'priority', 'weight', 'last_checked_at', 'updated_at',
+              ):
+                  if key in row.keys():
+                      item[key] = row[key]
+              server_report.append(item)
+          print('VPN_SERVERS=' + json.dumps(server_report, sort_keys=True))
+          conn.close()
+          PY
+
+          node_diag() {
+            label=$1
+            host=$2
+            port=$3
+            iface=$4
+            output=$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new \
+              -p "$port" "root@$host" "bash -s -- '$iface'" <<'NODE' 2>&1 || true
+          set -u
+          iface=$1
+          tool=$(command -v awg || command -v wg || true)
+          if [ -z "$tool" ]; then
+            echo "tool=missing"
+            exit 0
+          fi
+          if ! "$tool" show "$iface" >/dev/null 2>&1; then
+            echo "interface=down tool=$(basename "$tool")"
+            exit 0
+          fi
+          peers=$("$tool" show "$iface" peers 2>/dev/null | wc -l | tr -d ' ')
+          newest=$("$tool" show "$iface" latest-handshakes 2>/dev/null | awk 'BEGIN{m=0} {if($2>m)m=$2} END{print m}')
+          now=$(date +%s)
+          if [ "${newest:-0}" -gt 0 ]; then age=$((now-newest)); else age=-1; fi
+          xray=$(systemctl is-active xray 2>/dev/null || true)
+          forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || true)
+          http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || true)
+          echo "interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age xray=${xray:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          NODE
+          )
+            output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            echo "VPN_NODE label=$label $output"
+          }
+
+          node_diag FR-custom 213.176.93.13 5443 awgfr1
+          node_diag FR-22 213.176.93.13 22 awgfr1
+          node_diag NL2-custom 201.51.23.60 5445 awgnl2
+          node_diag NL2-22 201.51.23.60 22 awgnl2
+
+          if [ -s /tmp/router1_diag_primary_public_key ]; then
+            target_b64=$(base64 -w0 /tmp/router1_diag_primary_public_key)
+            ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new \
+              -p 5443 root@213.176.93.13 \
+              "TARGET_B64='$target_b64' bash -s" <<'PEER' || true
+          target=$(printf '%s' "$TARGET_B64" | base64 -d)
+          now=$(date +%s)
+          found=0
+          while read -r key stamp; do
+            if [ "$key" = "$target" ]; then
+              found=1
+              if [ "${stamp:-0}" -gt 0 ]; then age=$((now-stamp)); else age=-1; fi
+              echo "PRIMARY_PEER present=true handshake_age=$age"
+              break
+            fi
+          done < <(awg show awgfr1 latest-handshakes 2>/dev/null || true)
+          if [ "$found" -eq 0 ]; then echo "PRIMARY_PEER present=false"; fi
+          PEER
+          fi
+          rm -f /tmp/router1_diag_primary_public_key /tmp/router1_health.json
+          REMOTE
+          } | sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 \
+            'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'
+
+      - name: Try protected port 22 access to AWG nodes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          test -n "${FABULA_TEST_PHONE:-}"
+          test -n "${FR_SSH_PASSWORD:-}"
+          test -n "${NL2_SSH_PASSWORD:-}"
+          target_key=$(SSHPASS="$SSHPASS" sshpass -e ssh \
+            -o ConnectTimeout=12 -o StrictHostKeyChecking=accept-new \
+            root@201.51.4.89 \
+            "FABULA_TEST_PHONE='$FABULA_TEST_PHONE' /opt/vpn_bot/venv/bin/python -" <<'PY'
+          import os
+          import sqlite3
+
+          def canonical(value):
+              digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+              return digits[-10:] if len(digits) >= 10 else ''
+
+          requested = canonical(os.environ['FABULA_TEST_PHONE'])
+          conn = sqlite3.connect('/opt/vpn_bot/database.db')
+          conn.row_factory = sqlite3.Row
+          clients = [row for row in conn.execute('SELECT id, phone FROM clients')
+                     if canonical(row['phone']) == requested]
+          if len(clients) != 1:
+              raise SystemExit('client lookup failed')
+          row = conn.execute(
+              "SELECT public_key FROM client_configs WHERE client_id = ? "
+              "AND device_type = 'smartphone_test' AND status IN ('active','paid') "
+              "AND public_key IS NOT NULL ORDER BY id DESC LIMIT 1",
+              (clients[0]['id'],),
+          ).fetchone()
+          if row is None:
+              raise SystemExit('active key missing')
+          print(row['public_key'])
+          PY
+          )
+          test -n "$target_key"
+          target_b64=$(printf '%s' "$target_key" | base64 -w0)
+          inspect_with_password() {
+            label=$1
+            host=$2
+            iface=$3
+            password=$4
+            output=$(SSHPASS="$password" sshpass -e ssh \
+              -o ConnectTimeout=8 \
+              -o StrictHostKeyChecking=accept-new \
+              -p 22 "root@$host" "TARGET_B64='$target_b64' bash -s -- '$iface'" <<'NODE' 2>&1 || true
+          set -u
+          iface=$1
+          tool=$(command -v awg || command -v wg || true)
+          if [ -z "$tool" ]; then echo "authenticated=true tool=missing"; exit 0; fi
+          if ! "$tool" show "$iface" >/dev/null 2>&1; then
+            echo "authenticated=true interface=down tool=$(basename "$tool")"
+            exit 0
+          fi
+          peers=$("$tool" show "$iface" peers 2>/dev/null | wc -l | tr -d ' ')
+          newest=$("$tool" show "$iface" latest-handshakes 2>/dev/null | awk 'BEGIN{m=0} {if($2>m)m=$2} END{print m}')
+          now=$(date +%s)
+          if [ "${newest:-0}" -gt 0 ]; then age=$((now-newest)); else age=-1; fi
+          xray=$(systemctl is-active xray 2>/dev/null || true)
+          enabled=$(systemctl is-enabled xray 2>/dev/null || true)
+          forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || true)
+          http=$(curl -sS -m 8 -o /dev/null -w '%{http_code}' https://www.google.com/generate_204 || true)
+          target=$(printf '%s' "$TARGET_B64" | base64 -d)
+          target_age=missing
+          target_allowed=missing
+          target_rx=missing
+          target_tx=missing
+          while read -r key stamp; do
+            if [ "$key" = "$target" ]; then
+              if [ "${stamp:-0}" -gt 0 ]; then target_age=$((now-stamp)); else target_age=never; fi
+              break
+            fi
+          done < <("$tool" show "$iface" latest-handshakes 2>/dev/null || true)
+          while read -r key allowed; do
+            if [ "$key" = "$target" ]; then target_allowed=$allowed; break; fi
+          done < <("$tool" show "$iface" allowed-ips 2>/dev/null || true)
+          while read -r key rx tx; do
+            if [ "$key" = "$target" ]; then target_rx=$rx; target_tx=$tx; break; fi
+          done < <("$tool" show "$iface" transfer 2>/dev/null || true)
+          echo "authenticated=true interface=up tool=$(basename "$tool") peers=$peers newest_handshake_age=$age target_peer_handshake_age=$target_age target_allowed=$target_allowed target_rx=$target_rx target_tx=$target_tx xray=${xray:-unknown} xray_enabled=${enabled:-unknown} ip_forward=${forward:-unknown} outbound_http=${http:-000}"
+          echo "DATA_PLANE label=$iface forward_policy=$(iptables -S FORWARD 2>/dev/null | head -n1 | tr ' ' '_')"
+          iptables -S FORWARD 2>/dev/null | grep -E "$iface|RELATED|ESTABLISHED" | sed 's/^/FORWARD_RULE /' || true
+          iptables -t nat -S POSTROUTING 2>/dev/null | grep -E "$iface|MASQUERADE|SNAT" | sed 's/^/NAT_RULE /' || true
+          ip rule show 2>/dev/null | sed 's/^/IP_RULE /' || true
+          ip route show table all 2>/dev/null | grep -E "$iface|default" | head -n 20 | sed 's/^/IP_ROUTE /' || true
+          NODE
+          )
+            output=$(printf '%s' "$output" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+            echo "PASSWORD_NODE label=$label $output"
+          }
+          inspect_with_password FR 213.176.93.13 awgfr1 "$FR_SSH_PASSWORD"
+          inspect_with_password NL2 201.51.23.60 awgnl2 "$NL2_SSH_PASSWORD"

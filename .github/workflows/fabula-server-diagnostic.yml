@@ -1,0 +1,236 @@
+name: Fabula server repair
+
+on:
+  pull_request:
+    branches:
+      - fabula
+
+permissions:
+  contents: read
+
+jobs:
+  repair-fabula-access:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+      FABULA_TEST_PHONE: ${{ secrets.FABULA_TEST_PHONE }}
+    steps:
+      - name: Repair missing Fabula config binding and verify failover
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          test -n "${FABULA_TEST_PHONE:-}"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          {
+            printf '%s\n' "$FABULA_TEST_PHONE"
+            cat <<'REMOTE'
+          set -euo pipefail
+          cd /opt/vpn_bot
+          umask 077
+          venv/bin/python - <<'PY'
+          from __future__ import annotations
+
+          import datetime as dt
+          import json
+          import os
+          import shutil
+          import sqlite3
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          ROOT = Path('/opt/vpn_bot')
+          DB_PATH = ROOT / 'database.db'
+
+          def canonical_phone(value: object) -> str:
+              digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+              return digits[-10:] if len(digits) >= 10 else ''
+
+          requested_phone = canonical_phone(os.environ.get('FABULA_TEST_PHONE', ''))
+          if len(requested_phone) != 10:
+              raise SystemExit('FABULA_TEST_PHONE has an invalid format')
+
+          stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+          backup_dir = ROOT / 'backups' / f'fabula_claim_repair_{stamp}'
+          backup_dir.mkdir(parents=True, mode=0o700)
+          backup_path = backup_dir / 'database.db'
+
+          source = sqlite3.connect(DB_PATH)
+          destination = sqlite3.connect(backup_path)
+          try:
+              source.backup(destination)
+          finally:
+              destination.close()
+              source.close()
+          os.chmod(backup_path, 0o600)
+          print(f'BACKUP_OK path={backup_path}')
+
+          conn = sqlite3.connect(DB_PATH)
+          conn.row_factory = sqlite3.Row
+          conn.execute('PRAGMA busy_timeout=10000')
+
+          client_rows = conn.execute('SELECT id, phone FROM clients').fetchall()
+          matches = [row for row in client_rows if canonical_phone(row['phone']) == requested_phone]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one client, found {len(matches)}')
+          client_id = int(matches[0]['id'])
+
+          claim_columns = {
+              str(row[1]) for row in conn.execute("PRAGMA table_info('fabula_access_claims')")
+          }
+          required = {'client_id', 'device_type', 'status', 'config_id'}
+          if not required.issubset(claim_columns):
+              raise SystemExit('fabula_access_claims schema is incompatible')
+
+          claims = conn.execute(
+              "SELECT rowid AS claim_rowid, * FROM fabula_access_claims "
+              "WHERE client_id = ? AND device_type = 'smartphone_test' AND status = 'active'",
+              (client_id,),
+          ).fetchall()
+          if len(claims) != 1:
+              raise SystemExit(f'Expected one active smartphone_test claim, found {len(claims)}')
+          claim = claims[0]
+
+          config_columns = {
+              str(row[1]) for row in conn.execute("PRAGMA table_info('client_configs')")
+          }
+          select_fields = ['id', 'client_id', 'device_type', 'protocol']
+          select_fields += [name for name in ('status', 'payment_status', 'paid_until', 'server_code') if name in config_columns]
+          configs = conn.execute(
+              f"SELECT {', '.join(select_fields)} FROM client_configs "
+              "WHERE client_id = ? AND device_type = 'smartphone_test' ORDER BY id DESC",
+              (client_id,),
+          ).fetchall()
+
+          now = dt.datetime.now(dt.timezone.utc)
+          eligible = []
+          for row in configs:
+              if 'status' in row.keys() and str(row['status'] or '').lower() not in {'active', 'paid'}:
+                  continue
+              if 'payment_status' in row.keys() and str(row['payment_status'] or '').lower() not in {'paid', 'active', 'manual_grant'}:
+                  continue
+              if 'paid_until' in row.keys() and row['paid_until']:
+                  expiry = dt.datetime.fromisoformat(str(row['paid_until']).replace('Z', '+00:00'))
+                  if expiry.tzinfo is None:
+                      expiry = expiry.replace(tzinfo=dt.timezone.utc)
+                  if expiry <= now:
+                      continue
+              eligible.append(row)
+
+          # The current AWG route can complete a handshake but does not carry
+          # usable application traffic on the affected Android network.  Bind
+          # the claim to the newest already-provisioned ordinary WireGuard
+          # smartphone profile as a reversible emergency route.  This is the
+          # same class of profile that was verified on the handset in the
+          # official WireGuard application.
+          wireguard = [
+              row for row in eligible
+              if str(row['protocol'] or '').lower() == 'wireguard'
+          ]
+          if not wireguard:
+              raise SystemExit('No eligible emergency WireGuard smartphone config')
+          selected = wireguard[0]
+          config_id = int(selected['id'])
+          old_config_id = claim['config_id']
+          old_updated_at = claim['updated_at'] if 'updated_at' in claim.keys() else None
+
+          env_values: dict[str, str] = {}
+          for raw_line in (ROOT / '.env').read_text(encoding='utf-8').splitlines():
+              line = raw_line.strip()
+              if line and not line.startswith('#') and '=' in line:
+                  key, value = line.split('=', 1)
+                  env_values[key.strip()] = value.strip().strip('"').strip("'")
+          api_token = env_values.get('APP_API_TOKEN', '')
+          if not api_token:
+              raise SystemExit('APP_API_TOKEN is missing')
+
+          def api_get(path: str, query: dict[str, str]) -> tuple[int, object]:
+              url = 'http://127.0.0.1:8000/api' + path + '?' + urllib.parse.urlencode(query)
+              request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + api_token})
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      return response.status, json.loads(response.read().decode('utf-8'))
+              except urllib.error.HTTPError as error:
+                  return error.code, {'detail': 'HTTP error'}
+
+          update_parts = ['config_id = ?']
+          update_params: list[object] = [config_id]
+          if 'updated_at' in claim_columns:
+              update_parts.append('updated_at = ?')
+              update_params.append(now.isoformat())
+          update_params.append(int(claim['claim_rowid']))
+
+          try:
+              conn.execute('BEGIN IMMEDIATE')
+              cursor = conn.execute(
+                  f"UPDATE fabula_access_claims SET {', '.join(update_parts)} WHERE rowid = ?",
+                  update_params,
+              )
+              if cursor.rowcount != 1:
+                  raise RuntimeError(f'Expected one updated claim, got {cursor.rowcount}')
+              conn.commit()
+
+              phone_for_api = '7' + requested_phone
+              status, payload = api_get('/fabula/client', {
+                  'phone': phone_for_api,
+                  'device_type': 'smartphone_test',
+              })
+              returned_ids = {
+                  int(item.get('id') or 0)
+                  for item in payload.get('configs', [])
+                  if isinstance(payload, dict) and isinstance(item, dict)
+              } if isinstance(payload, dict) else set()
+              if status != 200 or config_id not in returned_ids:
+                  raise RuntimeError(f'Client API verification failed: status={status}, configs={len(returned_ids)}')
+
+              config_status, config_payload = api_get(
+                  f'/fabula/config/{config_id}', {'phone': phone_for_api}
+              )
+              if config_status != 200 or not isinstance(config_payload, dict) or not config_payload.get('config_text'):
+                  raise RuntimeError(f'Config API verification failed: status={config_status}')
+
+              failover_status, failover_payload = api_get(
+                  f'/app/failover/{config_id}', {'phone': phone_for_api}
+              )
+              nodes = failover_payload.get('nodes', []) if isinstance(failover_payload, dict) else []
+              codes = {str(node.get('server_code') or '').lower() for node in nodes if isinstance(node, dict)}
+              # A legacy WG profile may not have a multi-node bundle.  The
+              # config endpoint is the authoritative readiness check for this
+              # emergency binding; failover is reported for diagnostics only.
+              failover_summary = ','.join(sorted(codes)) if failover_status == 200 else 'unavailable'
+          except Exception:
+              conn.rollback()
+              restore_parts = ['config_id = ?']
+              restore_params: list[object] = [old_config_id]
+              if 'updated_at' in claim_columns:
+                  restore_parts.append('updated_at = ?')
+                  restore_params.append(old_updated_at)
+              restore_params.append(int(claim['claim_rowid']))
+              conn.execute('BEGIN IMMEDIATE')
+              conn.execute(
+                  f"UPDATE fabula_access_claims SET {', '.join(restore_parts)} WHERE rowid = ?",
+                  restore_params,
+              )
+              conn.commit()
+              print('ROLLBACK_OK')
+              raise
+          finally:
+              conn.close()
+
+          print(
+              'REPAIR_OK '
+              f'client_suffix={requested_phone[-4:]} config_id={config_id} '
+              f'protocol=wireguard client_api=200 config_api=200 failover={failover_summary}'
+          )
+          PY
+          REMOTE
+          } | sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 \
+            'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'

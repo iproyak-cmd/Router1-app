@@ -27,17 +27,14 @@ jobs:
         with:
           channel: stable
           cache: true
-      - id: pubget
-        continue-on-error: true
+      - name: Install dependencies
         run: flutter pub get
-      - id: analyze
-        continue-on-error: true
-        run: flutter analyze
-      - id: test
-        continue-on-error: true
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+      - name: Test
         run: flutter test
-      - id: windows
-        continue-on-error: true
+      - name: Build Windows release
+        id: windows
         shell: powershell
         env:
           ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
@@ -50,26 +47,20 @@ jobs:
           $BuildExitCode = $LASTEXITCODE
           Get-Content -Path windows-build.log
           if ($BuildExitCode -ne 0) { exit $BuildExitCode }
-      - name: Add embedded Router1 network engine
-        id: engine
-        continue-on-error: true
+      - name: Add embedded Fabula network engine
         shell: powershell
         run: .\tool\prepare_windows_engine.ps1
       - name: Build Fabula installer
-        id: installer
-        continue-on-error: true
         shell: powershell
         run: |
           choco install innosetup --no-progress -y
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ".\windows\installer\router1.iss"
       - uses: actions/upload-artifact@v4
-        if: steps.installer.outcome == 'success'
         with:
           name: Fabula-Windows
           path: build-output/windows/FabulaSetup.exe
           if-no-files-found: error
-      - name: Prepare latest installer for Router1 delivery
-        if: always()
+      - name: Prepare latest Fabula installer
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\fabula-release" | Out-Null
@@ -80,20 +71,11 @@ jobs:
           if (Test-Path ".\windows-build.log") {
             Copy-Item ".\windows-build.log" "$env:RUNNER_TEMP\fabula-release\windows-build.log"
           }
-          @"
-          pubget=${{ steps.pubget.outcome }}
-          analyze=${{ steps.analyze.outcome }}
-          test=${{ steps.test.outcome }}
-          windows=${{ steps.windows.outcome }}
-          engine=${{ steps.engine.outcome }}
-          installer=${{ steps.installer.outcome }}
-          run=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          "@ | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\fabula-release\build-report.txt"
+          "run=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" | Set-Content -Encoding UTF8 "$env:RUNNER_TEMP\fabula-release\build-report.txt"
           if (Test-Path "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe") {
             Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe" | ForEach-Object { $_.Hash.ToLowerInvariant() + "  FabulaSetup.exe" } | Set-Content -Encoding ASCII "$env:RUNNER_TEMP\fabula-release\FabulaSetup.exe.sha256"
           }
-      - name: Publish latest installer for Router1 delivery
-        if: always()
+      - name: Publish latest Fabula installer
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
