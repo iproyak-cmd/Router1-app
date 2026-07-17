@@ -349,167 +349,83 @@ jobs:
             root@201.51.4.89 \
             'IFS= read -r FABULA_TEST_PHONE; export FABULA_TEST_PHONE; bash -s'
 
-      - name: Repair client access projection and verify Fabula delivery
+      - name: Inspect Fabula endpoint implementation without exposing secrets
         shell: bash
         run: |
           set -euo pipefail
           {
-            printf '%s\n' "$FABULA_TEST_PHONE"
             cat <<'REMOTE'
           set -euo pipefail
           cd /opt/vpn_bot
-          umask 077
           venv/bin/python - <<'PY'
-          from __future__ import annotations
-
-          import datetime as dt
-          import json
-          import os
-          import sqlite3
-          import urllib.error
-          import urllib.parse
-          import urllib.request
+          import ast
+          import re
           from pathlib import Path
 
           ROOT = Path('/opt/vpn_bot')
-          DB_PATH = ROOT / 'database.db'
 
-          def digits(value: object) -> str:
-              return ''.join(ch for ch in str(value or '') if ch.isdigit())
-
-          def canonical_phone(value: object) -> str:
-              value_digits = digits(value)
-              return value_digits[-10:] if len(value_digits) >= 10 else ''
-
-          requested_phone = canonical_phone(os.environ.get('FABULA_TEST_PHONE', ''))
-          if len(requested_phone) != 10:
-              raise SystemExit('FABULA_TEST_PHONE has an invalid format')
-
-          stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-          backup_dir = ROOT / 'backups' / f'fabula_projection_fix_{stamp}'
-          backup_dir.mkdir(parents=True, mode=0o700)
-          backup_path = backup_dir / 'database.db'
-          source = sqlite3.connect(DB_PATH)
-          destination = sqlite3.connect(backup_path)
-          try:
-              source.backup(destination)
-          finally:
-              destination.close()
-              source.close()
-          os.chmod(backup_path, 0o600)
-          print(f'FIX_BACKUP_OK path={backup_path}')
-
-          conn = sqlite3.connect(DB_PATH)
-          conn.row_factory = sqlite3.Row
-          client_rows = conn.execute('SELECT * FROM clients').fetchall()
-          matches = [
-              row for row in client_rows
-              if any(
-                  canonical_phone(row[key]) == requested_phone
-                  for key in row.keys()
-                  if 'phone' in key.lower()
-              )
-          ]
-          if len(matches) != 1:
-              raise SystemExit(f'Expected one client row; found {len(matches)}')
-          client = matches[0]
-          client_id = int(client['id'])
-          old_paid_until = client['paid_until']
-
-          config_rows = conn.execute(
-              "SELECT id, paid_until, status, device_type FROM client_configs "
-              "WHERE client_id = ? AND status IN ('active', 'paid') AND paid_until IS NOT NULL",
-              (client_id,),
-          ).fetchall()
-
-          def parse_time(value: object) -> dt.datetime | None:
-              text = str(value or '').strip().replace('Z', '+00:00')
-              if not text:
-                  return None
-              try:
-                  parsed = dt.datetime.fromisoformat(text)
-              except ValueError:
-                  return None
-              if parsed.tzinfo is None:
-                  parsed = parsed.replace(tzinfo=dt.timezone.utc)
-              return parsed.astimezone(dt.timezone.utc)
-
-          dated_configs = [
-              (parse_time(row['paid_until']), row)
-              for row in config_rows
-              if parse_time(row['paid_until']) is not None
-          ]
-          if not dated_configs:
-              raise SystemExit('No active dated configs found')
-          _, newest_config = max(dated_configs, key=lambda pair: pair[0])
-          projected_paid_until = str(newest_config['paid_until'])
-
-          conn.execute('BEGIN IMMEDIATE')
-          cursor = conn.execute(
-              "UPDATE clients SET paid_until = ?, status = 'active', updated_at = ? WHERE id = ?",
-              (projected_paid_until, dt.datetime.now(dt.timezone.utc).isoformat(), client_id),
+          secret_assignment = re.compile(
+              r'(?i)^(\s*[A-Za-z_]*(?:token|secret|password|api_key)[A-Za-z_]*\s*=\s*).*$'
           )
-          if cursor.rowcount != 1:
-              conn.rollback()
-              raise SystemExit('Client projection update affected an unexpected number of rows')
-          conn.commit()
 
-          env_values: dict[str, str] = {}
-          for raw_line in (ROOT / '.env').read_text(encoding='utf-8').splitlines():
-              line = raw_line.strip()
-              if not line or line.startswith('#') or '=' not in line:
+          def safe_source(lines: list[str], start: int, end: int) -> str:
+              output = []
+              for number in range(start, end + 1):
+                  line = lines[number - 1]
+                  line = secret_assignment.sub(r'\1<redacted>', line)
+                  output.append(f'{number:04d}: {line}')
+              return '\n'.join(output)
+
+          found = False
+          for path in sorted(ROOT.rglob('*.py')):
+              if any(part in {'venv', '.venv', '__pycache__', 'backups'} for part in path.parts):
                   continue
-              key, value = line.split('=', 1)
-              env_values[key.strip()] = value.strip().strip('"').strip("'")
-          api_token = env_values.get('APP_API_TOKEN', '')
-          phone_for_api = '7' + requested_phone
-          query = urllib.parse.urlencode(
-              {'phone': phone_for_api, 'device_type': 'smartphone_test'}
-          )
-          request = urllib.request.Request(
-              'http://127.0.0.1:8000/api/fabula/client?' + query,
-              headers={'Authorization': 'Bearer ' + api_token},
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  status_code = response.status
-                  payload = json.loads(response.read().decode('utf-8'))
-          except urllib.error.HTTPError as error:
-              status_code = error.code
               try:
-                  payload = json.loads(error.read().decode('utf-8'))
-              except Exception:
-                  payload = {}
-
-          configs = payload.get('configs') if isinstance(payload, dict) else None
-          delivered_ids = [
-              int(item['id']) for item in (configs or [])
-              if isinstance(item, dict) and item.get('id') is not None
-          ]
-          expected_ids = [
-              int(row['id']) for row in config_rows
-              if row['device_type'] == 'smartphone_test'
-              and parse_time(row['paid_until']) is not None
-              and parse_time(row['paid_until']) > dt.datetime.now(dt.timezone.utc)
-          ]
-          if status_code != 200 or not set(expected_ids).intersection(delivered_ids):
-              conn.execute(
-                  'UPDATE clients SET paid_until = ? WHERE id = ?',
-                  (old_paid_until, client_id),
-              )
-              conn.commit()
-              conn.close()
-              raise SystemExit(
-                  f'API verification failed; projection rolled back '
-                  f'(status={status_code}, delivered={len(delivered_ids)})'
-              )
-
-          print(
-              'FABULA_PROJECTION_REPAIR_OK '
-              f'client_id={client_id} delivered_configs={len(delivered_ids)} '
-              f'expected_test_configs={len(expected_ids)}'
-          )
-          conn.close()
+                  text = path.read_text(encoding='utf-8')
+              except (OSError, UnicodeError):
+                  continue
+              if '/fabula/client' not in text:
+                  continue
+              found = True
+              lines = text.splitlines()
+              print(f'FABULA_ROUTE_FILE={path.relative_to(ROOT)}')
+              try:
+                  tree = ast.parse(text)
+              except SyntaxError as error:
+                  print(f'PARSE_ERROR line={error.lineno}')
+                  continue
+              functions = {
+                  node.name: node
+                  for node in ast.walk(tree)
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              }
+              targets = []
+              for node in functions.values():
+                  decorator_text = ' '.join(
+                      ast.get_source_segment(text, decorator) or ''
+                      for decorator in node.decorator_list
+                  )
+                  if '/fabula/client' in decorator_text:
+                      targets.append(node)
+              for target in targets:
+                  called = {
+                      call.func.id
+                      for call in ast.walk(target)
+                      if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                  }
+                  selected = [target] + [
+                      functions[name] for name in sorted(called)
+                      if name in functions and name != target.name
+                  ]
+                  for node in selected:
+                      start = min(
+                          [node.lineno] + [item.lineno for item in node.decorator_list]
+                      )
+                      end = int(node.end_lineno or node.lineno)
+                      print(f'--- FUNCTION {node.name} ---')
+                      print(safe_source(lines, start, end))
+          if not found:
+              raise SystemExit('Fabula route source was not found')
           PY
           REMOTE
           } | sshpass -e ssh \
