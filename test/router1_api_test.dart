@@ -1,8 +1,44 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fabula_app/router1_api.dart';
 import 'package:fabula_app/services/awg_failover_service.dart';
+import 'package:fabula_app/main.dart';
 
 void main() {
+  group('VPN route acceptance', () {
+    test('requires a real traffic probe for AWG', () {
+      expect(
+        acceptsVpnRoute(
+          protocol: 'amneziawg',
+          handshake: 1000,
+          trafficProbeOk: false,
+          nowEpochSeconds: 1010,
+        ),
+        isFalse,
+      );
+    });
+
+    test('accepts a fresh ordinary WireGuard handshake as emergency proof', () {
+      expect(
+        acceptsVpnRoute(
+          protocol: 'wireguard',
+          handshake: 1000,
+          trafficProbeOk: false,
+          nowEpochSeconds: 1020,
+        ),
+        isTrue,
+      );
+      expect(
+        acceptsVpnRoute(
+          protocol: 'wireguard',
+          handshake: 1000,
+          trafficProbeOk: false,
+          nowEpochSeconds: 1100,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('Router1RouteProfileKind', () {
     test('normalizes profile ids and aliases', () {
       expect(

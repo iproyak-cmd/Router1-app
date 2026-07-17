@@ -50,16 +50,16 @@ jobs:
           SSHPASS="$SSHPASS" sshpass -e scp \
             -o StrictHostKeyChecking=accept-new \
             /tmp/fabula-preview/Fabula-test.apk \
-            root@201.51.4.89:/tmp/Fabula-0.4.0-Android.apk
+            root@201.51.4.89:/tmp/Fabula-0.4.1-Android.apk
           SSHPASS="$SSHPASS" sshpass -e ssh \
             -o StrictHostKeyChecking=accept-new \
             root@201.51.4.89 'bash -s' <<'REMOTE'
           set -euo pipefail
           web=/var/www/html/app
-          source=/tmp/Fabula-0.4.0-Android.apk
+          source=/tmp/Fabula-0.4.1-Android.apk
           test -s "$source"
           stamp=$(date -u +%Y%m%dT%H%M%SZ)
-          backup="$web/backups/before_0.4.0_${stamp}"
+          backup="$web/backups/before_0.4.1_${stamp}"
           install -d -m 0755 "$backup"
           if [ -s "$web/router1.apk" ]; then
             cp -a "$web/router1.apk" "$backup/router1.apk"
@@ -71,12 +71,11 @@ jobs:
           sha=$(sha256sum "$web/router1.apk.new" | awk '{print $1}')
           size=$(stat -c '%s' "$web/router1.apk.new")
           mv -f "$web/router1.apk.new" "$web/router1.apk"
-          printf '{\n  "version": "0.4.0",\n  "build": 16,\n  "url": "https://router1.tech/app/router1.apk",\n  "sha256": "%s",\n  "size": %s,\n  "notes": "Проверка реального трафика и автоматический резерв AWG/WG"\n}\n' \
+          printf '{\n  "version": "0.4.1",\n  "build": 17,\n  "url": "https://router1.tech/app/router1.apk",\n  "sha256": "%s",\n  "size": %s,\n  "notes": "Проверка реального трафика и автоматический резерв AWG/WG"\n}\n' \
             "$sha" "$size" > "$web/version.json.new"
           chmod 0644 "$web/version.json.new"
           mv -f "$web/version.json.new" "$web/version.json"
           rm -f "$source"
           curl -fsS http://127.0.0.1/app/version.json >/dev/null || true
-          echo "PUBLISH_OK version=0.4.0 build=16 size=$size sha256=$sha"
+          echo "PUBLISH_OK version=0.4.1 build=17 size=$size sha256=$sha"
           REMOTE
-

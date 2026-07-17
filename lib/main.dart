@@ -12,7 +12,7 @@ import 'services/awg_failover_service.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/tunnel_connectivity_probe.dart';
 
-const fabulaVersion = '0.4.0+16';
+const fabulaVersion = '0.4.1+17';
 const _fabulaDemoDeviceId = int.fromEnvironment(
   'FABULA_DEMO_DEVICE_ID',
   defaultValue: 0,
@@ -45,6 +45,18 @@ class _VpnRoute {
   final String code;
   final String config;
   final String protocol;
+}
+
+bool acceptsVpnRoute({
+  required String protocol,
+  required int handshake,
+  required bool trafficProbeOk,
+  required int nowEpochSeconds,
+}) {
+  if (trafficProbeOk) return true;
+  if (protocol.toLowerCase() != 'wireguard' || handshake <= 0) return false;
+  final age = nowEpochSeconds - handshake;
+  return age >= 0 && age <= 45;
 }
 
 extension FabulaModuleUi on FabulaModule {
@@ -356,8 +368,14 @@ class _FabulaShellState extends State<FabulaShell> {
     AwgTunnelStatus status = await tunnel.status();
     while (DateTime.now().isBefore(deadline)) {
       status = await tunnel.status();
-      if (status.handshake > 0 &&
-          await connectivity.isUsable(timeout: const Duration(seconds: 2))) {
+      final probeOk = status.handshake > 0 &&
+          await connectivity.isUsable(timeout: const Duration(seconds: 2));
+      if (acceptsVpnRoute(
+        protocol: route.protocol,
+        handshake: status.handshake,
+        trafficProbeOk: probeOk,
+        nowEpochSeconds: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      )) {
         activeRoute = route.code;
         connectivityFailures = 0;
         final prefs = await SharedPreferences.getInstance();
@@ -377,7 +395,20 @@ class _FabulaShellState extends State<FabulaShell> {
       return;
     }
     lastConnectivityProbe = now;
-    final usable = await connectivity.isUsable(timeout: const Duration(seconds: 2));
+    final probeOk = await connectivity.isUsable(timeout: const Duration(seconds: 2));
+    _VpnRoute? route;
+    for (final value in routes) {
+      if (value.code == activeRoute) {
+        route = value;
+        break;
+      }
+    }
+    final usable = acceptsVpnRoute(
+      protocol: route?.protocol ?? 'amneziawg',
+      handshake: status.handshake,
+      trafficProbeOk: probeOk,
+      nowEpochSeconds: now.millisecondsSinceEpoch ~/ 1000,
+    );
     if (usable) {
       connectivityFailures = 0;
       return;
