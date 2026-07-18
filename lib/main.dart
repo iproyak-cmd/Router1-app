@@ -9,7 +9,7 @@ import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.3.0+8';
+const fabulaVersion = '0.3.1+9';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -1932,65 +1932,35 @@ class _TarotArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final asset = switch (title.toLowerCase()) {
-      'звезда' => 'assets/fabula/tarot/star.png',
-      'луна' => 'assets/fabula/tarot/moon.png',
-      'императрица' => 'assets/fabula/tarot/empress.png',
-      'башня' => 'assets/fabula/tarot/tower.png',
-      'шут' => 'assets/fabula/tarot/fool.png',
-      _ => null,
+    final asset = switch (title.trim().toLowerCase()) {
+      'шут' || 'дурак' => 'assets/fabula/tarot/fool.webp',
+      'маг' => 'assets/fabula/tarot/magician.webp',
+      'верховная жрица' || 'жрица' =>
+        'assets/fabula/tarot/high_priestess.webp',
+      'императрица' => 'assets/fabula/tarot/empress.webp',
+      'император' => 'assets/fabula/tarot/emperor.webp',
+      'иерофант' || 'верховный жрец' || 'жрец' =>
+        'assets/fabula/tarot/hierophant.webp',
+      'влюблённые' || 'влюбленные' => 'assets/fabula/tarot/lovers.webp',
+      'колесница' => 'assets/fabula/tarot/chariot.webp',
+      'сила' => 'assets/fabula/tarot/strength.webp',
+      'отшельник' => 'assets/fabula/tarot/hermit.webp',
+      'колесо фортуны' || 'колесо судьбы' =>
+        'assets/fabula/tarot/wheel_of_fortune.webp',
+      'справедливость' || 'правосудие' =>
+        'assets/fabula/tarot/justice.webp',
+      'повешенный' => 'assets/fabula/tarot/hanged_man.webp',
+      'смерть' => 'assets/fabula/tarot/death.webp',
+      'умеренность' => 'assets/fabula/tarot/temperance.webp',
+      'дьявол' => 'assets/fabula/tarot/devil.webp',
+      'башня' => 'assets/fabula/tarot/tower.webp',
+      'звезда' => 'assets/fabula/tarot/star.webp',
+      'луна' => 'assets/fabula/tarot/moon.webp',
+      'солнце' => 'assets/fabula/tarot/sun.webp',
+      'суд' || 'страшный суд' => 'assets/fabula/tarot/judgement.webp',
+      'мир' => 'assets/fabula/tarot/world.webp',
+      _ => 'assets/fabula/tarot/fool.webp',
     };
-    if (asset == null) {
-      return Container(
-        width: width,
-        height: width * 1.5,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF2C1D28), Color(0xFF7A3045)],
-          ),
-          border: Border.all(color: const Color(0xFFB8A17B), width: 2),
-        ),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0x99B8A17B)),
-                  ),
-                ),
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.auto_awesome,
-                  color: Color(0xFFCFB982),
-                  size: 64,
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  title.isEmpty ? 'Карта дня' : title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'serif',
-                    fontSize: 30,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: Image.asset(
