@@ -56,7 +56,7 @@ class FabulaShell extends StatefulWidget {
 
 class _FabulaShellState extends State<FabulaShell> {
   final api = Router1Api(baseUrl: 'https://router1.tech/api',
-    token: const String.fromEnvironment('ROUTER1_APP_TOKEN'), demoFallback: false);
+    token: const String.fromEnvironment('ROUTER1_APP_TOKEN'), demoFallback: true);
   final tunnel = AwgTunnelService();
   var tab = 0;
   var loading = true;
@@ -91,7 +91,7 @@ class _FabulaShellState extends State<FabulaShell> {
 
   Future<void> _loadForecast() async {
     try { final v = await api.dailyHoroscope(sign); if (mounted) setState(() => forecast = v); }
-    catch (_) {}
+    catch (_) { if (mounted) setState(() => forecast = _demoForecast(sign)); }
   }
 
   Future<void> _refreshVpn() async {
@@ -161,7 +161,7 @@ class _FabulaShellState extends State<FabulaShell> {
     final value = await showModalBottomSheet<String>(context: context,
       backgroundColor: _cream, builder: (context) => SafeArea(child: Padding(
         padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Ваш знак', style: TextStyle(fontFamily: 'Serif', fontSize: 28)),
+          const Text('Ваш знак', style: TextStyle(fontFamily: 'serif', fontSize: 28)),
           const SizedBox(height: 14),
           GridView.count(shrinkWrap: true, crossAxisCount: 3, childAspectRatio: 1.55,
             mainAxisSpacing: 8, crossAxisSpacing: 8,
@@ -183,7 +183,7 @@ class _FabulaShellState extends State<FabulaShell> {
       backgroundColor: _cream, builder: (context) => Padding(
         padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.viewInsetsOf(context).bottom + 24),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('Профиль Fabula', style: TextStyle(fontFamily: 'Serif', fontSize: 30)),
+          const Text('Профиль Fabula', style: TextStyle(fontFamily: 'serif', fontSize: 30)),
           const SizedBox(height: 18),
           TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Имя (необязательно)')),
           const SizedBox(height: 12),
@@ -334,7 +334,7 @@ class _Card extends StatelessWidget {
 }
 
 Text _editorial(String text, {double size = 30}) => Text(text,
-  style: TextStyle(fontFamily: 'Serif', color: _ink, fontSize: size, height: 1.08, fontWeight: FontWeight.w500));
+  style: TextStyle(fontFamily: 'serif', color: _ink, fontSize: size, height: 1.08, fontWeight: FontWeight.w500));
 
 class _TodayPage extends StatelessWidget {
   const _TodayPage({required this.name, required this.forecast, required this.vpn,
@@ -377,13 +377,55 @@ class _TodayPage extends StatelessWidget {
         decoration: BoxDecoration(shape: BoxShape.circle, color: _colorForName(f.color))), const SizedBox(width: 10),
         Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(f.color, style: const TextStyle(fontSize: 15))))])]))),
       const SizedBox(width: 10), Expanded(child: _Card(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _SectionLabel('ЧИСЛО ДНЯ'), const SizedBox(height: 5), Row(children: [Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'Serif', fontSize: 40)),
+        const _SectionLabel('ЧИСЛО ДНЯ'), const SizedBox(height: 5), Row(children: [Text('${f.number}', style: const TextStyle(color: _burgundy, fontFamily: 'serif', fontSize: 40)),
           const SizedBox(width: 10), const Expanded(child: Text('Внимание\nк деталям', style: TextStyle(color: _muted, fontSize: 11, height: 1.25)))])])))]),
+    if (f != null) ...[
+      const SizedBox(height: 12),
+      _Card(padding: const EdgeInsets.all(20), child: Row(children: [
+        Container(width: 50, height: 50, decoration: const BoxDecoration(color: Color(0xFFE8E9DE), shape: BoxShape.circle),
+          child: const Icon(Icons.brightness_3_outlined, color: _burgundy, size: 24)),
+        const SizedBox(width: 14), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const _SectionLabel('ЛУННЫЙ РИТМ'), const SizedBox(height: 6),
+          _editorial(f.lunarPhase.isEmpty ? 'Растущая Луна' : f.lunarPhase, size: 21),
+          const SizedBox(height: 4), const Text('Хороший день, чтобы продолжать начатое и не торопить результат.',
+            style: TextStyle(color: _muted, fontSize: 12, height: 1.35)),
+        ])),
+      ])),
+      const SizedBox(height: 12),
+      const _DailyLookCard(),
+    ],
     const SizedBox(height: 12), _VpnCard(vpn: vpn, busy: vpnBusy, onToggle: onVpn),
     const SizedBox(height: 12), _Card(child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('АФФИРМАЦИЯ ДНЯ', style: TextStyle(color: _burgundy, fontSize: 11)), const SizedBox(height: 8),
-      _editorial('Сегодня я выбираю ясность вместо спешки.', size: 22)])), IconButton(onPressed: onShare, icon: const Icon(Icons.ios_share, color: _burgundy))])),
+      _editorial(f == null ? 'Сегодня я выбираю ясность вместо спешки.' : _affirmation(f.number), size: 22)])), IconButton(onPressed: onShare, icon: const Icon(Icons.ios_share, color: _burgundy))])),
   ]); }
+}
+
+class _DailyLookCard extends StatelessWidget {
+  const _DailyLookCard();
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(26),
+    child: AspectRatio(
+      aspectRatio: 1.38,
+      child: Stack(fit: StackFit.expand, children: [
+        Image.asset('assets/fabula/daily-look.webp', fit: BoxFit.cover, alignment: const Alignment(.5, -.2)),
+        const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
+          begin: Alignment.centerLeft, end: Alignment.centerRight,
+          colors: [Color(0xD9F6F2ED), Color(0x66F6F2ED), Color(0x00000000)],
+          stops: [0, .5, .82],
+        ))),
+        Padding(padding: const EdgeInsets.all(22), child: Align(alignment: Alignment.centerLeft,
+          child: SizedBox(width: 155, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const _SectionLabel('ОБРАЗ ДНЯ'), const SizedBox(height: 8),
+            _editorial('Спокойная уверенность', size: 24), const SizedBox(height: 8),
+            const Text('Винный оттенок, мягкий беж и одна золотая деталь.',
+              style: TextStyle(color: _muted, fontSize: 12, height: 1.35)),
+          ])))),
+      ]),
+    ),
+  );
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -479,13 +521,75 @@ class _ConnectionPage extends StatelessWidget {
   ]);
 }
 
-class _CompatibilityPage extends StatelessWidget {
+class _CompatibilityPage extends StatefulWidget {
   const _CompatibilityPage();
-  @override Widget build(BuildContext context) => _Page(children: [
-    _editorial('Совместимость'), const SizedBox(height: 8),
-    const Text('Новый раздел скоро появится', style: TextStyle(color: _muted)), const SizedBox(height: 22),
-    const _Card(child: Column(children: [Icon(Icons.favorite_border, color: _burgundy, size: 54), SizedBox(height: 14),
-      Text('Вы сможете сравнить два знака и получить подсказки для отношений и общения.', textAlign: TextAlign.center, style: TextStyle(color: _muted, height: 1.45))])),
+  @override State<_CompatibilityPage> createState() => _CompatibilityPageState();
+}
+
+class _CompatibilityPageState extends State<_CompatibilityPage> {
+  var first = 'libra';
+  var second = 'leo';
+
+  @override
+  Widget build(BuildContext context) {
+    final firstSign = zodiacSigns.firstWhere((z) => z.$1 == first);
+    final secondSign = zodiacSigns.firstWhere((z) => z.$1 == second);
+    final result = _compatibility(first, second);
+    return _Page(children: [
+      _editorial('Совместимость'), const SizedBox(height: 8),
+      const Text('Не приговор, а подсказка: где вам легко, а где важно слышать друг друга.',
+        style: TextStyle(color: _muted, height: 1.4)), const SizedBox(height: 18),
+      _Card(child: Column(children: [
+        Row(children: [
+          Expanded(child: _SignSelector(label: 'ВЫ', value: first, onChanged: (v) => setState(() => first = v))),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Icon(Icons.favorite, color: _burgundy, size: 21)),
+          Expanded(child: _SignSelector(label: 'ПАРТНЁР', value: second, onChanged: (v) => setState(() => second = v))),
+        ]),
+        const SizedBox(height: 22),
+        SizedBox(width: 146, height: 146, child: Stack(alignment: Alignment.center, children: [
+          CircularProgressIndicator(value: result.score / 100, strokeWidth: 10,
+            backgroundColor: _line, color: _burgundy),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('${result.score}%', style: const TextStyle(fontFamily: 'serif', fontSize: 39, color: _ink)),
+            Text(result.label, style: const TextStyle(color: _burgundy, fontSize: 11, fontWeight: FontWeight.w700)),
+          ]),
+        ])),
+        const SizedBox(height: 16),
+        _editorial('${firstSign.$3} ${firstSign.$2} + ${secondSign.$3} ${secondSign.$2}', size: 23),
+        const SizedBox(height: 10), Text(result.summary, textAlign: TextAlign.center,
+          style: const TextStyle(color: _muted, height: 1.45)),
+      ])),
+      const SizedBox(height: 12),
+      _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _CompatibilityDetail(title: 'ЧТО ВАС СБЛИЖАЕТ', text: result.strength),
+        const Divider(height: 28, color: _line),
+        _CompatibilityDetail(title: 'ГДЕ НУЖНА ЗАБОТА', text: result.care),
+        const Divider(height: 28, color: _line),
+        _CompatibilityDetail(title: 'ПОДСКАЗКА ПАРЕ', text: result.advice),
+      ])),
+    ]);
+  }
+}
+
+class _SignSelector extends StatelessWidget {
+  const _SignSelector({required this.label, required this.value, required this.onChanged});
+  final String label, value;
+  final ValueChanged<String> onChanged;
+  @override Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    _SectionLabel(label), const SizedBox(height: 6),
+    DropdownButtonFormField<String>(value: value, isExpanded: true,
+      decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+      items: zodiacSigns.map((z) => DropdownMenuItem(value: z.$1, child: Text('${z.$3} ${z.$2}', overflow: TextOverflow.ellipsis))).toList(),
+      onChanged: (v) { if (v != null) onChanged(v); }),
+  ]);
+}
+
+class _CompatibilityDetail extends StatelessWidget {
+  const _CompatibilityDetail({required this.title, required this.text});
+  final String title, text;
+  @override Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(title, style: const TextStyle(color: _burgundy, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: .7)),
+    const SizedBox(height: 7), Text(text, style: const TextStyle(color: _muted, height: 1.45)),
   ]);
 }
 
@@ -494,7 +598,7 @@ class _ProfilePage extends StatelessWidget {
   final String name, phone, sign; final VoidCallback onEdit;
   @override Widget build(BuildContext context) { final z = zodiacSigns.firstWhere((e) => e.$1 == sign); return _Page(children: [
     _editorial('Профиль'), const SizedBox(height: 18), _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(name.isEmpty ? 'Гость Fabula' : name, style: const TextStyle(fontFamily: 'Serif', fontSize: 28)), const SizedBox(height: 8),
+      Text(name.isEmpty ? 'Гость Fabula' : name, style: const TextStyle(fontFamily: 'serif', fontSize: 28)), const SizedBox(height: 8),
       Text('${z.$3} ${z.$2}', style: const TextStyle(color: _burgundy)), const SizedBox(height: 6),
       Text(phone.isEmpty ? 'Телефон не указан' : phone, style: const TextStyle(color: _muted)), const SizedBox(height: 18),
       FilledButton(onPressed: onEdit, child: const Text('Изменить профиль')),
@@ -531,4 +635,68 @@ String _zodiacFor(int month, int day) {
   if ((month == 12 && day >= 22) || (month == 1 && day <= 19)) return 'capricorn';
   if ((month == 1 && day >= 20) || (month == 2 && day <= 18)) return 'aquarius';
   return 'pisces';
+}
+
+String _affirmation(int number) => <String>[
+  'Я могу двигаться в своём темпе и всё равно приходить вовремя.',
+  'Сегодня я замечаю возможности, которые поддерживают меня.',
+  'Я выбираю ясность, спокойствие и бережное отношение к себе.',
+  'Мне не нужно спешить, чтобы быть сильной и заметной.',
+][number.abs() % 4];
+
+Router1DailyHoroscope _demoForecast(String sign) {
+  final z = zodiacSigns.firstWhere((item) => item.$1 == sign,
+    orElse: () => zodiacSigns[6]);
+  final index = zodiacSigns.indexOf(z);
+  const cards = <(String, String)>[
+    ('Звезда', 'Сегодня особенно важно помнить о большой цели. Маленький шаг вернёт ощущение направления и внутренней опоры.'),
+    ('Императрица', 'День раскрывается через заботу, красоту и умение принимать хорошее без чувства вины.'),
+    ('Луна', 'Не торопитесь с выводами. Интуиция уже подсказывает верное направление, но деталям нужно проявиться.'),
+    ('Шут', 'Разрешите себе попробовать новый путь без требования сразу знать весь маршрут.'),
+    ('Башня', 'Освободите место от того, что давно держится только по привычке. Честность сегодня даёт облегчение.'),
+  ];
+  final card = cards[index % cards.length];
+  const colors = ['Бордовый', 'Золотой', 'Зелёный', 'Синий', 'Бирюзовый', 'Фиолетовый'];
+  return Router1DailyHoroscope(
+    date: DateTime.now().toIso8601String().substring(0, 10),
+    sign: z.$1, signTitle: z.$2, symbol: z.$3,
+    lunarPhase: 'Растущая Луна',
+    overview: 'Сегодня лучше выбирать не самое громкое решение, а то, после которого внутри становится спокойнее. Один точный шаг даст больше, чем несколько поспешных.',
+    work: 'Сосредоточьтесь на одной задаче, которая действительно меняет результат. Разговор во второй половине дня может открыть полезную возможность.',
+    money: 'Хороший день для расчётов и взвешенных решений. Не соглашайтесь на условия, которые приходится оправдывать самой себе.',
+    love: 'Тёплый прямой разговор окажется важнее догадок. Говорите о своих желаниях мягко, но без лишних намёков.',
+    advice: 'Оставьте в расписании немного воздуха — лучшая идея дня может появиться в паузе.',
+    color: colors[index % colors.length], number: (index * 3 + DateTime.now().day) % 9 + 1,
+    tarotTitle: card.$1, tarotMeaning: card.$2,
+    disclaimer: 'Развлекательный персональный прогноз',
+  );
+}
+
+typedef _CompatibilityResult = ({int score, String label, String summary, String strength, String care, String advice});
+
+_CompatibilityResult _compatibility(String first, String second) {
+  final a = zodiacSigns.indexWhere((z) => z.$1 == first);
+  final b = zodiacSigns.indexWhere((z) => z.$1 == second);
+  final distance = (a - b).abs();
+  final circularDistance = distance > 6 ? 12 - distance : distance;
+  final score = (88 - circularDistance * 4 + ((a * 7 + b * 3) % 9)).clamp(58, 96).toInt();
+  if (score >= 86) {
+    return (score: score, label: 'СИЛЬНЫЙ СОЮЗ',
+      summary: 'Между вами легко возникает ощущение команды. Вы по-разному смотрите на детали, но совпадаете в главном.',
+      strength: 'Умение поддерживать инициативу друг друга и быстро возвращать отношениям тепло после напряжённого дня.',
+      care: 'Не принимайте молчание партнёра за отдаление: иногда каждому из вас нужно немного личного пространства.',
+      advice: 'Создайте общий небольшой ритуал — прогулку, завтрак или вечер без телефонов. Он станет вашей точкой опоры.');
+  }
+  if (score >= 74) {
+    return (score: score, label: 'ГАРМОНИЯ',
+      summary: 'Ваши различия скорее дополняют союз, чем мешают ему. Главное — не ждать, что партнёр догадается обо всём сам.',
+      strength: 'Один приносит движение и смелость, другой — внимание к нюансам и эмоциональную глубину.',
+      care: 'Разный темп принятия решений может создавать ненужное раздражение. Давайте друг другу время сформулировать ответ.',
+      advice: 'Перед важным разговором сначала назовите общую цель — тогда спор быстрее превращается в совместное решение.');
+  }
+  return (score: score, label: 'ПРИТЯЖЕНИЕ',
+    summary: 'Союз может быть ярким и развивающим. Он требует чуть больше ясности, зато помогает обоим выйти за привычные рамки.',
+    strength: 'Сильное взаимное любопытство и способность показывать друг другу новый взгляд на привычные вещи.',
+    care: 'Не спорьте о чувствах как о фактах. Сначала признайте переживание партнёра, затем обсуждайте ситуацию.',
+    advice: 'Чаще проговаривайте ожидания заранее — это сохранит энергию для близости, а не для расшифровки намёков.');
 }
