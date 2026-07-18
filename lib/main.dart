@@ -4,13 +4,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.2.2+7';
+const fabulaVersion = '0.3.0+8';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -31,6 +30,39 @@ const zodiacSigns = <(String, String, String)>[
   ('capricorn', 'Козерог', '♑'),
   ('aquarius', 'Водолей', '♒'),
   ('pisces', 'Рыбы', '♓'),
+];
+
+const _moduleCatalog = <({String id, String title, String subtitle})>[
+  (id: 'day', title: 'Ваш день', subtitle: 'Цвет, число и энергия дня'),
+  (id: 'tarot', title: 'Таро', subtitle: 'Карта дня и полное толкование'),
+  (
+    id: 'horoscope',
+    title: 'Гороскоп',
+    subtitle: 'Подробный прогноз по вашему знаку',
+  ),
+  (id: 'lunar', title: 'Лунный ритм', subtitle: 'Фаза Луны и рекомендация дня'),
+  (
+    id: 'compatibility',
+    title: 'Совместимость',
+    subtitle: 'Разбор пары по знакам',
+  ),
+  (
+    id: 'affirmation',
+    title: 'Аффирмация',
+    subtitle: 'Личная мысль и опора дня',
+  ),
+  (id: 'mood', title: 'Настроение', subtitle: 'Эмоциональный ритм дня'),
+  (id: 'look', title: 'Образ дня', subtitle: 'Вдохновение, цвета и детали'),
+  (
+    id: 'journal',
+    title: 'Личный дневник',
+    subtitle: 'Приватные заметки для себя',
+  ),
+  (
+    id: 'connection',
+    title: 'Подключение',
+    subtitle: 'Защищённый доступ Fabula',
+  ),
 ];
 
 void main() => runApp(const FabulaApp());
@@ -83,9 +115,11 @@ class _FabulaShellState extends State<FabulaShell> {
   String phone = '';
   String birthday = '';
   String sign = 'libra';
+  Set<String> enabledModules = _moduleCatalog.map((item) => item.id).toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
+  Future<Router1ClientLookup>? vpnAccessPreparation;
   Timer? timer;
 
   @override
@@ -110,6 +144,8 @@ class _FabulaShellState extends State<FabulaShell> {
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
+    final savedModules = prefs.getStringList('fabula_enabled_modules');
+    if (savedModules != null) enabledModules = savedModules.toSet();
     final cycleStart = prefs.getString('fabula_cycle_start');
     final parsedCycleStart = cycleStart == null
         ? null
@@ -123,11 +159,15 @@ class _FabulaShellState extends State<FabulaShell> {
     }
     await Future.wait([_loadForecast(), _refreshVpn()]);
     if (mounted) setState(() => loading = false);
+    if (phone.isNotEmpty) unawaited(_warmVpnAccess());
   }
 
   Future<void> _loadForecast() async {
     try {
       final v = await api.dailyHoroscope(sign);
+      if (v.tarotTitle.trim().isEmpty || v.tarotMeaning.trim().isEmpty) {
+        throw const FormatException('incomplete_daily_content');
+      }
       if (mounted) setState(() => forecast = v);
     } catch (_) {
       if (mounted) setState(() => forecast = _demoForecast(sign));
@@ -152,7 +192,7 @@ class _FabulaShellState extends State<FabulaShell> {
       if (vpn.connected) {
         vpn = await tunnel.disconnect();
       } else {
-        final lookup = await _lookupOrCreateTrial();
+        final lookup = await _ensureVpnAccess();
         final available = _fabulaConfigs(lookup);
         final candidates = available.where((c) {
           final text = '${c.productType} ${c.deviceName}'.toLowerCase();
@@ -179,18 +219,32 @@ class _FabulaShellState extends State<FabulaShell> {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Подключение пока не оформлено'),
-            action: SnackBarAction(
-              label: 'Оформить',
-              onPressed: () => launchUrl(
-                Uri.parse('https://router1.tech/download'),
-                mode: LaunchMode.externalApplication,
-              ),
+            content: const Text(
+              'Не удалось подготовить подключение. Повторите через минуту.',
             ),
+            action: SnackBarAction(label: 'Повторить', onPressed: _toggleVpn),
           ),
         );
     } finally {
       if (mounted) setState(() => vpnBusy = false);
+    }
+  }
+
+  Future<Router1ClientLookup> _ensureVpnAccess() {
+    final current = vpnAccessPreparation;
+    if (current != null) return current;
+    final future = _lookupOrCreateTrial();
+    vpnAccessPreparation = future;
+    return future.whenComplete(() {
+      if (identical(vpnAccessPreparation, future)) vpnAccessPreparation = null;
+    });
+  }
+
+  Future<void> _warmVpnAccess() async {
+    try {
+      await _ensureVpnAccess();
+    } catch (_) {
+      // The visible VPN button retries; onboarding must not be blocked by network.
     }
   }
 
@@ -204,8 +258,8 @@ class _FabulaShellState extends State<FabulaShell> {
       if (_fabulaConfigs(current).isNotEmpty) return current;
     } catch (_) {}
     await api.createFabulaAccess(product: deviceType, name: name, phone: phone);
-    for (var attempt = 0; attempt < 30; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 2));
+    for (var attempt = 0; attempt < 45; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 1));
       try {
         final lookup = await api.findClientByPhone(
           phone,
@@ -223,7 +277,12 @@ class _FabulaShellState extends State<FabulaShell> {
         final status = config.status.toLowerCase();
         return !config.routerCandidate &&
             config.hasConfig &&
-            const {'active', 'paid'}.contains(status);
+            !const {
+              'blocked',
+              'disabled',
+              'expired',
+              'revoked',
+            }.contains(status);
       })
       .toList(growable: false);
 
@@ -322,6 +381,8 @@ class _FabulaShellState extends State<FabulaShell> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_name', name);
     await prefs.setString('fabula_phone', phone);
+    vpnAccessPreparation = null;
+    unawaited(_warmVpnAccess());
     if (mounted) setState(() {});
   }
 
@@ -347,6 +408,7 @@ class _FabulaShellState extends State<FabulaShell> {
         forecast = null;
       });
     await _loadForecast();
+    unawaited(_warmVpnAccess());
   }
 
   Future<void> _saveCycle(CycleSettings value) async {
@@ -358,6 +420,24 @@ class _FabulaShellState extends State<FabulaShell> {
     await prefs.setInt('fabula_cycle_length', value.cycleLength);
     await prefs.setInt('fabula_period_length', value.periodLength);
     if (mounted) setState(() => cycle = value);
+  }
+
+  Future<void> _toggleModule(String id, bool enabled) async {
+    setState(() {
+      if (enabled) {
+        enabledModules.add(id);
+      } else {
+        enabledModules.remove(id);
+      }
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      'fabula_enabled_modules',
+      _moduleCatalog
+          .where((item) => enabledModules.contains(item.id))
+          .map((item) => item.id)
+          .toList(growable: false),
+    );
   }
 
   Future<void> _openCycle() async {
@@ -393,16 +473,11 @@ class _FabulaShellState extends State<FabulaShell> {
                 _TodayPage(
                   name: name,
                   forecast: forecast,
-                  vpn: vpn,
-                  vpnBusy: vpnBusy,
-                  cycle: cycle,
-                  onCycle: _openCycle,
+                  enabledModules: enabledModules,
                   onSign: _chooseSign,
-                  onForecast: () => setState(() => tab = 1),
-                  onVpn: _toggleVpn,
                   onShare: _share,
                 ),
-                _ForecastPage(forecast: forecast, onSign: _chooseSign),
+                _CyclePage(initial: cycle, onSave: _saveCycle, embedded: true),
                 _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
                 const _CompatibilityPage(),
                 _ProfilePage(
@@ -410,6 +485,8 @@ class _FabulaShellState extends State<FabulaShell> {
                   phone: phone,
                   sign: sign,
                   onEdit: _editProfile,
+                  enabledModules: enabledModules,
+                  onModuleChanged: _toggleModule,
                 ),
               ],
             ),
@@ -427,8 +504,9 @@ class _FabulaShellState extends State<FabulaShell> {
                 label: 'Сегодня',
               ),
               NavigationDestination(
-                icon: Icon(Icons.dark_mode_outlined),
-                label: 'Прогноз',
+                icon: Icon(Icons.water_drop_outlined),
+                selectedIcon: Icon(Icons.water_drop),
+                label: 'Цикл',
               ),
               NavigationDestination(
                 icon: Icon(Icons.shield_outlined),
@@ -605,24 +683,19 @@ class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
     required this.forecast,
-    required this.vpn,
-    required this.vpnBusy,
-    required this.cycle,
-    required this.onCycle,
+    required this.enabledModules,
     required this.onSign,
-    required this.onForecast,
-    required this.onVpn,
     required this.onShare,
   });
   final String name;
   final Router1DailyHoroscope? forecast;
-  final AwgTunnelStatus vpn;
-  final bool vpnBusy;
-  final CycleSettings? cycle;
-  final VoidCallback onCycle, onSign, onForecast, onVpn, onShare;
+  final Set<String> enabledModules;
+  final VoidCallback onSign, onShare;
+
   @override
   Widget build(BuildContext context) {
-    final f = forecast;
+    final f = forecast ?? _demoForecast('libra');
+    final energy = 76 + (f.number * 3) % 19;
     return _Page(
       children: [
         Row(
@@ -653,122 +726,153 @@ class _TodayPage extends StatelessWidget {
             ),
           ],
         ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: onSign,
-            style: TextButton.styleFrom(
-              foregroundColor: _muted,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-            ),
-            icon: Text(
-              f?.symbol ?? '✦',
-              style: const TextStyle(color: _burgundy),
-            ),
-            label: Text(f?.signTitle ?? 'Выбрать знак'),
-          ),
-        ),
-        const SizedBox(height: 4),
-        _Card(
-          padding: const EdgeInsets.all(20),
-          child: f == null
-              ? const Center(child: CircularProgressIndicator())
-              : Stack(
-                  children: [
-                    Positioned(
-                      right: -36,
-                      top: -18,
-                      bottom: -30,
-                      child: Opacity(
-                        opacity: .58,
-                        child: Image.asset(
-                          'assets/fabula/branch.png',
-                          width: 190,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 92),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _SectionLabel('ВАШ ДЕНЬ'),
-                          const SizedBox(height: 10),
-                          Text(
-                            f.overview,
-                            maxLines: 5,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontFamily: 'Serif',
-                              color: _ink,
-                              fontSize: 21,
-                              height: 1.17,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              _DayMetric(
-                                icon: Icons.sentiment_satisfied_alt_outlined,
-                                label: 'Настроение',
-                                value: _mood(f.number),
-                              ),
-                              const SizedBox(width: 12),
-                              _DayMetric(
-                                icon: Icons.auto_awesome,
-                                label: 'Энергия дня',
-                                value: '${76 + (f.number * 3) % 19}%',
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-        const SizedBox(height: 10),
-        _Card(
-          padding: const EdgeInsets.all(20),
-          child: f == null
-              ? const SizedBox()
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+        const SizedBox(height: 18),
+        if (enabledModules.contains('look')) ...[
+          const _DailyLookCard(),
+          const SizedBox(height: 14),
+        ],
+        if (enabledModules.contains('horoscope')) ...[
+          _Card(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const _SectionLabel('КАРТА ДНЯ'),
-                          const SizedBox(height: 10),
-                          _editorial(f.tarotTitle, size: 27),
-                          const SizedBox(height: 10),
-                          Text(
-                            f.tarotMeaning,
-                            maxLines: 4,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _muted,
-                              fontSize: 13,
-                              height: 1.35,
+                          const _SectionLabel('АСТРОЛОГИЧЕСКИЙ ПРОГНОЗ'),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: onSign,
+                            style: TextButton.styleFrom(
+                              foregroundColor: _burgundy,
+                              padding: EdgeInsets.zero,
                             ),
-                          ),
-                          const SizedBox(height: 14),
-                          OutlinedButton(
-                            onPressed: onForecast,
-                            child: const Text('Открыть толкование'),
+                            icon: Text(
+                              f.symbol,
+                              style: const TextStyle(fontSize: 22),
+                            ),
+                            label: Text(
+                              f.signTitle,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    _TarotArtwork(title: f.tarotTitle, width: 122),
+                    Container(
+                      width: 88,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3E4E8),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '$energy%',
+                            style: const TextStyle(
+                              color: _burgundy,
+                              fontFamily: 'serif',
+                              fontSize: 27,
+                            ),
+                          ),
+                          const Text(
+                            'ЭНЕРГИЯ',
+                            style: TextStyle(
+                              color: _burgundy,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-        ),
-        const SizedBox(height: 12),
-        if (f != null)
+                const SizedBox(height: 8),
+                _editorial(f.overview, size: 25),
+                const SizedBox(height: 18),
+                _AstroDetail(title: 'ДЕЛА', text: f.work),
+                const Divider(height: 26, color: _line),
+                _AstroDetail(title: 'ДЕНЬГИ', text: f.money),
+                const Divider(height: 26, color: _line),
+                _AstroDetail(title: 'ОТНОШЕНИЯ', text: f.love),
+                const Divider(height: 26, color: _line),
+                _AstroDetail(title: 'СОВЕТ ДНЯ', text: f.advice),
+                if (enabledModules.contains('mood')) ...[
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.sentiment_satisfied_alt_outlined,
+                        color: _burgundy,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Настроение дня: ${_mood(f.number)}',
+                        style: const TextStyle(
+                          color: _muted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (enabledModules.contains('tarot')) ...[
+          _Card(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(6, 4, 6, 12),
+                  child: _SectionLabel('КАРТА ТАРО НА СЕГОДНЯ'),
+                ),
+                LayoutBuilder(
+                  builder: (context, constraints) => _TarotArtwork(
+                    title: f.tarotTitle,
+                    width: constraints.maxWidth,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _editorial(f.tarotTitle, size: 30),
+                      const SizedBox(height: 10),
+                      Text(
+                        f.tarotMeaning,
+                        style: const TextStyle(
+                          color: _muted,
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (enabledModules.contains('day')) ...[
           Row(
             children: [
               Expanded(
@@ -844,8 +948,9 @@ class _TodayPage extends StatelessWidget {
               ),
             ],
           ),
-        if (f != null) ...[
           const SizedBox(height: 12),
+        ],
+        if (enabledModules.contains('lunar')) ...[
           _Card(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -890,44 +995,50 @@ class _TodayPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _CycleTodayCard(settings: cycle, onTap: onCycle),
-          const SizedBox(height: 12),
-          const _DailyLookCard(),
         ],
-        const SizedBox(height: 12),
-        _VpnCard(vpn: vpn, busy: vpnBusy, onToggle: onVpn),
-        const SizedBox(height: 12),
-        _Card(
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'АФФИРМАЦИЯ ДНЯ',
-                      style: TextStyle(color: _burgundy, fontSize: 11),
-                    ),
-                    const SizedBox(height: 8),
-                    _editorial(
-                      f == null
-                          ? 'Сегодня я выбираю ясность вместо спешки.'
-                          : _affirmation(f.number),
-                      size: 22,
-                    ),
-                  ],
+        if (enabledModules.contains('affirmation'))
+          _Card(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'АФФИРМАЦИЯ ДНЯ',
+                        style: TextStyle(color: _burgundy, fontSize: 11),
+                      ),
+                      const SizedBox(height: 8),
+                      _editorial(_affirmation(f.number), size: 22),
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                onPressed: onShare,
-                icon: const Icon(Icons.ios_share, color: _burgundy),
-              ),
-            ],
+                IconButton(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.ios_share, color: _burgundy),
+                ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
+}
+
+class _AstroDetail extends StatelessWidget {
+  const _AstroDetail({required this.title, required this.text});
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _SectionLabel(title),
+      const SizedBox(height: 7),
+      Text(text, style: const TextStyle(color: _muted, height: 1.45)),
+    ],
+  );
 }
 
 class _DailyLookCard extends StatelessWidget {
@@ -1058,10 +1169,15 @@ class _CycleTodayCard extends StatelessWidget {
 }
 
 class _CyclePage extends StatefulWidget {
-  const _CyclePage({required this.initial, required this.onSave});
+  const _CyclePage({
+    required this.initial,
+    required this.onSave,
+    this.embedded = false,
+  });
 
   final CycleSettings? initial;
   final Future<void> Function(CycleSettings) onSave;
+  final bool embedded;
 
   @override
   State<_CyclePage> createState() => _CyclePageState();
@@ -1094,6 +1210,9 @@ class _CyclePageState extends State<_CyclePage> {
   @override
   Widget build(BuildContext context) {
     final value = settings;
+    if (widget.embedded) {
+      return value == null ? _emptyCycle() : _cycleContent(value);
+    }
     return Scaffold(
       backgroundColor: _cream,
       appBar: AppBar(
@@ -1119,6 +1238,8 @@ class _CyclePageState extends State<_CyclePage> {
   Widget _emptyCycle() => ListView(
     padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
     children: [
+      _editorial('Мой цикл'),
+      const SizedBox(height: 24),
       Center(
         child: Container(
           width: 98,
@@ -1180,6 +1301,8 @@ class _CyclePageState extends State<_CyclePage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 34),
       children: [
+        _editorial('Мой цикл'),
+        const SizedBox(height: 18),
         _CycleHero(settings: value, snapshot: snapshot),
         const SizedBox(height: 14),
         _Card(
@@ -1671,21 +1794,29 @@ class _VpnCard extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               _editorial(
-                vpn.connected ? 'Всё работает' : 'Подключить',
+                vpn.connected
+                    ? 'Всё работает'
+                    : busy
+                    ? 'Готовим доступ...'
+                    : 'Подключить',
                 size: 22,
               ),
               const SizedBox(height: 4),
               Text(
                 vpn.connected
                     ? 'Соединение защищено'
+                    : busy
+                    ? 'Создаём личный конфиг — обычно до 30 секунд'
                     : 'Нажмите на кнопку справа',
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
-              const SizedBox(height: 5),
-              const Text(
-                'Тестовый доступ действует до 20 июля',
-                style: TextStyle(color: _burgundy, fontSize: 11),
-              ),
+              if (!vpn.connected) ...[
+                const SizedBox(height: 5),
+                const Text(
+                  'Демо-доступ активируется автоматически',
+                  style: TextStyle(color: _burgundy, fontSize: 11),
+                ),
+              ],
             ],
           ),
         ),
@@ -1810,11 +1941,53 @@ class _TarotArtwork extends StatelessWidget {
       _ => null,
     };
     if (asset == null) {
-      return SizedBox(
+      return Container(
         width: width,
         height: width * 1.5,
-        child: const Center(
-          child: Icon(Icons.auto_awesome, color: Color(0xFFB8A17B), size: 55),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF2C1D28), Color(0xFF7A3045)],
+          ),
+          border: Border.all(color: const Color(0xFFB8A17B), width: 2),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0x99B8A17B)),
+                  ),
+                ),
+              ),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.auto_awesome,
+                  color: Color(0xFFCFB982),
+                  size: 64,
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title.isEmpty ? 'Карта дня' : title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'serif',
+                    fontSize: 30,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       );
     }
@@ -1853,7 +2026,7 @@ class _ConnectionPage extends StatelessWidget {
       const SizedBox(height: 16),
       const _Card(
         child: Text(
-          'Fabula использует защищённое подключение Router1. Технические настройки выполняются автоматически.',
+          'Fabula автоматически создаёт персональный конфиг по номеру из профиля. Оплата в демо-версии не требуется: останется только подтвердить системный запрос VPN при первом подключении.',
           style: TextStyle(color: _muted, height: 1.45),
         ),
       ),
@@ -2053,9 +2226,13 @@ class _ProfilePage extends StatelessWidget {
     required this.phone,
     required this.sign,
     required this.onEdit,
+    required this.enabledModules,
+    required this.onModuleChanged,
   });
   final String name, phone, sign;
   final VoidCallback onEdit;
+  final Set<String> enabledModules;
+  final Future<void> Function(String, bool) onModuleChanged;
   @override
   Widget build(BuildContext context) {
     final z = zodiacSigns.firstWhere((e) => e.$1 == sign);
@@ -2087,6 +2264,45 @@ class _ProfilePage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _editorial('Моя Fabula', size: 27),
+        const SizedBox(height: 8),
+        Text(
+          '${enabledModules.length} из ${_moduleCatalog.length} блоков подключено. '
+          'Выключенные блоки остаются доступны и их можно вернуть в любой момент.',
+          style: const TextStyle(color: _muted, height: 1.4),
+        ),
+        const SizedBox(height: 14),
+        _Card(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            children: [
+              for (var index = 0; index < _moduleCatalog.length; index++) ...[
+                SwitchListTile(
+                  value: enabledModules.contains(_moduleCatalog[index].id),
+                  activeColor: _burgundy,
+                  secondary: Icon(
+                    _moduleIcon(_moduleCatalog[index].id),
+                    color: _burgundy,
+                  ),
+                  title: Text(
+                    _moduleCatalog[index].title,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    _moduleCatalog[index].subtitle,
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                  ),
+                  onChanged: (value) => unawaited(
+                    onModuleChanged(_moduleCatalog[index].id, value),
+                  ),
+                ),
+                if (index != _moduleCatalog.length - 1)
+                  const Divider(height: 1, indent: 58, color: _line),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         Text(
           'Fabula $fabulaVersion',
           textAlign: TextAlign.center,
@@ -2096,6 +2312,20 @@ class _ProfilePage extends StatelessWidget {
     );
   }
 }
+
+IconData _moduleIcon(String id) => switch (id) {
+  'day' => Icons.auto_awesome_outlined,
+  'tarot' => Icons.style_outlined,
+  'horoscope' => Icons.stars_outlined,
+  'lunar' => Icons.dark_mode_outlined,
+  'compatibility' => Icons.favorite_border,
+  'affirmation' => Icons.format_quote,
+  'mood' => Icons.sentiment_satisfied_alt_outlined,
+  'look' => Icons.checkroom_outlined,
+  'journal' => Icons.menu_book_outlined,
+  'connection' => Icons.shield_outlined,
+  _ => Icons.circle_outlined,
+};
 
 String _cyclePhaseTitle(CyclePhase phase) => switch (phase) {
   CyclePhase.menstruation => 'Менструальная фаза',
