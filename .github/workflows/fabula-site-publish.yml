@@ -141,7 +141,9 @@ jobs:
           set -euo pipefail
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
           grep -Fq 'Собрать свою Fabula' <<<"$page"
-          grep -Fq 'Ваша версия жизни' <<<"$page"
+          grep -Fq 'Fabula заботится' <<<"$page"
+          grep -Fq 'УМНАЯ VPN-СВЯЗЬ' <<<"$page"
+          grep -Fq '10 эмоциональных модулей' <<<"$page"
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | grep -Fq '"build": 11'
