@@ -2279,7 +2279,7 @@ class _ProfilePage extends StatelessWidget {
         const Text(
           'Fabula $fabulaVersion',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: _muted, fontSize: 12),
+          style: TextStyle(color: _muted, fontSize: 12),
         ),
       ],
     );
