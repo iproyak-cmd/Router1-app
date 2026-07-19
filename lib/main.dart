@@ -1423,7 +1423,7 @@ class _DailyLookImage extends StatelessWidget {
         key: ValueKey(look.id),
         fit: BoxFit.cover,
         alignment: const Alignment(.5, -.2),
-        errorBuilder: (_, _, _) => _assetFallback(),
+        errorBuilder: (context, error, stackTrace) => _assetFallback(),
       );
     }
     return _assetFallback();
