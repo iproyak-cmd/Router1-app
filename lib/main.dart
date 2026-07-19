@@ -245,7 +245,7 @@ class _FabulaShellState extends State<FabulaShell> {
         );
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
@@ -254,6 +254,7 @@ class _FabulaShellState extends State<FabulaShell> {
             action: SnackBarAction(label: 'Повторить', onPressed: _toggleVpn),
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => vpnBusy = false);
     }
@@ -432,10 +433,11 @@ class _FabulaShellState extends State<FabulaShell> {
     await prefs.setString('fabula_phone', phone);
     await prefs.setString('fabula_birthday', birthday);
     await prefs.setString('fabula_sign', sign);
-    if (mounted)
+    if (mounted) {
       setState(() {
         forecast = null;
       });
+    }
     await _loadForecast();
     unawaited(_warmVpnAccess());
   }
@@ -551,14 +553,6 @@ class _FabulaShellState extends State<FabulaShell> {
           .toList(growable: false),
     );
     await prefs.setInt('fabula_modules_schema', 2);
-  }
-
-  Future<void> _openCycle() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => _CyclePage(initial: cycle, onSave: _saveCycle),
-      ),
-    );
   }
 
   Future<void> _share() async {
@@ -1285,70 +1279,6 @@ class _DailyLookCard extends StatelessWidget {
   );
 }
 
-class _CycleTodayCard extends StatelessWidget {
-  const _CycleTodayCard({required this.settings, required this.onTap});
-
-  final CycleSettings? settings;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final snapshot = settings?.snapshot();
-    return _Card(
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: const BoxDecoration(
-              color: Color(0xFFF3E4E8),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.water_drop_outlined,
-              color: _burgundy,
-              size: 25,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _SectionLabel('МОЙ ЦИКЛ'),
-                const SizedBox(height: 6),
-                _editorial(
-                  snapshot == null
-                      ? 'Добавить цикл'
-                      : '${snapshot.cycleDay}-й день цикла',
-                  size: 22,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  snapshot == null
-                      ? 'Календарь, фазы и бережные напоминания'
-                      : '${_cyclePhaseTitle(snapshot.phase)} · ${_nextPeriodText(snapshot)}',
-                  style: const TextStyle(
-                    color: _muted,
-                    fontSize: 12,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: onTap,
-            icon: const Icon(Icons.chevron_right, color: _burgundy),
-            tooltip: snapshot == null ? 'Добавить цикл' : 'Открыть календарь',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CyclePage extends StatefulWidget {
   const _CyclePage({
     required this.initial,
@@ -1445,10 +1375,10 @@ class _CyclePageState extends State<_CyclePage> {
         style: TextStyle(color: _muted, height: 1.5),
       ),
       const SizedBox(height: 26),
-      _Card(
+      const _Card(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             _CycleBenefit(
               icon: Icons.calendar_month_outlined,
               text: 'Прогноз следующей менструации',
@@ -1720,7 +1650,7 @@ class _CycleSetupSheetState extends State<_CycleSetupSheet> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<int>(
-              value: cycleLength,
+              initialValue: cycleLength,
               decoration: const InputDecoration(
                 labelText: 'Обычная длина цикла',
                 border: OutlineInputBorder(),
@@ -1738,7 +1668,7 @@ class _CycleSetupSheetState extends State<_CycleSetupSheet> {
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<int>(
-              value: periodLength,
+              initialValue: periodLength,
               decoration: const InputDecoration(
                 labelText: 'Обычная длительность менструации',
                 border: OutlineInputBorder(),
@@ -1910,40 +1840,6 @@ class _SectionLabel extends StatelessWidget {
   );
 }
 
-class _DayMetric extends StatelessWidget {
-  const _DayMetric({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-  final IconData icon;
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Row(
-      children: [
-        Container(
-          width: 30,
-          height: 30,
-          decoration: const BoxDecoration(
-            color: Color(0xFFE8E9DE),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, size: 15, color: _muted),
-        ),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Text(
-            '$label:\n$value',
-            maxLines: 2,
-            style: const TextStyle(color: _muted, fontSize: 9.5, height: 1.25),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 String _mood(int number) => switch (number % 4) {
   0 => 'ясность',
   1 => 'лёгкость',
@@ -2027,80 +1923,6 @@ class _VpnCard extends StatelessWidget {
                   ),
           ),
         ),
-      ],
-    ),
-  );
-}
-
-class _ForecastPage extends StatelessWidget {
-  const _ForecastPage({required this.forecast, required this.onSign});
-  final Router1DailyHoroscope? forecast;
-  final VoidCallback onSign;
-  @override
-  Widget build(BuildContext context) {
-    final f = forecast;
-    return _Page(
-      children: [
-        _editorial('Ваш прогноз'),
-        TextButton(
-          onPressed: onSign,
-          child: Text('${f?.symbol ?? ''} ${f?.signTitle ?? 'Выбрать знак'}'),
-        ),
-        if (f != null) ...[
-          _Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _editorial(f.overview, size: 27),
-                const SizedBox(height: 18),
-                _detail('Дела', f.work),
-                _detail('Деньги', f.money),
-                _detail('Отношения', f.love),
-                _detail('Совет', f.advice),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'КАРТА ТАРО',
-                  style: TextStyle(color: _burgundy, fontSize: 12),
-                ),
-                const SizedBox(height: 10),
-                Center(child: _TarotArtwork(title: f.tarotTitle, width: 260)),
-                const SizedBox(height: 18),
-                _editorial(f.tarotTitle),
-                const SizedBox(height: 10),
-                Text(
-                  f.tarotMeaning,
-                  style: const TextStyle(color: _muted, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _detail(String title, String text) => Padding(
-    padding: const EdgeInsets.only(top: 14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title.toUpperCase(),
-          style: const TextStyle(
-            color: _burgundy,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(text, style: const TextStyle(color: _muted, height: 1.4)),
       ],
     ),
   );
@@ -2327,7 +2149,7 @@ class _SignSelector extends StatelessWidget {
       _SectionLabel(label),
       const SizedBox(height: 6),
       DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         isExpanded: true,
         decoration: const InputDecoration(
           border: OutlineInputBorder(),
@@ -2430,7 +2252,7 @@ class _ProfilePage extends StatelessWidget {
               for (var index = 0; index < _moduleCatalog.length; index++) ...[
                 SwitchListTile(
                   value: enabledModules.contains(_moduleCatalog[index].id),
-                  activeColor: _burgundy,
+                  activeThumbColor: _burgundy,
                   secondary: Icon(
                     _moduleIcon(_moduleCatalog[index].id),
                     color: _burgundy,
@@ -2454,7 +2276,7 @@ class _ProfilePage extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Text(
+        const Text(
           'Fabula $fabulaVersion',
           textAlign: TextAlign.center,
           style: const TextStyle(color: _muted, fontSize: 12),
@@ -2606,12 +2428,15 @@ String _zodiacFor(int month, int day) {
   if ((month == 7 && day >= 23) || (month == 8 && day <= 22)) return 'leo';
   if ((month == 8 && day >= 23) || (month == 9 && day <= 22)) return 'virgo';
   if ((month == 9 && day >= 23) || (month == 10 && day <= 22)) return 'libra';
-  if ((month == 10 && day >= 23) || (month == 11 && day <= 21))
+  if ((month == 10 && day >= 23) || (month == 11 && day <= 21)) {
     return 'scorpio';
-  if ((month == 11 && day >= 22) || (month == 12 && day <= 21))
+  }
+  if ((month == 11 && day >= 22) || (month == 12 && day <= 21)) {
     return 'sagittarius';
-  if ((month == 12 && day >= 22) || (month == 1 && day <= 19))
+  }
+  if ((month == 12 && day >= 22) || (month == 1 && day <= 19)) {
     return 'capricorn';
+  }
   if ((month == 1 && day >= 20) || (month == 2 && day <= 18)) return 'aquarius';
   return 'pisces';
 }
