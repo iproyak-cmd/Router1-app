@@ -102,7 +102,7 @@ jobs:
 
           SSHPASS="$SSHPASS" sshpass -e ssh \
             -o StrictHostKeyChecking=accept-new \
-            root@201.51.4.89 "REMOTE_STAGE='${remote}/fabula-site' bash -s" <<'REMOTE'
+            root@201.51.4.89 "REMOTE_STAGE='${remote}' bash -s" <<'REMOTE'
           set -euo pipefail
           test -s "$REMOTE_STAGE/index.html"
           test -s "$REMOTE_STAGE/android/Fabula.apk"
