@@ -6,14 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'daily_look.dart';
 import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.1+11';
-const fabulaBuild = 11;
+const fabulaVersion = '0.4.2+12';
+const fabulaBuild = 12;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -127,6 +128,7 @@ class _FabulaShellState extends State<FabulaShell> {
   String phone = '';
   String birthday = '';
   String sign = 'libra';
+  String installationId = '';
   String journalEntry = '';
   Set<String> enabledModules = _moduleCatalog.map((item) => item.id).toSet();
   CycleSettings? cycle;
@@ -153,6 +155,7 @@ class _FabulaShellState extends State<FabulaShell> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
+    installationId = await _installationId();
     name = prefs.getString('fabula_name') ?? '';
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
@@ -614,6 +617,7 @@ class _FabulaShellState extends State<FabulaShell> {
         id: 'today',
         page: _TodayPage(
           name: name,
+          installationId: installationId,
           forecast: forecast,
           enabledModules: enabledModules,
           journalEntry: journalEntry,
@@ -932,6 +936,7 @@ Text _editorial(String text, {double size = 30}) => Text(
 class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
+    required this.installationId,
     required this.forecast,
     required this.enabledModules,
     required this.journalEntry,
@@ -940,6 +945,7 @@ class _TodayPage extends StatelessWidget {
     required this.onJournal,
   });
   final String name;
+  final String installationId;
   final Router1DailyHoroscope? forecast;
   final Set<String> enabledModules;
   final String journalEntry;
@@ -949,6 +955,10 @@ class _TodayPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final f = forecast ?? _demoForecast('libra');
     final energy = 76 + (f.number * 3) % 19;
+    final look = dailyLookFor(
+      installationId: installationId,
+      date: DateTime.tryParse(f.date) ?? DateTime.now(),
+    );
     return _Page(
       children: [
         Row(
@@ -981,7 +991,7 @@ class _TodayPage extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         if (enabledModules.contains('look')) ...[
-          const _DailyLookCard(),
+          _DailyLookCard(look: look),
           const SizedBox(height: 14),
         ],
         if (enabledModules.contains('horoscope')) ...[
@@ -1334,7 +1344,9 @@ class _AstroDetail extends StatelessWidget {
 }
 
 class _DailyLookCard extends StatelessWidget {
-  const _DailyLookCard();
+  const _DailyLookCard({required this.look});
+
+  final DailyLook look;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -1345,7 +1357,7 @@ class _DailyLookCard extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Image.asset(
-            'assets/fabula/daily-look.webp',
+            look.assetPath,
             fit: BoxFit.cover,
             alignment: const Alignment(.5, -.2),
           ),
@@ -1375,11 +1387,11 @@ class _DailyLookCard extends StatelessWidget {
                   children: [
                     const _SectionLabel('ОБРАЗ ДНЯ'),
                     const SizedBox(height: 8),
-                    _editorial('Спокойная уверенность', size: 24),
+                    _editorial(look.title, size: 24),
                     const SizedBox(height: 8),
-                    const Text(
-                      'Винный оттенок, мягкий беж и одна золотая деталь.',
-                      style: TextStyle(
+                    Text(
+                      look.description,
+                      style: const TextStyle(
                         color: _muted,
                         fontSize: 12,
                         height: 1.35,
