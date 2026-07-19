@@ -10,8 +10,10 @@ import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.0+10';
+const fabulaVersion = '0.4.1+11';
+const fabulaBuild = 11;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -115,9 +117,12 @@ class _FabulaShellState extends State<FabulaShell> {
     demoFallback: true,
   );
   final tunnel = AwgTunnelService();
+  final updates = InternalUpdateService();
   String section = 'today';
   var loading = true;
   var vpnBusy = false;
+  var updateBusy = false;
+  Router1InternalUpdate? availableUpdate;
   String name = '';
   String phone = '';
   String birthday = '';
@@ -182,7 +187,40 @@ class _FabulaShellState extends State<FabulaShell> {
     await Future.wait([_loadForecast(), _refreshVpn()]);
     if (mounted) setState(() => loading = false);
     unawaited(_trackEvent('app_opened'));
+    unawaited(_checkForUpdate());
     if (phone.isNotEmpty) unawaited(_warmVpnAccess());
+  }
+
+  Future<void> _checkForUpdate() async {
+    try {
+      final update = await updates.check(fabulaBuild);
+      if (mounted && update != null) {
+        setState(() => availableUpdate = update);
+      }
+    } catch (_) {
+      // A version server outage must never prevent Fabula from opening.
+    }
+  }
+
+  Future<void> _installUpdate() async {
+    final update = availableUpdate;
+    if (update == null || updateBusy) return;
+    setState(() => updateBusy = true);
+    try {
+      await updates.install(update.url);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Разрешите установку обновлений и нажмите «Обновить» ещё раз.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => updateBusy = false);
+    }
   }
 
   Future<void> _loadForecast() async {
@@ -639,14 +677,31 @@ class _FabulaShellState extends State<FabulaShell> {
 
     return Scaffold(
       body: SafeArea(
-        child: loading
-            ? const Center(child: CircularProgressIndicator())
-            : !ready
-            ? _OnboardingPage(onComplete: _completeOnboarding)
-            : IndexedStack(
-                index: selectedIndex,
-                children: sections.map((item) => item.page).toList(growable: false),
+        child: Column(
+          children: [
+            if (availableUpdate != null)
+              _UpdateBanner(
+                update: availableUpdate!,
+                busy: updateBusy,
+                onInstall: _installUpdate,
+                onDismiss: availableUpdate!.isRequiredFor(fabulaBuild)
+                    ? null
+                    : () => setState(() => availableUpdate = null),
               ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : !ready
+                  ? _OnboardingPage(onComplete: _completeOnboarding)
+                  : IndexedStack(
+                      index: selectedIndex,
+                      children: sections
+                          .map((item) => item.page)
+                          .toList(growable: false),
+                    ),
+            ),
+          ],
+        ),
       ),
       bottomNavigationBar: !ready
           ? null
@@ -657,6 +712,68 @@ class _FabulaShellState extends State<FabulaShell> {
             ),
     );
   }
+}
+
+class _UpdateBanner extends StatelessWidget {
+  const _UpdateBanner({
+    required this.update,
+    required this.busy,
+    required this.onInstall,
+    required this.onDismiss,
+  });
+
+  final Router1InternalUpdate update;
+  final bool busy;
+  final VoidCallback onInstall;
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFFF0E2E6),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 10, 12),
+      child: Row(
+        children: [
+          const Icon(Icons.system_update_alt, color: _burgundy),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Доступно обновление Fabula ${update.version}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                if (update.notes.isNotEmpty)
+                  Text(
+                    update.notes,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: _muted, fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: busy ? null : onInstall,
+            child: busy
+                ? const SizedBox.square(
+                    dimension: 17,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Обновить'),
+          ),
+          if (onDismiss != null)
+            IconButton(
+              onPressed: onDismiss,
+              icon: const Icon(Icons.close),
+              tooltip: 'Позже',
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _Page extends StatelessWidget {

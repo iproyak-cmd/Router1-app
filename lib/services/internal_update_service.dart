@@ -5,8 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 String get router1InternalVersionUrl => Platform.isWindows
-    ? 'https://router1.tech/app/windows/version.json'
-    : 'https://router1.tech/app/internal/version.json';
+    ? 'https://router1.tech/fabula/windows/version.json'
+    : 'https://router1.tech/fabula/android/version.json';
 
 class Router1InternalUpdate {
   const Router1InternalUpdate({
@@ -41,7 +41,13 @@ class InternalUpdateService {
       final build = (json['build'] as num?)?.toInt() ?? 0;
       if (build <= currentBuild) return null;
       final url = json['url']?.toString() ?? '';
-      if (!url.startsWith('https://router1.tech/')) return null;
+      final downloadUri = Uri.tryParse(url);
+      if (downloadUri == null ||
+          downloadUri.scheme != 'https' ||
+          downloadUri.host != 'router1.tech' ||
+          !downloadUri.path.startsWith('/fabula/')) {
+        return null;
+      }
       return Router1InternalUpdate(
         version: json['version']?.toString() ?? '',
         build: build,

@@ -1,0 +1,7 @@
+{
+  "version": "0.4.1+11",
+  "build": 11,
+  "min_supported_build": 11,
+  "url": "https://router1.tech/fabula/android/Fabula.apk",
+  "notes": "Рабочие переключатели модулей, уведомления и отдельные разделы цикла и совместимости."
+}
