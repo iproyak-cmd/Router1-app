@@ -66,25 +66,25 @@ jobs:
 
           cat > "$stage/android/version.json" <<JSON
           {
-            "version": "0.4.2",
-            "build": 12,
+            "version": "0.4.3",
+            "build": 13,
             "min_supported_build": 11,
             "url": "https://router1.tech/fabula/android/Fabula.apk",
             "sha256": "$android_sha",
             "size": $android_size,
-            "notes": "Персональный Образ дня: 8 глянцевых editorial-визуалов и ротация без повторов до полного просмотра коллекции."
+            "notes": "Образ дня без повторов: личная история показов, свежие editorial-партии и автоматический редакционный резерв."
           }
           JSON
 
           cat > "$stage/windows/version.json" <<JSON
           {
-            "version": "0.4.2",
-            "build": 12,
+            "version": "0.4.3",
+            "build": 13,
             "min_supported_build": 11,
             "url": "https://router1.tech/fabula/windows/FabulaSetup.exe",
             "sha256": "$windows_sha",
             "size": $windows_size,
-            "notes": "Персональный Образ дня: 8 глянцевых editorial-визуалов и ротация без повторов до полного просмотра коллекции."
+            "notes": "Образ дня без повторов: личная история показов, свежие editorial-партии и автоматический редакционный резерв."
           }
           JSON
 
@@ -160,4 +160,4 @@ jobs:
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
-          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | grep -Fq '"build": 12'
+          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | grep -Fq '"build": 13'
