@@ -11,10 +11,11 @@ import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.2+12';
-const fabulaBuild = 12;
+const fabulaVersion = '0.4.3+13';
+const fabulaBuild = 13;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -130,6 +131,7 @@ class _FabulaShellState extends State<FabulaShell> {
   String sign = 'libra';
   String installationId = '';
   String journalEntry = '';
+  DailyLook? dailyLook;
   Set<String> enabledModules = _moduleCatalog.map((item) => item.id).toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
@@ -161,6 +163,11 @@ class _FabulaShellState extends State<FabulaShell> {
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
     journalEntry = prefs.getString('fabula_journal_entry') ?? '';
+    dailyLook = await const DailyLookService().resolve(
+      installationId: installationId,
+      date: DateTime.now(),
+      preferences: prefs,
+    );
     final savedModules = prefs.getStringList('fabula_enabled_modules');
     if (savedModules != null) {
       enabledModules = savedModules.toSet();
@@ -617,7 +624,7 @@ class _FabulaShellState extends State<FabulaShell> {
         id: 'today',
         page: _TodayPage(
           name: name,
-          installationId: installationId,
+          dailyLook: dailyLook,
           forecast: forecast,
           enabledModules: enabledModules,
           journalEntry: journalEntry,
@@ -936,7 +943,7 @@ Text _editorial(String text, {double size = 30}) => Text(
 class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
-    required this.installationId,
+    required this.dailyLook,
     required this.forecast,
     required this.enabledModules,
     required this.journalEntry,
@@ -945,7 +952,7 @@ class _TodayPage extends StatelessWidget {
     required this.onJournal,
   });
   final String name;
-  final String installationId;
+  final DailyLook? dailyLook;
   final Router1DailyHoroscope? forecast;
   final Set<String> enabledModules;
   final String journalEntry;
@@ -955,10 +962,6 @@ class _TodayPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final f = forecast ?? _demoForecast('libra');
     final energy = 76 + (f.number * 3) % 19;
-    final look = dailyLookFor(
-      installationId: installationId,
-      date: DateTime.tryParse(f.date) ?? DateTime.now(),
-    );
     return _Page(
       children: [
         Row(
@@ -991,7 +994,9 @@ class _TodayPage extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         if (enabledModules.contains('look')) ...[
-          _DailyLookCard(look: look),
+          dailyLook == null
+              ? const _DailyLookUnavailableCard()
+              : _DailyLookCard(look: dailyLook!),
           const SizedBox(height: 14),
         ],
         if (enabledModules.contains('horoscope')) ...[
@@ -1356,11 +1361,7 @@ class _DailyLookCard extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            look.assetPath,
-            fit: BoxFit.cover,
-            alignment: const Alignment(.5, -.2),
-          ),
+          _DailyLookImage(look: look),
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -1404,6 +1405,68 @@ class _DailyLookCard extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _DailyLookImage extends StatelessWidget {
+  const _DailyLookImage({required this.look});
+
+  final DailyLook look;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = look.imageUrl;
+    if (imageUrl != null) {
+      return Image.network(
+        imageUrl,
+        key: ValueKey(look.id),
+        fit: BoxFit.cover,
+        alignment: const Alignment(.5, -.2),
+        errorBuilder: (_, _, _) => _assetFallback(),
+      );
+    }
+    return _assetFallback();
+  }
+
+  Widget _assetFallback() {
+    final assetPath = look.assetPath;
+    if (assetPath != null) {
+      return Image.asset(
+        assetPath,
+        fit: BoxFit.cover,
+        alignment: const Alignment(.5, -.2),
+      );
+    }
+    return const ColoredBox(color: Color(0xFFE8E0D9));
+  }
+}
+
+class _DailyLookUnavailableCard extends StatelessWidget {
+  const _DailyLookUnavailableCard();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: const Color(0xFFE8E0D9),
+      borderRadius: BorderRadius.circular(26),
+    ),
+    child: const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel('ОБРАЗ ДНЯ'),
+        SizedBox(height: 8),
+        Text(
+          'Новый образ проходит финальную редактуру',
+          style: TextStyle(fontFamily: 'serif', fontSize: 24, color: _ink),
+        ),
+        SizedBox(height: 8),
+        Text(
+          'Fabula не повторяет уже показанные изображения.',
+          style: TextStyle(color: _muted, height: 1.4),
+        ),
+      ],
     ),
   );
 }

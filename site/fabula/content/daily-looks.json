@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "active_batch_id": "2026-07-19-a",
+  "batch_id": "2026-07-19-a",
+  "batch_started": "2026-07-19",
+  "next_batch_due": "2026-07-25",
+  "reserve_days": 8,
+  "editorial_policy": {
+    "never_repeat_ids": true,
+    "direction": "Luxury fashion editorial: fresh, intelligent, aspirational and encouraging personal growth.",
+    "avoid": "Stock-photo aesthetics, visible brands, influencer clichés, cheap glamour and reused artwork."
+  },
+  "looks": [
+    {
+      "id": "2026-07-burgundy-ivory-01",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/burgundy-ivory.webp",
+      "title": "Тихая уверенность",
+      "description": "Винный шёлк, тёплый айвори и одна золотая деталь."
+    },
+    {
+      "id": "2026-07-black-silver-02",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/black-silver.webp",
+      "title": "Чёткая линия",
+      "description": "Архитектурный чёрный, мягкий блеск шёлка и серебро."
+    },
+    {
+      "id": "2026-07-cashmere-camel-03",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/cashmere-camel.webp",
+      "title": "Спокойная роскошь",
+      "description": "Кашемир цвета айвори, верблюжий оттенок и тёмная кожа."
+    },
+    {
+      "id": "2026-07-emerald-aubergine-04",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/emerald-aubergine.webp",
+      "title": "Глубина цвета",
+      "description": "Изумрудный сатин, баклажановый фон и приглушённое золото."
+    },
+    {
+      "id": "2026-07-navy-dawn-05",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/navy-dawn.webp",
+      "title": "Собранная энергия",
+      "description": "Полуночный синий, прохладный рассвет и точное серебро."
+    },
+    {
+      "id": "2026-07-rose-oxblood-06",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/rose-oxblood.webp",
+      "title": "Мягкая сила",
+      "description": "Пудровая роза, оттенок oxblood и сливочный камень."
+    },
+    {
+      "id": "2026-07-ivory-stone-07",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/ivory-stone.webp",
+      "title": "Светлая свобода",
+      "description": "Скульптурный айвори, тёплый камень и чистая линия."
+    },
+    {
+      "id": "2026-07-cobalt-tobacco-08",
+      "batch_id": "2026-07-19-a",
+      "image_url": "https://router1.tech/fabula/content/daily_looks/cobalt-tobacco.webp",
+      "title": "Смелый баланс",
+      "description": "Кобальт, табачный шёлк и одна геометричная деталь."
+    }
+  ]
+}

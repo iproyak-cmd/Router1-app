@@ -1,62 +1,64 @@
 class DailyLook {
   const DailyLook({
     required this.id,
-    required this.assetPath,
     required this.title,
     required this.description,
-  });
+    this.assetPath,
+    this.imageUrl,
+  }) : assert(assetPath != null || imageUrl != null);
 
   final String id;
-  final String assetPath;
+  final String? assetPath;
+  final String? imageUrl;
   final String title;
   final String description;
 }
 
 const dailyLookCatalog = <DailyLook>[
   DailyLook(
-    id: 'burgundy_ivory',
+    id: '2026-07-burgundy-ivory-01',
     assetPath: 'assets/fabula/daily_looks/burgundy-ivory.webp',
     title: 'Тихая уверенность',
     description: 'Винный шёлк, тёплый айвори и одна золотая деталь.',
   ),
   DailyLook(
-    id: 'black_silver',
+    id: '2026-07-black-silver-02',
     assetPath: 'assets/fabula/daily_looks/black-silver.webp',
     title: 'Чёткая линия',
     description: 'Архитектурный чёрный, мягкий блеск шёлка и серебро.',
   ),
   DailyLook(
-    id: 'cashmere_camel',
+    id: '2026-07-cashmere-camel-03',
     assetPath: 'assets/fabula/daily_looks/cashmere-camel.webp',
     title: 'Спокойная роскошь',
     description: 'Кашемир цвета айвори, верблюжий оттенок и тёмная кожа.',
   ),
   DailyLook(
-    id: 'emerald_aubergine',
+    id: '2026-07-emerald-aubergine-04',
     assetPath: 'assets/fabula/daily_looks/emerald-aubergine.webp',
     title: 'Глубина цвета',
     description: 'Изумрудный сатин, баклажановый фон и приглушённое золото.',
   ),
   DailyLook(
-    id: 'navy_dawn',
+    id: '2026-07-navy-dawn-05',
     assetPath: 'assets/fabula/daily_looks/navy-dawn.webp',
     title: 'Собранная энергия',
     description: 'Полуночный синий, прохладный рассвет и точное серебро.',
   ),
   DailyLook(
-    id: 'rose_oxblood',
+    id: '2026-07-rose-oxblood-06',
     assetPath: 'assets/fabula/daily_looks/rose-oxblood.webp',
     title: 'Мягкая сила',
     description: 'Пудровая роза, оттенок oxblood и сливочный камень.',
   ),
   DailyLook(
-    id: 'ivory_stone',
+    id: '2026-07-ivory-stone-07',
     assetPath: 'assets/fabula/daily_looks/ivory-stone.webp',
     title: 'Светлая свобода',
     description: 'Скульптурный айвори, тёплый камень и чистая линия.',
   ),
   DailyLook(
-    id: 'cobalt_tobacco',
+    id: '2026-07-cobalt-tobacco-08',
     assetPath: 'assets/fabula/daily_looks/cobalt-tobacco.webp',
     title: 'Смелый баланс',
     description: 'Кобальт, табачный шёлк и одна геометричная деталь.',
@@ -67,19 +69,24 @@ DailyLook dailyLookFor({
   required String installationId,
   required DateTime date,
   List<DailyLook> catalog = dailyLookCatalog,
+  Set<String> seenIds = const {},
 }) {
-  if (catalog.isEmpty) {
-    throw ArgumentError.value(catalog, 'catalog', 'must not be empty');
+  final available = catalog
+      .where((look) => !seenIds.contains(look.id))
+      .toList(growable: false);
+  if (available.isEmpty) {
+    throw const DailyLookCatalogExhausted();
   }
   final normalizedDate = DateTime.utc(date.year, date.month, date.day);
-  final dayNumber = normalizedDate.difference(DateTime.utc(2026)).inDays;
   final seed = _stableHash(
-    installationId.trim().isEmpty ? 'fabula-local-installation' : installationId,
+    '${installationId.trim().isEmpty ? 'fabula-local-installation' : installationId}:'
+    '${normalizedDate.toIso8601String()}',
   );
-  final step = _coprimeStep(seed, catalog.length);
-  final position = _positiveModulo(dayNumber, catalog.length);
-  final index = _positiveModulo(seed + position * step, catalog.length);
-  return catalog[index];
+  return available[_positiveModulo(seed, available.length)];
+}
+
+class DailyLookCatalogExhausted implements Exception {
+  const DailyLookCatalogExhausted();
 }
 
 int _stableHash(String value) {
@@ -89,26 +96,6 @@ int _stableHash(String value) {
     hash = (hash * 0x01000193) & 0x7fffffff;
   }
   return hash;
-}
-
-int _coprimeStep(int seed, int length) {
-  if (length == 1) return 1;
-  var step = _positiveModulo(seed, length - 1) + 1;
-  while (_greatestCommonDivisor(step, length) != 1) {
-    step = step == length - 1 ? 1 : step + 1;
-  }
-  return step;
-}
-
-int _greatestCommonDivisor(int a, int b) {
-  var left = a.abs();
-  var right = b.abs();
-  while (right != 0) {
-    final remainder = left % right;
-    left = right;
-    right = remainder;
-  }
-  return left;
 }
 
 int _positiveModulo(int value, int modulus) =>

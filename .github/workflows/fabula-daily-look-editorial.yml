@@ -1,0 +1,69 @@
+name: Fabula Daily Look editorial reserve
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 6 * * *"
+  push:
+    branches: [fabula]
+    paths:
+      - "site/fabula/content/daily-looks.json"
+      - "assets/fabula/daily_looks/**"
+      - ".github/workflows/fabula-daily-look-editorial.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  editorial-reserve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate unique editorial reserve
+        id: reserve
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=site/fabula/content/daily-looks.json
+          jq -e '.schema == 1' "$manifest" >/dev/null
+          active_batch=$(jq -r '.active_batch_id' "$manifest")
+          count=$(jq '.looks | length' "$manifest")
+          active_count=$(jq --arg batch "$active_batch" '[.looks[] | select(.batch_id == $batch)] | length' "$manifest")
+          unique_ids=$(jq '[.looks[].id] | unique | length' "$manifest")
+          unique_images=$(jq '[.looks[].image_url] | unique | length' "$manifest")
+          test "$count" -ge 8
+          test "$active_count" -eq 8
+          test "$unique_ids" -eq "$count"
+          test "$unique_images" -eq "$count"
+          if git rev-parse HEAD^ >/dev/null 2>&1 && git show HEAD^:"$manifest" > "${RUNNER_TEMP}/previous-daily-looks.json" 2>/dev/null; then
+            jq -n -e \
+              --slurpfile old "${RUNNER_TEMP}/previous-daily-looks.json" \
+              --slurpfile new "$manifest" \
+              'all($old[0].looks[]; . as $entry | ($new[0].looks | index($entry)) != null)' \
+              >/dev/null
+          fi
+          while IFS= read -r url; do
+            test "${url#https://router1.tech/fabula/content/daily_looks/}" != "$url"
+            file="assets/fabula/daily_looks/${url##*/}"
+            test -s "$file"
+          done < <(jq -r '.looks[].image_url' "$manifest")
+          due=$(jq -r '.next_batch_due' "$manifest")
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+          echo "batch=$active_batch" >> "$GITHUB_OUTPUT"
+      - name: Open next-batch task on editorial day six
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DUE: ${{ steps.reserve.outputs.due }}
+          BATCH: ${{ steps.reserve.outputs.batch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          today=$(date -u +%F)
+          if [[ "$today" < "$DUE" ]]; then exit 0; fi
+          title="Fabula: следующая editorial-партия после $BATCH"
+          if gh issue list --state open --search "$title in:title" --json title --jq '.[].title' | grep -Fxq "$title"; then exit 0; fi
+          gh issue create \
+            --title "$title" \
+            --body $'Подготовить 8 совершенно новых образов дня.\n\nТребования:\n- новые неизменяемые look_id;\n- ни одного повторного изображения;\n- luxury fashion editorial;\n- разные героини, сцены, свет и палитры;\n- визуал побуждает к развитию и формирует высокий вкус;\n- опубликовать до исчерпания двух резервных дней;\n- сохранить все прошлые записи без изменений;\n- добавить новую партию и назначить её active_batch_id;\n- обновить batch_id и next_batch_due в манифесте.'
