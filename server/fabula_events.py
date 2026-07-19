@@ -15,6 +15,7 @@ import hmac
 import inspect
 import json
 import os
+import secrets
 import sqlite3
 import time
 from collections.abc import Awaitable, Callable
@@ -32,6 +33,7 @@ DOWNLOAD_TARGETS = {
     "android": "/fabula/android/Fabula.apk",
     "windows": "/fabula/windows/FabulaSetup.exe",
 }
+_EVENT_SALT = os.environ.get("FABULA_EVENT_SALT") or secrets.token_hex(32)
 
 
 class FabulaEventPayload(BaseModel):
@@ -136,8 +138,7 @@ class FabulaEventStore:
 def _digest(value: str) -> str:
     if not value:
         return ""
-    salt = os.environ.get("FABULA_EVENT_SALT", "fabula-events")
-    return hashlib.sha256(f"{salt}:{value}".encode()).hexdigest()[:24]
+    return hashlib.sha256(f"{_EVENT_SALT}:{value}".encode()).hexdigest()[:24]
 
 
 def _masked_phone(phone: str | None) -> str:
@@ -193,7 +194,7 @@ def register_fabula_event_routes(
                 notify_admin,
                 "\n".join(
                     [
-                        f"📥 Fabula: скачивание {normalized.title()}",
+                        f"📥 Fabula: начато скачивание {normalized.title()}",
                         f"Источник: {source}",
                         f"Кампания: {campaign or 'не указана'}",
                     ]
