@@ -15,8 +15,8 @@ class SavedRouterCredentials {
 class RouterCredentialsService {
   // Keep the explicit Android encrypted storage mode while the dependency
   // transparently migrates existing installations to its replacement cipher.
-  // ignore: deprecated_member_use
   static const _storage = FlutterSecureStorage(
+    // ignore: deprecated_member_use
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
