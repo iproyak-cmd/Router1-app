@@ -842,6 +842,24 @@ class Router1Api {
     return order;
   }
 
+  Future<void> trackFabulaEvent({
+    required String event,
+    required String installationId,
+    required String platform,
+    required String appVersion,
+    String? phone,
+    Map<String, Object?> details = const {},
+  }) async {
+    await _post('/fabula/event', {
+      'event': event,
+      'installation_id': installationId,
+      'platform': platform,
+      'app_version': appVersion,
+      if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+      if (details.isNotEmpty) 'details': details,
+    });
+  }
+
   Future<List<Router1RenewalOffer>> renewalOffers(String phone) async {
     final query = Uri(queryParameters: {'phone': phone}).query;
     final data = await _get('/app/renewal-offers?$query');

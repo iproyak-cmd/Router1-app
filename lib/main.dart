@@ -1,15 +1,17 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
 
-const fabulaVersion = '0.3.1+9';
+const fabulaVersion = '0.4.0+10';
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -63,6 +65,11 @@ const _moduleCatalog = <({String id, String title, String subtitle})>[
     title: 'Подключение',
     subtitle: 'Защищённый доступ Fabula',
   ),
+  (
+    id: 'cycle',
+    title: 'Цикл',
+    subtitle: 'Личный календарь и бережные подсказки',
+  ),
 ];
 
 void main() => runApp(const FabulaApp());
@@ -108,13 +115,14 @@ class _FabulaShellState extends State<FabulaShell> {
     demoFallback: true,
   );
   final tunnel = AwgTunnelService();
-  var tab = 0;
+  String section = 'today';
   var loading = true;
   var vpnBusy = false;
   String name = '';
   String phone = '';
   String birthday = '';
   String sign = 'libra';
+  String journalEntry = '';
   Set<String> enabledModules = _moduleCatalog.map((item) => item.id).toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
@@ -144,8 +152,22 @@ class _FabulaShellState extends State<FabulaShell> {
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
+    journalEntry = prefs.getString('fabula_journal_entry') ?? '';
     final savedModules = prefs.getStringList('fabula_enabled_modules');
-    if (savedModules != null) enabledModules = savedModules.toSet();
+    if (savedModules != null) {
+      enabledModules = savedModules.toSet();
+      if ((prefs.getInt('fabula_modules_schema') ?? 1) < 2) {
+        enabledModules.add('cycle');
+        await prefs.setStringList(
+          'fabula_enabled_modules',
+          _moduleCatalog
+              .where((item) => enabledModules.contains(item.id))
+              .map((item) => item.id)
+              .toList(growable: false),
+        );
+      }
+    }
+    await prefs.setInt('fabula_modules_schema', 2);
     final cycleStart = prefs.getString('fabula_cycle_start');
     final parsedCycleStart = cycleStart == null
         ? null
@@ -159,6 +181,7 @@ class _FabulaShellState extends State<FabulaShell> {
     }
     await Future.wait([_loadForecast(), _refreshVpn()]);
     if (mounted) setState(() => loading = false);
+    unawaited(_trackEvent('app_opened'));
     if (phone.isNotEmpty) unawaited(_warmVpnAccess());
   }
 
@@ -214,6 +237,12 @@ class _FabulaShellState extends State<FabulaShell> {
         );
         await tunnel.prepare();
         vpn = await tunnel.connect(text, serverCode: config.serverCode);
+        unawaited(
+          _trackEvent(
+            'vpn_connected',
+            details: {'server_code': config.serverCode},
+          ),
+        );
       }
     } catch (_) {
       if (mounted)
@@ -422,6 +451,89 @@ class _FabulaShellState extends State<FabulaShell> {
     if (mounted) setState(() => cycle = value);
   }
 
+  Future<void> _editJournal() async {
+    final controller = TextEditingController(text: journalEntry);
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _cream,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          MediaQuery.viewInsetsOf(context).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _editorial('Личный дневник', size: 28),
+            const SizedBox(height: 8),
+            const Text(
+              'Запись хранится только на этом устройстве.',
+              style: TextStyle(color: _muted),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              minLines: 5,
+              maxLines: 9,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Что хочется сохранить из этого дня?',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Сохранить'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final value = controller.text.trim();
+    controller.dispose();
+    if (saved != true) return;
+    journalEntry = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fabula_journal_entry', journalEntry);
+    if (mounted) setState(() {});
+  }
+
+  Future<String> _installationId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = prefs.getString('fabula_installation_id');
+    if (current != null && current.isNotEmpty) return current;
+    final random = Random.secure().nextInt(0x7fffffff).toRadixString(16);
+    final created = '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}-$random';
+    await prefs.setString('fabula_installation_id', created);
+    return created;
+  }
+
+  Future<void> _trackEvent(
+    String event, {
+    Map<String, Object?> details = const {},
+  }) async {
+    try {
+      await api.trackFabulaEvent(
+        event: event,
+        installationId: await _installationId(),
+        platform: Platform.operatingSystem,
+        appVersion: fabulaVersion,
+        phone: phone.trim().isEmpty ? null : phone.trim(),
+        details: details,
+      );
+    } catch (_) {
+      // Analytics must never block onboarding or the protected connection.
+    }
+  }
+
   Future<void> _toggleModule(String id, bool enabled) async {
     setState(() {
       if (enabled) {
@@ -438,6 +550,7 @@ class _FabulaShellState extends State<FabulaShell> {
           .map((item) => item.id)
           .toList(growable: false),
     );
+    await prefs.setInt('fabula_modules_schema', 2);
   }
 
   Future<void> _openCycle() async {
@@ -461,69 +574,95 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: loading
-          ? const Center(child: CircularProgressIndicator())
-          : name.isEmpty || phone.isEmpty || birthday.isEmpty
-          ? _OnboardingPage(onComplete: _completeOnboarding)
-          : IndexedStack(
-              index: tab,
-              children: [
-                _TodayPage(
-                  name: name,
-                  forecast: forecast,
-                  enabledModules: enabledModules,
-                  onSign: _chooseSign,
-                  onShare: _share,
-                ),
-                _CyclePage(initial: cycle, onSave: _saveCycle, embedded: true),
-                _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
-                const _CompatibilityPage(),
-                _ProfilePage(
-                  name: name,
-                  phone: phone,
-                  sign: sign,
-                  onEdit: _editProfile,
-                  enabledModules: enabledModules,
-                  onModuleChanged: _toggleModule,
-                ),
-              ],
-            ),
-    ),
-    bottomNavigationBar:
-        loading || name.isEmpty || phone.isEmpty || birthday.isEmpty
-        ? null
-        : NavigationBar(
-            selectedIndex: tab,
-            onDestinationSelected: (v) => setState(() => tab = v),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.auto_awesome_outlined),
-                selectedIcon: Icon(Icons.auto_awesome),
-                label: 'Сегодня',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.water_drop_outlined),
-                selectedIcon: Icon(Icons.water_drop),
-                label: 'Цикл',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.shield_outlined),
-                selectedIcon: Icon(Icons.shield),
-                label: 'VPN',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.favorite_border),
-                label: 'Пара',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                label: 'Профиль',
-              ),
-            ],
+  Widget build(BuildContext context) {
+    final ready = !loading && name.isNotEmpty && phone.isNotEmpty && birthday.isNotEmpty;
+    final visibleNavigation = fabulaNavigationSectionIds(enabledModules);
+    final sections = <({String id, Widget page, NavigationDestination destination})>[
+      (
+        id: 'today',
+        page: _TodayPage(
+          name: name,
+          forecast: forecast,
+          enabledModules: enabledModules,
+          journalEntry: journalEntry,
+          onSign: _chooseSign,
+          onShare: _share,
+          onJournal: _editJournal,
+        ),
+        destination: const NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined),
+          selectedIcon: Icon(Icons.auto_awesome),
+          label: 'Сегодня',
+        ),
+      ),
+      if (visibleNavigation.contains(cycleModuleId))
+        (
+          id: 'cycle',
+          page: _CyclePage(initial: cycle, onSave: _saveCycle, embedded: true),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.water_drop_outlined),
+            selectedIcon: Icon(Icons.water_drop),
+            label: 'Цикл',
           ),
-  );
+        ),
+      if (visibleNavigation.contains(connectionModuleId))
+        (
+          id: 'connection',
+          page: _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.shield_outlined),
+            selectedIcon: Icon(Icons.shield),
+            label: 'VPN',
+          ),
+        ),
+      if (visibleNavigation.contains(compatibilityModuleId))
+        (
+          id: 'compatibility',
+          page: const _CompatibilityPage(),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.favorite_border),
+            label: 'Пара',
+          ),
+        ),
+      (
+        id: 'profile',
+        page: _ProfilePage(
+          name: name,
+          phone: phone,
+          sign: sign,
+          onEdit: _editProfile,
+          enabledModules: enabledModules,
+          onModuleChanged: _toggleModule,
+        ),
+        destination: const NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          label: 'Профиль',
+        ),
+      ),
+    ];
+    final currentIndex = sections.indexWhere((item) => item.id == section);
+    final selectedIndex = currentIndex < 0 ? 0 : currentIndex;
+
+    return Scaffold(
+      body: SafeArea(
+        child: loading
+            ? const Center(child: CircularProgressIndicator())
+            : !ready
+            ? _OnboardingPage(onComplete: _completeOnboarding)
+            : IndexedStack(
+                index: selectedIndex,
+                children: sections.map((item) => item.page).toList(growable: false),
+              ),
+      ),
+      bottomNavigationBar: !ready
+          ? null
+          : NavigationBar(
+              selectedIndex: selectedIndex,
+              onDestinationSelected: (value) => setState(() => section = sections[value].id),
+              destinations: sections.map((item) => item.destination).toList(growable: false),
+            ),
+    );
+  }
 }
 
 class _Page extends StatelessWidget {
@@ -684,13 +823,16 @@ class _TodayPage extends StatelessWidget {
     required this.name,
     required this.forecast,
     required this.enabledModules,
+    required this.journalEntry,
     required this.onSign,
     required this.onShare,
+    required this.onJournal,
   });
   final String name;
   final Router1DailyHoroscope? forecast;
   final Set<String> enabledModules;
-  final VoidCallback onSign, onShare;
+  final String journalEntry;
+  final VoidCallback onSign, onShare, onJournal;
 
   @override
   Widget build(BuildContext context) {
@@ -807,26 +949,31 @@ class _TodayPage extends StatelessWidget {
                 _AstroDetail(title: 'ОТНОШЕНИЯ', text: f.love),
                 const Divider(height: 26, color: _line),
                 _AstroDetail(title: 'СОВЕТ ДНЯ', text: f.advice),
-                if (enabledModules.contains('mood')) ...[
-                  const SizedBox(height: 18),
-                  Row(
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
+        if (enabledModules.contains('mood')) ...[
+          _Card(
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.sentiment_satisfied_alt_outlined,
+                  color: _burgundy,
+                  size: 28,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.sentiment_satisfied_alt_outlined,
-                        color: _burgundy,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Настроение дня: ${_mood(f.number)}',
-                        style: const TextStyle(
-                          color: _muted,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      const _SectionLabel('НАСТРОЕНИЕ ДНЯ'),
+                      const SizedBox(height: 6),
+                      _editorial(_mood(f.number), size: 22),
                     ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
@@ -1020,6 +1167,40 @@ class _TodayPage extends StatelessWidget {
               ],
             ),
           ),
+        if (enabledModules.contains('journal')) ...[
+          const SizedBox(height: 12),
+          _Card(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.menu_book_outlined, color: _burgundy),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _SectionLabel('ЛИЧНЫЙ ДНЕВНИК'),
+                      const SizedBox(height: 7),
+                      Text(
+                        journalEntry.isEmpty
+                            ? 'Сохраните мысль, чувство или маленькое открытие этого дня.'
+                            : journalEntry,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: _muted, height: 1.4),
+                      ),
+                      const SizedBox(height: 10),
+                      TextButton(
+                        onPressed: onJournal,
+                        child: Text(journalEntry.isEmpty ? 'Добавить запись' : 'Изменить'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -2294,6 +2475,7 @@ IconData _moduleIcon(String id) => switch (id) {
   'look' => Icons.checkroom_outlined,
   'journal' => Icons.menu_book_outlined,
   'connection' => Icons.shield_outlined,
+  'cycle' => Icons.water_drop_outlined,
   _ => Icons.circle_outlined,
 };
 

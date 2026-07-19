@@ -1,0 +1,11 @@
+const cycleModuleId = 'cycle';
+const connectionModuleId = 'connection';
+const compatibilityModuleId = 'compatibility';
+
+List<String> fabulaNavigationSectionIds(Set<String> enabledModules) => [
+  'today',
+  if (enabledModules.contains(cycleModuleId)) cycleModuleId,
+  if (enabledModules.contains(connectionModuleId)) connectionModuleId,
+  if (enabledModules.contains(compatibilityModuleId)) compatibilityModuleId,
+  'profile',
+];
