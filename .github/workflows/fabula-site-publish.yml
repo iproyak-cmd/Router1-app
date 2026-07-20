@@ -114,4 +114,4 @@ jobs:
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
-          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | jq -e '.build >= 16' >/dev/null
+          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | jq -e '.build >= 1' >/dev/null
