@@ -4,95 +4,62 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f7f2ed">
-  <meta name="description" content="Fabula заботится о вашем настроении: сохраняет доступ к нейросетям, мессенджерам и видеосервисам и даёт 10 эмоциональных модулей. В ближайшие дни — музыкальный проигрыватель и AI-собеседник.">
+  <meta name="description" content="Fabula — ваш VPN. Опора и вдохновение.">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="ru_RU">
-  <meta property="og:title" content="Fabula заботится о вашем настроении">
-  <meta property="og:description" content="Умная защищённая связь и 10 эмоциональных модулей. В ближайшие дни — музыкальный проигрыватель и AI-собеседник.">
+  <meta property="og:title" content="Fabula — ваш VPN">
+  <meta property="og:description" content="Опора и вдохновение. Скачивайте и наслаждайтесь.">
   <meta property="og:image" content="https://router1.tech/fabula/assets/strength.webp">
   <meta property="og:url" content="https://router1.tech/fabula/">
-  <title>Fabula — умный сервис связи и конструктор настроения</title>
+  <title>Fabula — ваш VPN</title>
   <style>
-    :root{--cream:#f7f2ed;--paper:#fffdfa;--wine:#6c263c;--wine2:#8d3b54;--ink:#211c1b;--muted:#756c68;--sage:#dfe8df;--line:#e2d9d3;--gold:#c8ac7c}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--cream);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}.wrap{width:min(1120px,calc(100% - 32px));margin:auto}.nav{height:72px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{font:32px Georgia,serif;color:var(--wine);text-decoration:none}.tag,.micro{color:var(--muted);font-size:13px}.hero{display:grid;grid-template-columns:1.08fr .92fr;gap:54px;align-items:center;padding:64px 0 72px}.eyebrow{color:var(--wine);font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1,h2,h3{font-family:Georgia,serif;font-weight:500}h1{font-size:clamp(49px,7vw,80px);line-height:1.01;margin:15px 0 22px}h2{font-size:clamp(38px,5vw,56px);line-height:1.08;margin:10px 0 15px}.lead{max-width:680px;color:var(--muted);font-size:19px}.care-list{display:grid;gap:12px;max-width:680px}.care-item{display:grid;grid-template-columns:42px 1fr;gap:14px;padding:15px 0;border-top:1px solid var(--line)}.care-item:first-child{border-top:0}.care-number{color:var(--wine);font:24px Georgia,serif}.care-item strong{display:block;font-size:17px}.care-item p{margin:3px 0 0;color:var(--muted);font-size:15px}.care-item .care-modules{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.btn{display:inline-flex;min-height:52px;padding:0 24px;align-items:center;justify-content:center;border:1px solid var(--wine);border-radius:999px;color:var(--wine);font-weight:800;text-decoration:none;transition:.2s ease}.btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px #6c263c20}.primary{background:var(--wine);color:#fff}.phone{width:min(370px,100%);margin:auto;padding:16px;border:10px solid #282321;border-radius:42px;background:var(--paper);box-shadow:0 28px 70px #5f273329}.builder{overflow:hidden;border:1px solid var(--line);border-radius:26px;background:#fff}.builder-cover{position:relative;height:210px;overflow:hidden;background:#2c1e27}.builder-cover img{width:100%;height:100%;display:block;object-fit:cover;object-position:center 32%}.builder-cover:after{content:"";position:absolute;inset:35% 0 0;background:linear-gradient(transparent,#281b25e8)}.builder-cover-title{position:absolute;z-index:1;left:20px;right:20px;bottom:17px;color:#fff;font:27px/1.05 Georgia,serif}.builder-body{padding:21px 22px 22px}.builder h3{font-size:28px;line-height:1.08;margin:8px 0}.builder p{margin:0;color:var(--muted);font-size:14px}.mood-dots{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:21px 0}.mood-dots span{aspect-ratio:1;border-radius:50%;background:#eee7e1;border:1px solid var(--line)}.mood-dots .on{background:linear-gradient(135deg,var(--wine2),var(--wine));border-color:var(--wine)}.builder-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-top:1px solid var(--line)}.builder-line strong{font-size:14px}.switch{width:42px;height:24px;padding:3px;border-radius:999px;background:var(--wine)}.switch:after{content:"";display:block;width:18px;height:18px;margin-left:auto;border-radius:50%;background:#fff}.label{color:var(--wine);font-size:11px;font-weight:800;letter-spacing:.1em}.status{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:16px 18px;border-radius:21px;background:var(--sage)}.status strong,.status small{display:block;margin-top:3px}.status small{color:#435044}.check{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#fff;color:var(--wine);font-weight:900}.section{padding:72px 0}.center{text-align:center}.center .lead{margin-left:auto;margin-right:auto}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px}.feature{min-height:175px;padding:23px;border:1px solid var(--line);border-radius:24px;background:var(--paper)}.feature-number{display:block;margin-bottom:16px;color:var(--wine);font:24px Georgia,serif}.feature h3{font-size:25px;margin:0}.feature p{color:var(--muted);font-size:14px}.connection{padding:42px;border-radius:32px;background:#e5ece5}.connection .lead{color:#566157}.modules{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:30px}.module{min-height:148px;padding:19px;border:1px solid var(--line);border-radius:22px;background:var(--paper);display:flex;flex-direction:column;justify-content:space-between}.module-icon{font-size:27px}.module strong{font:19px Georgia,serif}.module small{color:var(--muted)}.manifesto{margin:12px 0 0;padding:42px;border-radius:32px;background:linear-gradient(135deg,#5d2235,#863a53);color:#fff}.manifesto h2{max-width:780px;margin-top:0}.manifesto p{max-width:720px;margin-bottom:0;color:#f6e9ed;font-size:18px}.download{margin-bottom:70px;padding:48px;border:1px solid var(--line);border-radius:32px;background:var(--paper);text-align:center}.download .lead{margin-left:auto;margin-right:auto}.notice{display:none;max-width:650px;margin:18px auto 0;padding:14px 18px;border-radius:16px;background:var(--sage);color:#435044}.visible{display:block}footer{display:flex;justify-content:space-between;gap:18px;padding:28px 0 42px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}@media(max-width:900px){.modules{grid-template-columns:repeat(2,1fr)}}@media(max-width:820px){.hero{grid-template-columns:1fr;padding-top:44px}.grid{grid-template-columns:1fr}.tag{display:none}.download,.manifesto,.connection{padding:32px 19px}}@media(max-width:460px){.actions{display:grid}.btn{width:100%}h1{font-size:45px}.modules{grid-template-columns:1fr 1fr}.module{min-height:135px;padding:15px}footer{display:block}}
-  </style>
-  <style>
-    .roadmap{padding-top:26px}
-    .roadmap-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:30px}
-    .roadmap-card{min-height:245px;padding:30px;border:1px solid var(--line);border-radius:28px;background:var(--paper);position:relative;overflow:hidden}
-    .roadmap-card:after{content:"";position:absolute;width:190px;height:190px;right:-85px;bottom:-95px;border-radius:50%;background:#f1e4e8}
-    .roadmap-icon{width:54px;height:54px;display:grid;place-items:center;border-radius:50%;background:var(--wine);color:#fff;font-size:25px}
-    .roadmap-tag{display:inline-block;margin:21px 0 9px;padding:6px 10px;border-radius:999px;background:var(--sage);color:#435044;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
-    .roadmap-card h3{position:relative;z-index:1;margin:0;font-size:29px}
-    .roadmap-card p{position:relative;z-index:1;max-width:470px;margin:9px 0 0;color:var(--muted);font-size:15px}
-    @media(max-width:820px){.roadmap-grid{grid-template-columns:1fr}}
-    @media(max-width:460px){.roadmap-card{min-height:230px;padding:24px}}
+    :root{--cream:#f7f2ed;--paper:#fffdfa;--wine:#6c263c;--ink:#211c1b;--muted:#756c68;--sage:#dfe8df;--line:#e2d9d3}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--cream);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .wrap{width:min(1120px,calc(100% - 32px));margin:auto}
+    .nav{height:72px;display:flex;align-items:center;border-bottom:1px solid var(--line)}
+    .brand{font:32px Georgia,serif;color:var(--wine);text-decoration:none}
+    .hero{min-height:calc(100vh - 72px);display:grid;grid-template-columns:1fr .82fr;gap:64px;align-items:center;padding:58px 0 70px}
+    h1,h2{font-family:Georgia,serif;font-weight:500}
+    h1{font-size:clamp(62px,9vw,112px);line-height:.96;margin:0;color:var(--wine)}
+    .slogan{margin:22px 0 34px;font:clamp(27px,4vw,44px)/1.12 Georgia,serif}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+    .btn{display:inline-flex;min-height:54px;padding:0 27px;align-items:center;justify-content:center;border:1px solid var(--wine);border-radius:999px;color:var(--wine);font-weight:800;text-decoration:none;transition:.2s ease}
+    .btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px #6c263c20}
+    .primary{background:var(--wine);color:#fff}
+    .visual{overflow:hidden;min-height:570px;border-radius:38px;background:#35222d;box-shadow:0 30px 80px #5f273329}
+    .visual img{width:100%;height:100%;min-height:570px;display:block;object-fit:cover;object-position:center 28%}
+    .download{padding:54px 28px;margin:0 0 58px;border:1px solid var(--line);border-radius:32px;background:var(--paper);text-align:center}
+    .download h2{font-size:clamp(38px,5vw,58px);line-height:1.05;margin:0}
+    .download .actions{justify-content:center}
+    .notice{display:none;max-width:650px;margin:18px auto 0;padding:14px 18px;border-radius:16px;background:var(--sage);color:#435044;line-height:1.45}
+    .visible{display:block}
+    .micro{color:var(--muted);font-size:13px;margin-top:20px}
+    .micro a{color:var(--wine)}
+    footer{display:flex;justify-content:space-between;gap:18px;padding:28px 0 42px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+    @media(max-width:820px){.hero{grid-template-columns:1fr;gap:38px;padding-top:46px}.visual{min-height:430px}.visual img{min-height:430px}.download{padding:40px 19px}}
+    @media(max-width:460px){h1{font-size:64px}.actions{display:grid}.btn{width:100%}.visual,.visual img{min-height:390px}footer{display:block}}
   </style>
 </head>
 <body>
   <main class="wrap">
-    <nav class="nav"><a class="brand" href="#top">Fabula</a><span class="tag">Защищённая связь · 10 эмоциональных модулей</span></nav>
+    <nav class="nav"><a class="brand" href="#top">Fabula</a></nav>
     <section class="hero" id="top">
       <div>
-        <div class="eyebrow">Женское суперприложение</div>
-        <h1>Fabula заботится<br>о вашем настроении.</h1>
-        <div class="care-list"><div class="care-item"><span class="care-number">01</span><div><strong>Сохраняет полноценный доступ</strong><p>К нейросетям, мессенджерам и видеосервисам. Встроенный алгоритм сам переключается между серверами и перезапускает соединение, если это требуется.</p></div></div><div class="care-item"><span class="care-number">02</span><div><strong>Становится вашим помощником и советником</strong><p>Предупреждает и подсказывает, поддерживает осведомлённость и должный уровень энергии. Вы знаете, как лучше действовать именно сегодня, и поэтому спокойны.</p><p class="care-modules"><strong>10 эмоциональных модулей</strong> создают состояние и настрой на весь день. Подключайте и убирайте их по настроению и вашим приоритетам.</p></div></div></div>
-        <div class="actions"><a class="btn primary js-primary" href="#download">Собрать свою Fabula</a><a class="btn" href="#connection">Как Fabula заботится</a></div>
-        <p class="micro">Тестовая версия доступна без оплаты.</p>
+        <h1>Ваш VPN.</h1>
+        <p class="slogan">Опора и вдохновение.</p>
+        <div class="actions"><a class="btn primary js-primary" href="#download">Скачивайте и наслаждайтесь</a></div>
       </div>
-      <div class="phone">
-        <div class="builder"><div class="builder-cover"><img src="assets/strength.webp" alt="Карта Таро Сила — женщина рядом со львом"><div class="builder-cover-title">Сегодня вы задаёте тон</div></div><div class="builder-body"><div class="label">ВАШ КОНСТРУКТОР НАСТРОЕНИЯ</div><h3>Соберите свой день</h3><p>Выбрано 6 из 10 эмоциональных модулей</p><div class="mood-dots" aria-label="Выбрано 6 из 10 модулей"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span><span></span><span></span></div><div class="builder-line"><strong>Подключайте нужное</strong><span class="switch"></span></div><div class="builder-line"><strong>Убирайте лишнее</strong><span class="switch"></span></div></div></div>
-        <div class="status"><div><span class="label">УМНЫЙ СЕРВИС СВЯЗИ</span><strong>Основной сервер работает</strong><small>Переключение произойдёт автоматически</small></div><span class="check">✓</span></div>
-      </div>
-    </section>
-    <section class="section connection" id="connection">
-      <div class="eyebrow">Умная основа Fabula</div><h2>Связь, о которой не нужно думать</h2><p class="lead">Встроенный алгоритм сам переключается между серверами и перезапускает соединение, если это требуется.</p>
-      <div class="grid"><article class="feature"><span class="feature-number">01</span><h3>Переключается на резерв</h3><p>Если основной канал недоступен, Fabula автоматически выбирает рабочее резервное подключение.</p></article><article class="feature"><span class="feature-number">02</span><h3>Восстанавливает работу</h3><p>При необходимости соединение перезапускается без сложных настроек и ручного поиска причины.</p></article><article class="feature"><span class="feature-number">03</span><h3>Оставляет сервисы рядом</h3><p>Нейросети, мессенджеры и видеосервисы остаются доступными в привычном ежедневном ритме.</p></article></div>
-    </section>
-    <section class="section" id="inside">
-      <div class="eyebrow">10 модулей — по вашим правилам</div><h2>Fabula меняется вместе с вашим настроением</h2><p class="lead">Выбирайте модули под своё состояние и приоритеты, меняйте их порядок и возвращайте в любой момент. Отключённый модуль сохраняет ваши данные и ждёт, когда снова понадобится.</p>
-      <div class="grid">
-        <article class="feature"><span class="feature-number">01</span><h3>Почувствуйте себя</h3><p>Выберите то, что важно именно сегодня: ориентир, поддержка, ритм или пространство для себя.</p></article>
-        <article class="feature"><span class="feature-number">02</span><h3>Соберите настроение</h3><p>Подключайте нужные модули и убирайте всё, что сейчас не откликается.</p></article>
-        <article class="feature"><span class="feature-number">03</span><h3>Меняйте без потерь</h3><p>Возвращайте отключённые модули в любой момент — ваша история останется на месте.</p></article>
-      </div>
-    </section>
-    <section class="section center" id="modules">
-      <div class="eyebrow">Ваш эмоциональный конструктор</div><h2>10 модулей.<br>Бесконечно много состояний.</h2><p class="lead">Соберите из них свою Fabula. Защищённая связь работает в основе приложения и не считается отдельным эмоциональным модулем.</p>
-      <div class="modules">
-        <article class="module"><span class="module-icon">✦</span><strong>Ваш день</strong><small>Цвет, число и энергия</small></article>
-        <article class="module"><span class="module-icon">✧</span><strong>Таро</strong><small>Карта и толкование</small></article>
-        <article class="module"><span class="module-icon">☾</span><strong>Гороскоп</strong><small>Личный прогноз</small></article>
-        <article class="module"><span class="module-icon">◔</span><strong>Лунный ритм</strong><small>Фаза и рекомендация</small></article>
-        <article class="module"><span class="module-icon">♡</span><strong>Совместимость</strong><small>Разбор пары</small></article>
-        <article class="module"><span class="module-icon">❀</span><strong>Аффирмация</strong><small>Личная опора дня</small></article>
-        <article class="module"><span class="module-icon">◌</span><strong>Настроение</strong><small>Эмоциональный ритм</small></article>
-        <article class="module"><span class="module-icon">◈</span><strong>Образ дня</strong><small>Вдохновение и детали</small></article>
-        <article class="module"><span class="module-icon">∞</span><strong>Личный дневник</strong><small>Приватные заметки</small></article>
-        <article class="module"><span class="module-icon">◷</span><strong>Женский календарь</strong><small>Бережные подсказки</small></article>
-      </div>
-    </section>
-    <section class="section roadmap" id="soon">
-      <div class="eyebrow">Ближайшие обновления</div>
-      <h2>Уже в ближайшие дни</h2>
-      <p class="lead">Fabula станет ещё ближе к вашему состоянию. Два новых модуля продолжат идею конструктора настроения — их можно будет подключать тогда, когда они нужны.</p>
-      <div class="roadmap-grid">
-        <article class="roadmap-card"><div class="roadmap-icon" aria-hidden="true">♫</div><span class="roadmap-tag">В ближайшие дни</span><h3>Музыка настроения</h3><p>Встроенный проигрыватель с музыкой под состояние и ритм дня — для концентрации, спокойствия, энергии или отдыха.</p></article>
-        <article class="roadmap-card"><div class="roadmap-icon" aria-hidden="true">✦</div><span class="roadmap-tag">В ближайшие дни</span><h3>AI-собеседник Fabula</h3><p>Бережный собеседник, с которым можно проговорить мысли, лучше понять своё состояние и получить ориентир на сегодня.</p></article>
-      </div>
-    </section>
-    <section class="manifesto">
-      <div class="eyebrow" style="color:#ead0d9">Это только начало</div>
-      <h2>Настроение меняется. Fabula меняется вместе с вами.</h2>
-      <p>Подключайте то, что поддерживает вас сегодня, и убирайте лишнее. Новые инструменты будут появляться как самостоятельные модули — без перегруженного интерфейса и навязанных сценариев.</p>
+      <div class="visual"><img src="assets/strength.webp" alt="Fabula — опора и вдохновение"></div>
     </section>
     <section class="download" id="download">
-      <div class="eyebrow">Тестовая версия 0.4.2</div><h2>Соберите свою Fabula</h2><p class="lead">Выберите устройство, установите приложение и оставьте только те разделы, которыми хотите пользоваться.</p>
-      <div class="actions" style="justify-content:center"><a class="btn primary android-download" data-platform="android" href="https://router1.tech/fabula/android/Fabula.apk">Собрать на Android</a><a class="btn windows-download" data-platform="windows" href="https://router1.tech/fabula/windows/FabulaSetup.exe">Скачать для Windows</a></div>
-      <div class="notice android-note">Android может запросить разрешение на установку из браузера — это нормально для тестовой версии вне Google Play.</div>
+      <h2>Скачивайте и наслаждайтесь</h2>
+      <div class="actions"><a class="btn primary android-download" data-platform="android" href="https://router1.tech/fabula/android/Fabula.apk">Скачать для Android</a><a class="btn windows-download" data-platform="windows" href="https://router1.tech/fabula/windows/FabulaSetup.exe">Скачать для Windows</a></div>
+      <div class="notice android-note">Android может запросить разрешение на установку из браузера.</div>
       <div class="notice windows-note">Windows может показать SmartScreen. Нажмите «Подробнее» → «Выполнить в любом случае».</div>
       <div class="notice apple-note">Версия для iPhone и Mac готовится. Сейчас Fabula доступна для Android и Windows.</div>
-      <p class="micro">Тестовая версия развивается каждую неделю. Приложение само сообщит, когда появится доступное обновление.</p>
-      <p class="micro">Поддержка: <a href="https://t.me/Router1_pro" style="color:var(--wine)">Telegram</a></p>
+      <p class="micro">Поддержка: <a href="https://t.me/Router1_pro">Telegram</a></p>
     </section>
     <footer><span>© 2026 Fabula</span><span>Android · Windows</span></footer>
   </main>
@@ -103,9 +70,9 @@
       for(const key of ['utm_source','utm_medium','utm_campaign','utm_content']){const value=params.get(key);if(value)tracking.set(key,value)}
       tracking.set('page',location.hostname);tracking.set('referrer',document.referrer.slice(0,300));
       document.querySelectorAll('[data-platform]').forEach(link=>{const query=new URLSearchParams(tracking);query.set('platform',link.dataset.platform);link.href=`${link.href}?${query}`});
-      if(android){primary.textContent='Собрать свою Fabula';primary.href=document.querySelector('.android-download').href;document.querySelector('.android-note').classList.add('visible')}
-      else if(windows){primary.textContent='Скачать для Windows';primary.href=document.querySelector('.windows-download').href;document.querySelector('.windows-note').classList.add('visible')}
-      else if(apple){primary.textContent='Посмотреть доступные версии';primary.href='#download';document.querySelector('.apple-note').classList.add('visible')}
+      if(android){primary.href=document.querySelector('.android-download').href;document.querySelector('.android-note').classList.add('visible')}
+      else if(windows){primary.href=document.querySelector('.windows-download').href;document.querySelector('.windows-note').classList.add('visible')}
+      else if(apple){primary.href='#download';document.querySelector('.apple-note').classList.add('visible')}
     })();
   </script>
 </body>

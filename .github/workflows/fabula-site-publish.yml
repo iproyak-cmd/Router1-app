@@ -152,11 +152,9 @@ jobs:
         run: |
           set -euo pipefail
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
-          grep -Fq 'Собрать свою Fabula' <<<"$page"
-          grep -Fq 'Fabula заботится' <<<"$page"
-          grep -Fq '10 эмоциональных модулей' <<<"$page"
-          grep -Fq 'Музыка настроения' <<<"$page"
-          grep -Fq 'AI-собеседник Fabula' <<<"$page"
+          grep -Fq 'Ваш VPN.' <<<"$page"
+          grep -Fq 'Опора и вдохновение.' <<<"$page"
+          grep -Fq 'Скачивайте и наслаждайтесь' <<<"$page"
           grep -Fq 'assets/strength.webp' <<<"$page"
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/strength.webp | grep -Fq '200'
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
