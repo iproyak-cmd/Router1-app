@@ -5,16 +5,17 @@ void main() {
   test('optional bottom sections follow profile toggles', () {
     expect(
       fabulaNavigationSectionIds({
+        companionModuleId,
         cycleModuleId,
         connectionModuleId,
         compatibilityModuleId,
       }),
-      ['today', 'cycle', 'connection', 'compatibility', 'profile'],
+      ['today', 'companion', 'cycle', 'connection', 'compatibility', 'profile'],
     );
 
     expect(
-      fabulaNavigationSectionIds({connectionModuleId}),
-      ['today', 'connection', 'profile'],
+      fabulaNavigationSectionIds({companionModuleId, connectionModuleId}),
+      ['today', 'companion', 'connection', 'profile'],
     );
 
     expect(fabulaNavigationSectionIds({}), ['today', 'profile']);

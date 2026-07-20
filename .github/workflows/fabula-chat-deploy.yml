@@ -1,0 +1,244 @@
+name: Deploy Fabula companion
+
+on:
+  push:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/fabula-chat-deploy.yml"
+      - "server/fabula_chat.py"
+      - "server/fabula_chat_http.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabula-chat-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment secrets
+        run: |
+          test -n "$SSHPASS"
+          test -n "$OPENROUTER_API_KEY"
+          case "$OPENROUTER_API_KEY" in sk-or-v1-*) ;; *) exit 1 ;; esac
+      - name: Install SSH client helper
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Upload companion service
+        run: |
+          umask 077
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/openrouter.key"
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            server/fabula_chat.py \
+            server/fabula_chat_http.py \
+            "$RUNNER_TEMP/openrouter.key" \
+            root@201.51.4.89:/tmp/
+      - name: Deploy with backup, verification and rollback
+        shell: bash
+        run: |
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+
+          ROOT=/opt/vpn_bot
+          ENV_FILE="$ROOT/.env"
+          UNIT=/etc/systemd/system/fabula-chat.service
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP_DIR="$ROOT/backups/fabula_chat_$STAMP"
+          mkdir -p "$BACKUP_DIR"
+          OPENROUTER_API_KEY=$(cat /tmp/openrouter.key)
+          rm -f /tmp/openrouter.key
+          export OPENROUTER_API_KEY
+
+          CONFIG=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          seen = set()
+          for directory in ("/etc/nginx/sites-enabled", "/etc/nginx/conf.d"):
+              root = pathlib.Path(directory)
+              if not root.exists():
+                  continue
+              for candidate in root.glob("*"):
+                  try:
+                      path = candidate.resolve()
+                      if path in seen or not path.is_file():
+                          continue
+                      seen.add(path)
+                      text = path.read_text(encoding="utf-8")
+                  except (OSError, UnicodeError):
+                      continue
+                  if re.search(r"server_name[^;]*router1\.tech[^;]*;", text):
+                      print(path)
+                      raise SystemExit
+          raise SystemExit("router1.tech nginx config not found")
+          PY
+          )
+
+          cp -a "$CONFIG" "$BACKUP_DIR/nginx.conf"
+          cp -a "$ENV_FILE" "$BACKUP_DIR/env"
+          if [ -f "$UNIT" ]; then cp -a "$UNIT" "$BACKUP_DIR/service.unit"; else touch "$BACKUP_DIR/service.unit.missing"; fi
+          for name in fabula_chat.py fabula_chat_http.py; do
+            if [ -f "$ROOT/$name" ]; then cp -a "$ROOT/$name" "$BACKUP_DIR/$name"; else touch "$BACKUP_DIR/$name.missing"; fi
+          done
+
+          rollback() {
+            set +e
+            cp -a "$BACKUP_DIR/nginx.conf" "$CONFIG"
+            cp -a "$BACKUP_DIR/env" "$ENV_FILE"
+            for name in fabula_chat.py fabula_chat_http.py; do
+              if [ -f "$BACKUP_DIR/$name.missing" ]; then rm -f "$ROOT/$name"; else cp -a "$BACKUP_DIR/$name" "$ROOT/$name"; fi
+            done
+            if [ -f "$BACKUP_DIR/service.unit.missing" ]; then
+              systemctl disable --now fabula-chat.service || true
+              rm -f "$UNIT"
+            else
+              cp -a "$BACKUP_DIR/service.unit" "$UNIT"
+            fi
+            systemctl daemon-reload
+            systemctl restart fabula-chat.service || true
+            nginx -t && systemctl reload nginx
+            echo "ROLLBACK_OK backup=$BACKUP_DIR"
+          }
+          trap rollback ERR
+
+          install -m 0644 /tmp/fabula_chat.py "$ROOT/fabula_chat.py"
+          install -m 0644 /tmp/fabula_chat_http.py "$ROOT/fabula_chat_http.py"
+          python3 -m py_compile "$ROOT/fabula_chat.py" "$ROOT/fabula_chat_http.py"
+
+          OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ENV_FILE="$ENV_FILE" python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["ENV_FILE"])
+          key = os.environ["OPENROUTER_API_KEY"].strip()
+          lines = path.read_text(encoding="utf-8").splitlines()
+          output = []
+          replaced = False
+          for line in lines:
+              if line.strip().startswith("OPENROUTER_API_KEY="):
+                  output.append(f"OPENROUTER_API_KEY={key}")
+                  replaced = True
+              else:
+                  output.append(line)
+          if not replaced:
+              output.append(f"OPENROUTER_API_KEY={key}")
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          os.chmod(path, 0o600)
+          PY
+
+          cat >"$UNIT" <<'UNITFILE'
+          [Unit]
+          Description=Fabula AI companion gateway
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/vpn_bot
+          EnvironmentFile=/opt/vpn_bot/.env
+          Environment=FABULA_CHAT_HOST=127.0.0.1
+          Environment=FABULA_CHAT_PORT=8012
+          Environment=FABULA_CHAT_DAILY_LIMIT=50
+          Environment=OPENROUTER_MODEL=openrouter/free
+          ExecStart=/usr/bin/python3 /opt/vpn_bot/fabula_chat_http.py
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
+
+          systemctl daemon-reload
+          systemctl enable --now fabula-chat.service
+
+          CONFIG="$CONFIG" python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path(os.environ["CONFIG"])
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_CHAT"
+          if marker in text:
+              raise SystemExit(0)
+          match = re.search(r"server_name[^;]*router1\.tech[^;]*;", text)
+          if not match:
+              raise SystemExit("router1.tech server block not found")
+          starts = list(re.finditer(r"server\s*\{", text[: match.start()]))
+          if not starts:
+              raise SystemExit("nginx server block start not found")
+          start = starts[-1].start()
+          depth = 0
+          end = None
+          for index in range(text.find("{", start), len(text)):
+              if text[index] == "{":
+                  depth += 1
+              elif text[index] == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = index
+                      break
+          if end is None:
+              raise SystemExit("nginx server block end not found")
+          location = """
+              # FABULA_CHAT
+              location = /api/fabula/chat {
+                  limit_except POST { deny all; }
+                  proxy_pass http://127.0.0.1:8012;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header Authorization $http_authorization;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_connect_timeout 5s;
+                  proxy_read_timeout 50s;
+                  client_max_body_size 64k;
+              }
+          """
+          path.write_text(text[:end] + location + text[end:], encoding="utf-8")
+          PY
+
+          nginx -t
+          systemctl reload nginx
+          curl -fsS --max-time 8 http://127.0.0.1:8012/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+
+          APP_API_TOKEN=$(python3 - <<'PY'
+          from pathlib import Path
+          values = {}
+          for raw in Path("/opt/vpn_bot/.env").read_text(encoding="utf-8").splitlines():
+              line = raw.strip()
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key.strip()] = value.strip().strip('"').strip("'")
+          print(values.get("APP_API_TOKEN", ""))
+          PY
+          )
+          test -n "$APP_API_TOKEN"
+          curl -fsS --max-time 55 \
+            -H "Authorization: Bearer $APP_API_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"installation_id":"deploy-check-001","name":"Анна","messages":[{"role":"user","content":"Мне тревожно. Просто выслушай меня."}]}' \
+            https://router1.tech/api/fabula/chat \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["reply"].strip(); print("CHAT_OK")'
+
+          trap - ERR
+          echo "DEPLOY_OK backup=$BACKUP_DIR"
+          REMOTE

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'daily_look.dart';
+import 'fabula_companion.dart';
 import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
@@ -14,8 +15,8 @@ import 'services/awg_tunnel_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.5+15';
-const fabulaBuild = 15;
+const fabulaVersion = '0.4.6+16';
+const fabulaBuild = 16;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -39,6 +40,11 @@ const zodiacSigns = <(String, String, String)>[
 ];
 
 const _moduleCatalog = <({String id, String title, String subtitle})>[
+  (
+    id: 'companion',
+    title: 'Собеседник',
+    subtitle: 'Выслушает и поможет разобраться в чувствах',
+  ),
   (id: 'day', title: 'Ваш день', subtitle: 'Цвет, число и энергия дня'),
   (id: 'tarot', title: 'Таро', subtitle: 'Карта дня и полное толкование'),
   (
@@ -171,8 +177,14 @@ class _FabulaShellState extends State<FabulaShell> {
     final savedModules = prefs.getStringList('fabula_enabled_modules');
     if (savedModules != null) {
       enabledModules = savedModules.toSet();
-      if ((prefs.getInt('fabula_modules_schema') ?? 1) < 2) {
+      final moduleSchema = prefs.getInt('fabula_modules_schema') ?? 1;
+      if (moduleSchema < 2) {
         enabledModules.add('cycle');
+      }
+      if (moduleSchema < 3) {
+        enabledModules.add('companion');
+      }
+      if (moduleSchema < 3) {
         await prefs.setStringList(
           'fabula_enabled_modules',
           _moduleCatalog
@@ -182,7 +194,7 @@ class _FabulaShellState extends State<FabulaShell> {
         );
       }
     }
-    await prefs.setInt('fabula_modules_schema', 2);
+    await prefs.setInt('fabula_modules_schema', 3);
     final cycleStart = prefs.getString('fabula_cycle_start');
     final parsedCycleStart = cycleStart == null
         ? null
@@ -633,7 +645,7 @@ class _FabulaShellState extends State<FabulaShell> {
           .map((item) => item.id)
           .toList(growable: false),
     );
-    await prefs.setInt('fabula_modules_schema', 2);
+    await prefs.setInt('fabula_modules_schema', 3);
   }
 
   Future<void> _share() async {
@@ -671,6 +683,23 @@ class _FabulaShellState extends State<FabulaShell> {
           label: 'Сегодня',
         ),
       ),
+      if (visibleNavigation.contains(companionModuleId))
+        (
+          id: 'companion',
+          page: FabulaCompanionPage(
+            api: FabulaCompanionApi(
+              baseUrl: 'https://router1.tech/api',
+              token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
+            ),
+            installationId: installationId,
+            name: name,
+          ),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble),
+            label: 'Рядом',
+          ),
+        ),
       if (visibleNavigation.contains(cycleModuleId))
         (
           id: 'cycle',

@@ -19,6 +19,8 @@ android/key.properties
 *.backup_claude_*
 build_claude.log
 *.log
+__pycache__/
+*.pyc
 # Artifacts & secrets
 *.apk
 *.aab
