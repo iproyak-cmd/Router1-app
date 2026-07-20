@@ -1,0 +1,233 @@
+name: Deploy Fabula daily content
+
+on:
+  push:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/fabula-daily-content-deploy.yml"
+      - "server/fabula_daily_content.py"
+      - "server/fabula_daily_content_http.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabula-daily-content-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SSH client helper
+        run: |
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Upload daily content service
+        run: |
+          sshpass -e scp             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             server/fabula_daily_content.py             server/fabula_daily_content_http.py             root@201.51.4.89:/tmp/
+      - name: Deploy with backup, verification and rollback
+        shell: bash
+        run: |
+          sshpass -e ssh             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+
+          ROOT=/opt/vpn_bot
+          UNIT=/etc/systemd/system/fabula-daily-content.service
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP_DIR="$ROOT/backups/fabula_daily_content_$STAMP"
+          mkdir -p "$BACKUP_DIR"
+
+          CONFIG=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          seen = set()
+          for directory in ("/etc/nginx/sites-enabled", "/etc/nginx/conf.d"):
+              root = pathlib.Path(directory)
+              if not root.exists():
+                  continue
+              for candidate in root.glob("*"):
+                  try:
+                      path = candidate.resolve()
+                      if path in seen or not path.is_file():
+                          continue
+                      seen.add(path)
+                      text = path.read_text(encoding="utf-8")
+                  except (OSError, UnicodeError):
+                      continue
+                  if re.search(r"server_name[^;]*router1\.tech[^;]*;", text):
+                      print(path)
+                      raise SystemExit
+          raise SystemExit("router1.tech nginx config not found")
+          PY
+          )
+
+          cp -a "$CONFIG" "$BACKUP_DIR/nginx.conf"
+          if [ -f "$UNIT" ]; then
+            cp -a "$UNIT" "$BACKUP_DIR/service.unit"
+          else
+            touch "$BACKUP_DIR/service.unit.missing"
+          fi
+          for name in fabula_daily_content.py fabula_daily_content_http.py; do
+            if [ -f "$ROOT/$name" ]; then
+              cp -a "$ROOT/$name" "$BACKUP_DIR/$name"
+            else
+              touch "$BACKUP_DIR/$name.missing"
+            fi
+          done
+
+          rollback() {
+            set +e
+            cp -a "$BACKUP_DIR/nginx.conf" "$CONFIG"
+            nginx -t && systemctl reload nginx
+            for name in fabula_daily_content.py fabula_daily_content_http.py; do
+              if [ -f "$BACKUP_DIR/$name.missing" ]; then
+                rm -f "$ROOT/$name"
+              else
+                cp -a "$BACKUP_DIR/$name" "$ROOT/$name"
+              fi
+            done
+            if [ -f "$BACKUP_DIR/service.unit.missing" ]; then
+              systemctl disable --now fabula-daily-content.service
+              rm -f "$UNIT"
+            else
+              cp -a "$BACKUP_DIR/service.unit" "$UNIT"
+              systemctl daemon-reload
+              systemctl restart fabula-daily-content.service
+            fi
+            echo "ROLLBACK_OK backup=$BACKUP_DIR"
+          }
+          trap rollback ERR
+
+          install -m 0644 /tmp/fabula_daily_content.py "$ROOT/fabula_daily_content.py"
+          install -m 0644 /tmp/fabula_daily_content_http.py "$ROOT/fabula_daily_content_http.py"
+          python3 -m py_compile             "$ROOT/fabula_daily_content.py"             "$ROOT/fabula_daily_content_http.py"
+
+          cat >"$UNIT" <<'UNITFILE'
+          [Unit]
+          Description=Fabula persistent daily content
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/vpn_bot
+          EnvironmentFile=/opt/vpn_bot/.env
+          Environment=FABULA_CONTENT_HOST=127.0.0.1
+          Environment=FABULA_CONTENT_PORT=8011
+          Environment=FABULA_TIMEZONE=Europe/Moscow
+          ExecStart=/usr/bin/python3 /opt/vpn_bot/fabula_daily_content_http.py
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
+
+          systemctl daemon-reload
+          systemctl enable --now fabula-daily-content.service
+
+          CONFIG="$CONFIG" python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path(os.environ["CONFIG"])
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_DAILY_CONTENT"
+          if marker in text:
+              raise SystemExit(0)
+
+          match = re.search(r"server_name[^;]*router1\.tech[^;]*;", text)
+          if not match:
+              raise SystemExit("router1.tech server block not found")
+
+          starts = list(re.finditer(r"server\s*\{", text[: match.start()]))
+          if not starts:
+              raise SystemExit("nginx server block start not found")
+          start = starts[-1].start()
+          depth = 0
+          end = None
+          for index in range(text.find("{", start), len(text)):
+              if text[index] == "{":
+                  depth += 1
+              elif text[index] == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = index
+                      break
+          if end is None:
+              raise SystemExit("nginx server block end not found")
+
+          location = """
+              # FABULA_DAILY_CONTENT
+              location ^~ /api/fabula/horoscope/ {
+                  proxy_pass http://127.0.0.1:8011;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header Authorization $http_authorization;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_connect_timeout 3s;
+                  proxy_read_timeout 15s;
+              }
+          """
+          path.write_text(text[:end] + location + text[end:], encoding="utf-8")
+          PY
+
+          nginx -t
+          systemctl reload nginx
+          curl -fsS --max-time 8 http://127.0.0.1:8011/health             | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+
+          APP_API_TOKEN=$(python3 - <<'PY'
+          from pathlib import Path
+
+          values = {}
+          for raw in Path("/opt/vpn_bot/.env").read_text(encoding="utf-8").splitlines():
+              line = raw.strip()
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key.strip()] = value.strip().strip('"').strip("'")
+          token = values.get("APP_API_TOKEN", "")
+          if not token:
+              raise SystemExit("APP_API_TOKEN missing")
+          print(token)
+          PY
+          )
+          export APP_API_TOKEN
+          TODAY=$(TZ=Europe/Moscow date +%F)
+          URL="https://router1.tech/api/fabula/horoscope/libra?date=$TODAY"
+          curl -fsS --max-time 15             -H "Authorization: Bearer $APP_API_TOKEN"             "$URL" > /tmp/fabula-daily-first.json
+          curl -fsS --max-time 15             -H "Authorization: Bearer $APP_API_TOKEN"             "$URL" > /tmp/fabula-daily-second.json
+          EXPECTED_DATE="$TODAY" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          first = json.loads(Path("/tmp/fabula-daily-first.json").read_text())
+          second = json.loads(Path("/tmp/fabula-daily-second.json").read_text())
+          assert first == second
+          assert first["date"] == os.environ["EXPECTED_DATE"]
+          assert first["sign"] == "libra"
+          assert first["lunar_phase"]
+          assert first["tarot"]["title"]
+          print(
+              "DEPLOY_OK "
+              f"date={first['date']} sign={first['sign']} "
+              f"phase={first['lunar_phase']}"
+          )
+          PY
+
+          trap - ERR
+          echo "BACKUP_OK path=$BACKUP_DIR"
+          REMOTE

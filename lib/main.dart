@@ -11,11 +11,12 @@ import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/daily_content_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.3+13';
-const fabulaBuild = 13;
+const fabulaVersion = '0.4.4+14';
+const fabulaBuild = 14;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -112,7 +113,8 @@ class FabulaShell extends StatefulWidget {
   State<FabulaShell> createState() => _FabulaShellState();
 }
 
-class _FabulaShellState extends State<FabulaShell> {
+class _FabulaShellState extends State<FabulaShell>
+    with WidgetsBindingObserver {
   final api = Router1Api(
     baseUrl: 'https://router1.tech/api',
     token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
@@ -120,6 +122,7 @@ class _FabulaShellState extends State<FabulaShell> {
   );
   final tunnel = AwgTunnelService();
   final updates = InternalUpdateService();
+  late final dailyContent = DailyContentService(api);
   String section = 'today';
   var loading = true;
   var vpnBusy = false;
@@ -138,20 +141,40 @@ class _FabulaShellState extends State<FabulaShell> {
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
   Future<Router1ClientLookup>? vpnAccessPreparation;
   Timer? timer;
+  Timer? dayTimer;
+  var dailyRefreshBusy = false;
+  DateTime dailyDate = dateOnly(DateTime.now());
+  DailyContentSource contentSource = DailyContentSource.editorialOffline;
+  DateTime? contentUpdatedAt;
+  String contentNotice = '';
+  int? energyLevel;
+  String? mood;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
     timer = Timer.periodic(
       const Duration(seconds: 4),
       (_) => unawaited(_refreshVpn()),
     );
+    _scheduleDailyRefresh();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshDailyContent());
+      unawaited(_checkForUpdate());
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
+    dayTimer?.cancel();
     super.dispose();
   }
 
@@ -163,9 +186,11 @@ class _FabulaShellState extends State<FabulaShell> {
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
     journalEntry = prefs.getString('fabula_journal_entry') ?? '';
+    dailyDate = dateOnly(DateTime.now());
+    _loadCheckIn(prefs);
     dailyLook = await const DailyLookService().resolve(
       installationId: installationId,
-      date: DateTime.now(),
+      date: dailyDate,
       preferences: prefs,
     );
     final savedModules = prefs.getStringList('fabula_enabled_modules');
@@ -234,14 +259,130 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _loadForecast() async {
+    final prefs = await SharedPreferences.getInstance();
+    final result = await dailyContent.resolve(
+      sign: sign,
+      date: dailyDate,
+      preferences: prefs,
+    );
+    if (!mounted) return;
+    setState(() {
+      forecast = result.forecast;
+      contentSource = result.source;
+      contentUpdatedAt = result.updatedAt;
+      contentNotice = result.notice;
+    });
+  }
+
+  void _scheduleDailyRefresh() {
+    dayTimer?.cancel();
+    final now = DateTime.now();
+    final nextDay = DateTime(now.year, now.month, now.day + 1);
+    dayTimer = Timer(nextDay.difference(now) + const Duration(seconds: 2), () {
+      unawaited(_refreshDailyContent(force: true));
+      _scheduleDailyRefresh();
+    });
+  }
+
+  Future<void> _refreshDailyContent({bool force = false}) async {
+    if (dailyRefreshBusy) return;
+    final today = dateOnly(DateTime.now());
+    if (!force && dateKey(today) == dateKey(dailyDate)) return;
+    dailyRefreshBusy = true;
     try {
-      final v = await api.dailyHoroscope(sign);
-      if (v.tarotTitle.trim().isEmpty || v.tarotMeaning.trim().isEmpty) {
-        throw const FormatException('incomplete_daily_content');
-      }
-      if (mounted) setState(() => forecast = v);
-    } catch (_) {
-      if (mounted) setState(() => forecast = _demoForecast(sign));
+      dailyDate = today;
+      final prefs = await SharedPreferences.getInstance();
+      _loadCheckIn(prefs);
+      final look = await const DailyLookService().resolve(
+        installationId: installationId,
+        date: dailyDate,
+        preferences: prefs,
+      );
+      if (mounted) setState(() => dailyLook = look);
+      await _loadForecast();
+    } finally {
+      dailyRefreshBusy = false;
+    }
+  }
+
+  void _loadCheckIn(SharedPreferences prefs) {
+    final today = dateKey(dailyDate);
+    if (prefs.getString('fabula_checkin_date') == today) {
+      energyLevel = prefs.getInt('fabula_checkin_energy');
+      mood = prefs.getString('fabula_checkin_mood');
+    } else {
+      energyLevel = null;
+      mood = null;
+    }
+  }
+
+  Future<void> _editCheckIn() async {
+    var selectedEnergy = energyLevel ?? 3;
+    var selectedMood = mood ?? 'спокойно';
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: _cream,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _editorial('Как вы себя чувствуете?', size: 27),
+              const SizedBox(height: 8),
+              const Text(
+                'Это ваша отметка, а не предсказание приложения.',
+                style: TextStyle(color: _muted),
+              ),
+              const SizedBox(height: 18),
+              Text('Энергия: ${selectedEnergy * 20}%'),
+              Slider(
+                value: selectedEnergy.toDouble(),
+                min: 1,
+                max: 5,
+                divisions: 4,
+                label: '${selectedEnergy * 20}%',
+                onChanged: (value) => setSheetState(
+                  () => selectedEnergy = value.round(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: ['спокойно', 'легко', 'собранно', 'устало', 'тревожно']
+                    .map(
+                      (value) => ChoiceChip(
+                        label: Text(value),
+                        selected: selectedMood == value,
+                        onSelected: (_) =>
+                            setSheetState(() => selectedMood = value),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+              const SizedBox(height: 22),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Сохранить отметку'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fabula_checkin_date', dateKey(dailyDate));
+    await prefs.setInt('fabula_checkin_energy', selectedEnergy);
+    await prefs.setString('fabula_checkin_mood', selectedMood);
+    if (mounted) {
+      setState(() {
+        energyLevel = selectedEnergy;
+        mood = selectedMood;
+      });
     }
   }
 
@@ -626,11 +767,17 @@ class _FabulaShellState extends State<FabulaShell> {
           name: name,
           dailyLook: dailyLook,
           forecast: forecast,
+          contentSource: contentSource,
+          contentUpdatedAt: contentUpdatedAt,
+          contentNotice: contentNotice,
+          energyLevel: energyLevel,
+          mood: mood,
           enabledModules: enabledModules,
           journalEntry: journalEntry,
           onSign: _chooseSign,
           onShare: _share,
           onJournal: _editJournal,
+          onCheckIn: _editCheckIn,
         ),
         destination: const NavigationDestination(
           icon: Icon(Icons.auto_awesome_outlined),
@@ -940,28 +1087,96 @@ Text _editorial(String text, {double size = 30}) => Text(
   ),
 );
 
+class _DailyContentStatus extends StatelessWidget {
+  const _DailyContentStatus({
+    required this.source,
+    required this.notice,
+    required this.updatedAt,
+  });
+
+  final DailyContentSource source;
+  final String notice;
+  final DateTime? updatedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = source == DailyContentSource.live;
+    final cached = source == DailyContentSource.cached;
+    final time = updatedAt == null
+        ? ''
+        : ' · ${updatedAt!.hour.toString().padLeft(2, '0')}:'
+              '${updatedAt!.minute.toString().padLeft(2, '0')}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: live
+            ? const Color(0xFFE8EDE7)
+            : cached
+            ? const Color(0xFFF1ECE3)
+            : const Color(0xFFF3E4E8),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            live
+                ? Icons.cloud_done_outlined
+                : cached
+                ? Icons.history
+                : Icons.cloud_off_outlined,
+            size: 17,
+            color: live ? const Color(0xFF526A50) : _burgundy,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              '$notice$time',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
     required this.dailyLook,
     required this.forecast,
+    required this.contentSource,
+    required this.contentUpdatedAt,
+    required this.contentNotice,
+    required this.energyLevel,
+    required this.mood,
     required this.enabledModules,
     required this.journalEntry,
     required this.onSign,
     required this.onShare,
     required this.onJournal,
+    required this.onCheckIn,
   });
   final String name;
   final DailyLook? dailyLook;
   final Router1DailyHoroscope? forecast;
+  final DailyContentSource contentSource;
+  final DateTime? contentUpdatedAt;
+  final String contentNotice;
+  final int? energyLevel;
+  final String? mood;
   final Set<String> enabledModules;
   final String journalEntry;
-  final VoidCallback onSign, onShare, onJournal;
+  final VoidCallback onSign, onShare, onJournal, onCheckIn;
 
   @override
   Widget build(BuildContext context) {
-    final f = forecast ?? _demoForecast('libra');
-    final energy = 76 + (f.number * 3) % 19;
+    final f = forecast ?? buildEditorialForecast('libra', DateTime.now());
     return _Page(
       children: [
         Row(
@@ -992,7 +1207,13 @@ class _TodayPage extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 12),
+        _DailyContentStatus(
+          source: contentSource,
+          notice: contentNotice,
+          updatedAt: contentUpdatedAt,
+        ),
+        const SizedBox(height: 12),
         if (enabledModules.contains('look')) ...[
           dailyLook == null
               ? const _DailyLookUnavailableCard()
@@ -1035,32 +1256,39 @@ class _TodayPage extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Container(
-                      width: 88,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3E4E8),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '$energy%',
-                            style: const TextStyle(
-                              color: _burgundy,
-                              fontFamily: 'serif',
-                              fontSize: 27,
+                    InkWell(
+                      onTap: onCheckIn,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        width: 100,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3E4E8),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              energyLevel == null
+                                  ? 'ОТМЕТИТЬ'
+                                  : '${energyLevel! * 20}%',
+                              style: TextStyle(
+                                color: _burgundy,
+                                fontFamily: energyLevel == null ? null : 'serif',
+                                fontSize: energyLevel == null ? 10 : 27,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const Text(
-                            'ЭНЕРГИЯ',
-                            style: TextStyle(
-                              color: _burgundy,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
+                            const Text(
+                              'САМОЧУВСТВИЕ',
+                              style: TextStyle(
+                                color: _burgundy,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -1096,9 +1324,17 @@ class _TodayPage extends StatelessWidget {
                     children: [
                       const _SectionLabel('НАСТРОЕНИЕ ДНЯ'),
                       const SizedBox(height: 6),
-                      _editorial(_mood(f.number), size: 22),
+                      _editorial(
+                        mood ?? 'Отметьте своё состояние',
+                        size: 22,
+                      ),
                     ],
                   ),
+                ),
+                IconButton(
+                  onPressed: onCheckIn,
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Отметить настроение',
                 ),
               ],
             ),
@@ -1253,9 +1489,11 @@ class _TodayPage extends StatelessWidget {
                         size: 21,
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Хороший день, чтобы продолжать начатое и не торопить результат.',
-                        style: TextStyle(
+                      Text(
+                        lunarGuidanceFor(
+                          DateTime.tryParse(f.date) ?? DateTime.now(),
+                        ),
+                        style: const TextStyle(
                           color: _muted,
                           fontSize: 12,
                           height: 1.35,
@@ -1278,11 +1516,17 @@ class _TodayPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'АФФИРМАЦИЯ ДНЯ',
+                        'РЕДАКЦИОННАЯ АФФИРМАЦИЯ',
                         style: TextStyle(color: _burgundy, fontSize: 11),
                       ),
                       const SizedBox(height: 8),
-                      _editorial(_affirmation(f.number), size: 22),
+                      _editorial(
+                        dailyAffirmationFor(
+                          f.sign,
+                          DateTime.tryParse(f.date) ?? DateTime.now(),
+                        ),
+                        size: 22,
+                      ),
                     ],
                   ),
                 ),
@@ -2032,13 +2276,6 @@ class _SectionLabel extends StatelessWidget {
   );
 }
 
-String _mood(int number) => switch (number % 4) {
-  0 => 'ясность',
-  1 => 'лёгкость',
-  2 => 'уверенность',
-  _ => 'гармония',
-};
-
 class _VpnCard extends StatelessWidget {
   const _VpnCard({
     required this.vpn,
@@ -2631,74 +2868,6 @@ String _zodiacFor(int month, int day) {
   }
   if ((month == 1 && day >= 20) || (month == 2 && day <= 18)) return 'aquarius';
   return 'pisces';
-}
-
-String _affirmation(int number) => <String>[
-  'Я могу двигаться в своём темпе и всё равно приходить вовремя.',
-  'Сегодня я замечаю возможности, которые поддерживают меня.',
-  'Я выбираю ясность, спокойствие и бережное отношение к себе.',
-  'Мне не нужно спешить, чтобы быть сильной и заметной.',
-][number.abs() % 4];
-
-Router1DailyHoroscope _demoForecast(String sign) {
-  final z = zodiacSigns.firstWhere(
-    (item) => item.$1 == sign,
-    orElse: () => zodiacSigns[6],
-  );
-  final index = zodiacSigns.indexOf(z);
-  const cards = <(String, String)>[
-    (
-      'Звезда',
-      'Сегодня особенно важно помнить о большой цели. Маленький шаг вернёт ощущение направления и внутренней опоры.',
-    ),
-    (
-      'Императрица',
-      'День раскрывается через заботу, красоту и умение принимать хорошее без чувства вины.',
-    ),
-    (
-      'Луна',
-      'Не торопитесь с выводами. Интуиция уже подсказывает верное направление, но деталям нужно проявиться.',
-    ),
-    (
-      'Шут',
-      'Разрешите себе попробовать новый путь без требования сразу знать весь маршрут.',
-    ),
-    (
-      'Башня',
-      'Освободите место от того, что давно держится только по привычке. Честность сегодня даёт облегчение.',
-    ),
-  ];
-  final card = cards[index % cards.length];
-  const colors = [
-    'Бордовый',
-    'Золотой',
-    'Зелёный',
-    'Синий',
-    'Бирюзовый',
-    'Фиолетовый',
-  ];
-  return Router1DailyHoroscope(
-    date: DateTime.now().toIso8601String().substring(0, 10),
-    sign: z.$1,
-    signTitle: z.$2,
-    symbol: z.$3,
-    lunarPhase: 'Растущая Луна',
-    overview:
-        'Сегодня лучше выбирать не самое громкое решение, а то, после которого внутри становится спокойнее. Один точный шаг даст больше, чем несколько поспешных.',
-    work:
-        'Сосредоточьтесь на одной задаче, которая действительно меняет результат. Разговор во второй половине дня может открыть полезную возможность.',
-    money:
-        'Хороший день для расчётов и взвешенных решений. Не соглашайтесь на условия, которые приходится оправдывать самой себе.',
-    love:
-        'Тёплый прямой разговор окажется важнее догадок. Говорите о своих желаниях мягко, но без лишних намёков.',
-    advice:
-        'Оставьте в расписании немного воздуха — лучшая идея дня может появиться в паузе.',
-    color: colors[index % colors.length],
-    number: (index * 3 + DateTime.now().day) % 9 + 1,
-    tarotTitle: card.$1,
-    tarotMeaning: card.$2,
-    disclaimer: 'Развлекательный персональный прогноз',
-  );
 }
 
 typedef _CompatibilityResult = ({
