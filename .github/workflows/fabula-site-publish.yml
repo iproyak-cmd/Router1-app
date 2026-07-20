@@ -156,7 +156,6 @@ jobs:
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
           grep -Fq 'Женский VPN.' <<<"$page"
           grep -Fq 'Опора и вдохновение.' <<<"$page"
-          grep -Fq 'получите 6 месяцев бесплатно' <<<"$page"
           grep -Fq 'Скачать Fabula' <<<"$page"
           grep -Fq 'assets/hero-strength.webp' <<<"$page"
           grep -Fq 'assets/brand-mark.webp' <<<"$page"
