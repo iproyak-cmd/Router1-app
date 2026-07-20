@@ -69,12 +69,23 @@ jobs:
           sshpass -e ssh             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             root@201.51.4.89 'bash -s' <<'REMOTE'
           set -Eeuo pipefail
 
-          mapfile -t APK_MATCHES < <(
+          mapfile -t APK_CANDIDATES < <(
             find /var/www /srv               -type f -path '*/fabula/android/Fabula.apk' 2>/dev/null || true
           )
+          curl -fsS --max-time 60             https://router1.tech/fabula/android/Fabula.apk             -o /tmp/Fabula-current-public.apk
+          CURRENT_PUBLIC_SHA=$(sha256sum /tmp/Fabula-current-public.apk | awk '{print $1}')
+          APK_MATCHES=()
+          for candidate in "${APK_CANDIDATES[@]}"; do
+            candidate_sha=$(sha256sum "$candidate" | awk '{print $1}')
+            if [ "$candidate_sha" = "$CURRENT_PUBLIC_SHA" ]; then
+              APK_MATCHES+=("$candidate")
+            fi
+          done
           if [ "${#APK_MATCHES[@]}" -ne 1 ]; then
-            echo "Expected one Fabula.apk in the public web root, found ${#APK_MATCHES[@]}"
-            printf 'CANDIDATE %s\\n' "${APK_MATCHES[@]}"
+            echo "Expected one served Fabula.apk, found ${#APK_MATCHES[@]}"
+            for candidate in "${APK_CANDIDATES[@]}"; do
+              echo "CANDIDATE path=$candidate sha256=$(sha256sum "$candidate" | awk '{print $1}')"
+            done
             exit 1
           fi
           TARGET_APK="${APK_MATCHES[0]}"
