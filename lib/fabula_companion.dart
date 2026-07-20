@@ -1,4 +1,5 @@
-// Fabula companion client; OpenRouter credentials stay on the server.\nimport 'dart:convert';
+// Fabula companion client; OpenRouter credentials stay on the server.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
