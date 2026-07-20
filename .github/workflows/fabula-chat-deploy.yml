@@ -1,4 +1,4 @@
-name: Deploy Fabula companion
+# Fabula companion production deployment.\nname: Deploy Fabula companion
 
 on:
   push:
