@@ -81,44 +81,49 @@ jobs:
               APK_MATCHES+=("$candidate")
             fi
           done
-          if [ "${#APK_MATCHES[@]}" -ne 1 ]; then
-            echo "Expected one served Fabula.apk, found ${#APK_MATCHES[@]}"
-            for candidate in "${APK_CANDIDATES[@]}"; do
-              echo "CANDIDATE path=$candidate sha256=$(sha256sum "$candidate" | awk '{print $1}')"
-            done
+          if [ "${#APK_MATCHES[@]}" -lt 1 ]; then
+            echo "No served Fabula.apk matched the current public checksum"
             exit 1
           fi
-          TARGET_APK="${APK_MATCHES[0]}"
-          TARGET_DIR=$(dirname "$TARGET_APK")
-          TARGET_VERSION="$TARGET_DIR/version.json"
-          TARGET_SHA="$TARGET_DIR/Fabula.apk.sha256"
           STAMP=$(date -u +%Y%m%dT%H%M%SZ)
           BACKUP_DIR="/opt/vpn_bot/backups/fabula_android_$STAMP"
           mkdir -p "$BACKUP_DIR"
-          cp -a "$TARGET_APK" "$BACKUP_DIR/Fabula.apk"
-          if [ -f "$TARGET_VERSION" ]; then
-            cp -a "$TARGET_VERSION" "$BACKUP_DIR/version.json"
-          fi
-          if [ -f "$TARGET_SHA" ]; then
-            cp -a "$TARGET_SHA" "$BACKUP_DIR/Fabula.apk.sha256"
-          fi
+          for index in "${!APK_MATCHES[@]}"; do
+            TARGET_APK="${APK_MATCHES[$index]}"
+            TARGET_DIR=$(dirname "$TARGET_APK")
+            mkdir -p "$BACKUP_DIR/$index"
+            cp -a "$TARGET_APK" "$BACKUP_DIR/$index/Fabula.apk"
+            if [ -f "$TARGET_DIR/version.json" ]; then
+              cp -a "$TARGET_DIR/version.json" "$BACKUP_DIR/$index/version.json"
+            fi
+            if [ -f "$TARGET_DIR/Fabula.apk.sha256" ]; then
+              cp -a "$TARGET_DIR/Fabula.apk.sha256" "$BACKUP_DIR/$index/Fabula.apk.sha256"
+            fi
+          done
 
           rollback() {
             set +e
-            cp -a "$BACKUP_DIR/Fabula.apk" "$TARGET_APK"
-            if [ -f "$BACKUP_DIR/version.json" ]; then
-              cp -a "$BACKUP_DIR/version.json" "$TARGET_VERSION"
-            fi
-            if [ -f "$BACKUP_DIR/Fabula.apk.sha256" ]; then
-              cp -a "$BACKUP_DIR/Fabula.apk.sha256" "$TARGET_SHA"
-            fi
+            for index in "${!APK_MATCHES[@]}"; do
+              TARGET_APK="${APK_MATCHES[$index]}"
+              TARGET_DIR=$(dirname "$TARGET_APK")
+              cp -a "$BACKUP_DIR/$index/Fabula.apk" "$TARGET_APK"
+              if [ -f "$BACKUP_DIR/$index/version.json" ]; then
+                cp -a "$BACKUP_DIR/$index/version.json" "$TARGET_DIR/version.json"
+              fi
+              if [ -f "$BACKUP_DIR/$index/Fabula.apk.sha256" ]; then
+                cp -a "$BACKUP_DIR/$index/Fabula.apk.sha256" "$TARGET_DIR/Fabula.apk.sha256"
+              fi
+            done
             echo "ROLLBACK_OK backup=$BACKUP_DIR"
           }
           trap rollback ERR
 
-          install -m 0644 /tmp/Fabula.apk "$TARGET_APK"
-          install -m 0644 /tmp/version.json "$TARGET_VERSION"
-          install -m 0644 /tmp/Fabula.apk.sha256 "$TARGET_SHA"
+          for TARGET_APK in "${APK_MATCHES[@]}"; do
+            TARGET_DIR=$(dirname "$TARGET_APK")
+            install -m 0644 /tmp/Fabula.apk "$TARGET_APK"
+            install -m 0644 /tmp/version.json "$TARGET_DIR/version.json"
+            install -m 0644 /tmp/Fabula.apk.sha256 "$TARGET_DIR/Fabula.apk.sha256"
+          done
 
           EXPECTED_SHA=$(awk '{print $1}' /tmp/Fabula.apk.sha256)
           EXPECTED_SIZE=$(stat -c %s /tmp/Fabula.apk)
