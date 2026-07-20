@@ -70,10 +70,10 @@ jobs:
           set -Eeuo pipefail
 
           mapfile -t APK_MATCHES < <(
-            find /var/www /srv /opt/vpn_bot               -type f -path '*/fabula/android/Fabula.apk'               ! -path '*/backups/*' 2>/dev/null || true
+            find /var/www /srv               -type f -path '*/fabula/android/Fabula.apk' 2>/dev/null || true
           )
           if [ "${#APK_MATCHES[@]}" -ne 1 ]; then
-            echo "Expected one public Fabula.apk, found ${#APK_MATCHES[@]}"
+            echo "Expected one Fabula.apk in the public web root, found ${#APK_MATCHES[@]}"
             exit 1
           fi
           TARGET_APK="${APK_MATCHES[0]}"
