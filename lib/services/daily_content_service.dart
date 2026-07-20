@@ -129,7 +129,7 @@ String dateKey(DateTime value) =>
     '${value.day.toString().padLeft(2, '0')}';
 
 String _cacheKey(String day, String sign) =>
-    'fabula_daily_content_${day}_${sign}';
+    'fabula_daily_content_${day}_$sign';
 
 Map<String, Object?> _toJson(Router1DailyHoroscope value) => {
   'date': value.date,
