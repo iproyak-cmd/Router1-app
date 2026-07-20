@@ -118,7 +118,7 @@ jobs:
           publish_root() {
             root="$1"
             install -d -m 0755 "$root/assets" "$root/android" "$root/windows" "$root/content/daily_looks"
-            for item in index.html assets/empress.webp content/daily-looks.json android/Fabula.apk android/version.json windows/FabulaSetup.exe windows/version.json SHA256SUMS; do
+            for item in index.html assets/strength.webp content/daily-looks.json android/Fabula.apk android/version.json windows/FabulaSetup.exe windows/version.json SHA256SUMS; do
               if [ -f "$root/$item" ]; then
                 install -d -m 0755 "$backup/$(dirname "$item")"
                 cp -a "$root/$item" "$backup/$item"
@@ -157,7 +157,7 @@ jobs:
           grep -Fq '10 эмоциональных модулей' <<<"$page"
           grep -Fq 'Музыка настроения' <<<"$page"
           grep -Fq 'AI-собеседник Fabula' <<<"$page"
-          grep -Fq 'assets/empress.webp' <<<"$page"
+          grep -Fq 'assets/strength.webp' <<<"$page"
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/strength.webp | grep -Fq '200'
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
