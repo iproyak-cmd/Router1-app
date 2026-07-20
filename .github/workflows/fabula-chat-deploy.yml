@@ -167,6 +167,7 @@ jobs:
           Environment=FABULA_CHAT_HOST=127.0.0.1
           Environment=FABULA_CHAT_PORT=8012
           Environment=FABULA_CHAT_DAILY_LIMIT=50
+          Environment=FABULA_CHAT_ANONYMOUS_DAILY_LIMIT=10
           Environment=OPENROUTER_MODEL=openrouter/free
           ExecStart=/usr/bin/python3 /opt/vpn_bot/fabula_chat_http.py
           Restart=always
@@ -239,6 +240,12 @@ jobs:
             --data '{"installation_id":"deploy-check-001","name":"Анна","messages":[{"role":"user","content":"Мне тревожно. Просто выслушай меня."}]}' \
             https://router1.tech/api/fabula/chat \
             | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["reply"].strip(); print("CHAT_OK")'
+
+          curl -fsS --max-time 55 \
+            -H 'Content-Type: application/json' \
+            --data '{"installation_id":"deploy-anonymous-001","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
+            https://router1.tech/api/fabula/chat \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["reply"].strip(); print("ANONYMOUS_CHAT_OK")'
 
           trap - ERR
           echo "DEPLOY_OK backup=$BACKUP_DIR"

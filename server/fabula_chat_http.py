@@ -5,6 +5,8 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import threading
+from collections import Counter
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -24,6 +26,12 @@ LIMITER = SlidingWindowLimiter(
     limit=int(os.environ.get("FABULA_CHAT_DAILY_LIMIT", "50")),
     window_seconds=24 * 60 * 60,
 )
+ANONYMOUS_LIMITER = SlidingWindowLimiter(
+    limit=int(os.environ.get("FABULA_CHAT_ANONYMOUS_DAILY_LIMIT", "10")),
+    window_seconds=24 * 60 * 60,
+)
+METRICS: Counter[str] = Counter()
+METRICS_LOCK = threading.Lock()
 
 if not API_TOKEN:
     raise SystemExit("APP_API_TOKEN is required")
@@ -36,7 +44,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._json(HTTPStatus.OK, {"ok": True})
+            with METRICS_LOCK:
+                metrics = dict(METRICS)
+            self._json(HTTPStatus.OK, {"ok": True, "requests": metrics})
             return
         self._json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
 
@@ -44,7 +54,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/fabula/chat":
             self._json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
             return
-        if not self._authorized():
+        authorized = self._authorized()
+        if not authorized and not self._anonymous_allowed():
+            self._count("anonymous_limit")
             self._json(HTTPStatus.UNAUTHORIZED, {"detail": "unauthorized"})
             return
         try:
@@ -63,6 +75,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.UNPROCESSABLE_ENTITY, {"detail": str(error)})
             return
         if not LIMITER.allowed(payload.installation_id):
+            self._count("installation_limit")
             self._json(
                 HTTPStatus.TOO_MANY_REQUESTS,
                 {"detail": "daily message limit reached"},
@@ -71,11 +84,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             reply = request_openrouter(payload)
         except RuntimeError:
+            self._count("openrouter_failure")
             self._json(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 {"detail": "companion temporarily unavailable"},
             )
             return
+        self._count("success_authorized" if authorized else "success_anonymous")
         self._json(HTTPStatus.OK, {"reply": reply})
 
     def _authorized(self) -> bool:
@@ -87,6 +102,17 @@ class Handler(BaseHTTPRequestHandler):
             bool(CLIENT_API_TOKEN)
             and hmac.compare_digest(supplied, CLIENT_API_TOKEN)
         )
+
+    def _anonymous_allowed(self) -> bool:
+        address = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+        if not address:
+            address = self.client_address[0]
+        return ANONYMOUS_LIMITER.allowed(f"ip:{address}")
+
+    @staticmethod
+    def _count(name: str) -> None:
+        with METRICS_LOCK:
+            METRICS[name] += 1
 
     def _json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
