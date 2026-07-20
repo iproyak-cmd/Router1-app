@@ -52,7 +52,7 @@ class FabulaChatTests(unittest.TestCase):
         self.assertEqual(result["model"], DEFAULT_MODEL)
         self.assertEqual(len(result["messages"]), 13)
         self.assertIn("Анна", result["messages"][0]["content"])
-        self.assertEqual(result["provider"]["data_collection"], "deny")
+        self.assertNotIn("provider", result)
         self.assertLessEqual(result["max_tokens"], 300)
 
     def test_rate_limiter_rejects_after_limit(self):

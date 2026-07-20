@@ -108,7 +108,6 @@ def build_openrouter_payload(payload: FabulaChatPayload) -> dict[str, Any]:
         "messages": messages,
         "max_tokens": 260,
         "temperature": 0.8,
-        "provider": {"data_collection": "deny"},
         "usage": {"include": True},
     }
 
