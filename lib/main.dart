@@ -15,8 +15,8 @@ import 'services/awg_tunnel_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.6+16';
-const fabulaBuild = 16;
+const fabulaVersion = '0.4.7+17';
+const fabulaBuild = 17;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -72,8 +72,8 @@ const _moduleCatalog = <({String id, String title, String subtitle})>[
   ),
   (
     id: 'connection',
-    title: 'Подключение',
-    subtitle: 'Защищённый доступ Fabula',
+    title: 'Защищённое подключение',
+    subtitle: 'Отдельный платный модуль',
   ),
   (
     id: 'cycle',
@@ -129,6 +129,7 @@ class _FabulaShellState extends State<FabulaShell> {
   String section = 'today';
   var loading = true;
   var vpnBusy = false;
+  var connectionEntitled = false;
   var updateBusy = false;
   Router1InternalUpdate? availableUpdate;
   String name = '';
@@ -138,7 +139,10 @@ class _FabulaShellState extends State<FabulaShell> {
   String installationId = '';
   String journalEntry = '';
   DailyLook? dailyLook;
-  Set<String> enabledModules = _moduleCatalog.map((item) => item.id).toSet();
+  Set<String> enabledModules = _moduleCatalog
+      .where((item) => item.id != connectionModuleId)
+      .map((item) => item.id)
+      .toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
@@ -149,10 +153,6 @@ class _FabulaShellState extends State<FabulaShell> {
   void initState() {
     super.initState();
     unawaited(_load());
-    timer = Timer.periodic(
-      const Duration(seconds: 4),
-      (_) => unawaited(_refreshVpn()),
-    );
   }
 
   @override
@@ -169,6 +169,8 @@ class _FabulaShellState extends State<FabulaShell> {
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
     journalEntry = prefs.getString('fabula_journal_entry') ?? '';
+    connectionEntitled =
+        prefs.getBool('fabula_connection_entitled') ?? false;
     dailyLook = await const DailyLookService().resolve(
       installationId: installationId,
       date: DateTime.now(),
@@ -184,7 +186,8 @@ class _FabulaShellState extends State<FabulaShell> {
       if (moduleSchema < 3) {
         enabledModules.add('companion');
       }
-      if (moduleSchema < 3) {
+      if (moduleSchema < 4) {
+        enabledModules.remove(connectionModuleId);
         await prefs.setStringList(
           'fabula_enabled_modules',
           _moduleCatalog
@@ -194,7 +197,7 @@ class _FabulaShellState extends State<FabulaShell> {
         );
       }
     }
-    await prefs.setInt('fabula_modules_schema', 3);
+    await prefs.setInt('fabula_modules_schema', 4);
     final cycleStart = prefs.getString('fabula_cycle_start');
     final parsedCycleStart = cycleStart == null
         ? null
@@ -206,11 +209,20 @@ class _FabulaShellState extends State<FabulaShell> {
         periodLength: prefs.getInt('fabula_period_length') ?? 5,
       );
     }
-    await Future.wait([_loadForecast(), _refreshVpn()]);
+    await _loadForecast();
+    if (connectionEntitled) {
+      await _refreshVpn();
+      timer = Timer.periodic(
+        const Duration(seconds: 4),
+        (_) => unawaited(_refreshVpn()),
+      );
+    }
     if (mounted) setState(() => loading = false);
     unawaited(_trackEvent('app_opened'));
     unawaited(_checkForUpdate());
-    if (phone.isNotEmpty) unawaited(_warmVpnAccess());
+    if (connectionEntitled && phone.isNotEmpty) {
+      unawaited(_warmVpnAccess());
+    }
   }
 
   Future<void> _checkForUpdate() async {
@@ -505,7 +517,7 @@ class _FabulaShellState extends State<FabulaShell> {
     await prefs.setString('fabula_name', name);
     await prefs.setString('fabula_phone', phone);
     vpnAccessPreparation = null;
-    unawaited(_warmVpnAccess());
+    if (connectionEntitled) unawaited(_warmVpnAccess());
     if (mounted) setState(() {});
   }
 
@@ -532,7 +544,7 @@ class _FabulaShellState extends State<FabulaShell> {
       });
     }
     await _loadForecast();
-    unawaited(_warmVpnAccess());
+    if (connectionEntitled) unawaited(_warmVpnAccess());
   }
 
   Future<void> _saveCycle(CycleSettings value) async {
@@ -630,6 +642,7 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _toggleModule(String id, bool enabled) async {
+    if (id == connectionModuleId) return;
     setState(() {
       if (enabled) {
         enabledModules.add(id);
@@ -645,7 +658,7 @@ class _FabulaShellState extends State<FabulaShell> {
           .map((item) => item.id)
           .toList(growable: false),
     );
-    await prefs.setInt('fabula_modules_schema', 3);
+    await prefs.setInt('fabula_modules_schema', 4);
   }
 
   Future<void> _share() async {
@@ -708,16 +721,6 @@ class _FabulaShellState extends State<FabulaShell> {
             icon: Icon(Icons.water_drop_outlined),
             selectedIcon: Icon(Icons.water_drop),
             label: 'Цикл',
-          ),
-        ),
-      if (visibleNavigation.contains(connectionModuleId))
-        (
-          id: 'connection',
-          page: _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
-          destination: const NavigationDestination(
-            icon: Icon(Icons.shield_outlined),
-            selectedIcon: Icon(Icons.shield),
-            label: 'VPN',
           ),
         ),
       if (visibleNavigation.contains(compatibilityModuleId))
@@ -2494,7 +2497,8 @@ class _ProfilePage extends StatelessWidget {
         _editorial('Моя Fabula', size: 27),
         const SizedBox(height: 8),
         Text(
-          '${enabledModules.length} из ${_moduleCatalog.length} блоков подключено. '
+          '${enabledModules.where((id) => id != connectionModuleId).length} '
+          'блоков подключено. '
           'Выключенные блоки остаются доступны и их можно вернуть в любой момент.',
           style: const TextStyle(color: _muted, height: 1.4),
         ),
@@ -2505,23 +2509,39 @@ class _ProfilePage extends StatelessWidget {
             children: [
               for (var index = 0; index < _moduleCatalog.length; index++) ...[
                 SwitchListTile(
-                  value: enabledModules.contains(_moduleCatalog[index].id),
+                  value: _moduleCatalog[index].id == connectionModuleId
+                      ? false
+                      : enabledModules.contains(_moduleCatalog[index].id),
                   activeThumbColor: _burgundy,
                   secondary: Icon(
                     _moduleIcon(_moduleCatalog[index].id),
                     color: _burgundy,
                   ),
-                  title: Text(
-                    _moduleCatalog[index].title,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  title: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _moduleCatalog[index].title,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (_moduleCatalog[index].id == connectionModuleId) ...[
+                        const SizedBox(width: 8),
+                        const _PremiumBadge(),
+                      ],
+                    ],
                   ),
                   subtitle: Text(
                     _moduleCatalog[index].subtitle,
                     style: const TextStyle(color: _muted, fontSize: 11),
                   ),
-                  onChanged: (value) => unawaited(
-                    onModuleChanged(_moduleCatalog[index].id, value),
-                  ),
+                  onChanged: (value) {
+                    if (_moduleCatalog[index].id == connectionModuleId) {
+                      _showConnectionOffer(context);
+                      return;
+                    }
+                    unawaited(onModuleChanged(_moduleCatalog[index].id, value));
+                  },
                 ),
                 if (index != _moduleCatalog.length - 1)
                   const Divider(height: 1, indent: 58, color: _line),
@@ -2539,6 +2559,45 @@ class _ProfilePage extends StatelessWidget {
     );
   }
 }
+
+class _PremiumBadge extends StatelessWidget {
+  const _PremiumBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF0E2E6),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: const Text(
+      'ПЛАТНО',
+      style: TextStyle(
+        color: _burgundy,
+        fontSize: 9,
+        fontWeight: FontWeight.w800,
+        letterSpacing: .5,
+      ),
+    ),
+  );
+}
+
+Future<void> _showConnectionOffer(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: const Text('Отдельный платный модуль'),
+    content: const Text(
+      'Защищённое подключение не входит в бесплатную Fabula и не появляется '
+      'в нижнем меню. Оформление модуля будет доступно отдельно.',
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Понятно'),
+      ),
+    ],
+  ),
+);
 
 IconData _moduleIcon(String id) => switch (id) {
   'day' => Icons.auto_awesome_outlined,

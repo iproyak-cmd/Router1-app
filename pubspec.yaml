@@ -1,7 +1,7 @@
 name: fabula_app
-description: Fabula — ежедневный журнал и защищённое подключение.
+description: Fabula — личный проводник по чувствам и знакам.
 publish_to: "none"
-version: 0.4.6+16
+version: 0.4.7+17
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
