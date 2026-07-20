@@ -74,6 +74,7 @@ jobs:
           )
           if [ "${#APK_MATCHES[@]}" -ne 1 ]; then
             echo "Expected one Fabula.apk in the public web root, found ${#APK_MATCHES[@]}"
+            printf 'CANDIDATE %s\\n' "${APK_MATCHES[@]}"
             exit 1
           fi
           TARGET_APK="${APK_MATCHES[0]}"
