@@ -1,0 +1,137 @@
+name: Deploy Fabula Android release
+
+on:
+  push:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/fabula-android-release-deploy.yml"
+  workflow_run:
+    workflows: ["Fabula Android"]
+    types: [completed]
+    branches: [fabula]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabula-android-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - name: Checkout Fabula source
+        uses: actions/checkout@v4
+        with:
+          ref: fabula
+          path: source
+      - name: Checkout published Android artifact
+        uses: actions/checkout@v4
+        with:
+          ref: fabula-android-builds
+          path: release
+      - name: Prepare release manifest
+        shell: bash
+        run: |
+          test -f release/Fabula.apk
+          FULL_VERSION=$(awk '/^version:/ {print $2; exit}' source/pubspec.yaml)
+          VERSION=${FULL_VERSION%%+*}
+          BUILD=${FULL_VERSION##*+}
+          SHA256=$(sha256sum release/Fabula.apk | awk '{print $1}')
+          SIZE=$(stat -c %s release/Fabula.apk)
+          jq -n             --arg version "$VERSION"             --argjson build "$BUILD"             --arg sha256 "$SHA256"             --argjson size "$SIZE"             '{
+              version: $version,
+              build: $build,
+              min_supported_build: 11,
+              url: "https://router1.tech/fabula/android/Fabula.apk",
+              sha256: $sha256,
+              size: $size,
+              notes: "Ежедневное обновление всех модулей, проверка актуальности прогноза, реальная фаза Луны и честные отметки самочувствия."
+            }' > release/version.json
+          printf '%s  %s\n' "$SHA256" "Fabula.apk" > release/Fabula.apk.sha256
+      - name: Install SSH client helper
+        run: |
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Upload release candidates
+        run: |
+          sshpass -e scp             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             release/Fabula.apk             release/Fabula.apk.sha256             release/version.json             root@201.51.4.89:/tmp/
+      - name: Publish with backup and rollback
+        shell: bash
+        run: |
+          sshpass -e ssh             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+
+          mapfile -t APK_MATCHES < <(
+            find /var/www /srv /opt/vpn_bot               -type f -path '*/fabula/android/Fabula.apk' 2>/dev/null || true
+          )
+          if [ "${#APK_MATCHES[@]}" -ne 1 ]; then
+            echo "Expected one public Fabula.apk, found ${#APK_MATCHES[@]}"
+            exit 1
+          fi
+          TARGET_APK="${APK_MATCHES[0]}"
+          TARGET_DIR=$(dirname "$TARGET_APK")
+          TARGET_VERSION="$TARGET_DIR/version.json"
+          TARGET_SHA="$TARGET_DIR/Fabula.apk.sha256"
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP_DIR="/opt/vpn_bot/backups/fabula_android_$STAMP"
+          mkdir -p "$BACKUP_DIR"
+          cp -a "$TARGET_APK" "$BACKUP_DIR/Fabula.apk"
+          if [ -f "$TARGET_VERSION" ]; then
+            cp -a "$TARGET_VERSION" "$BACKUP_DIR/version.json"
+          fi
+          if [ -f "$TARGET_SHA" ]; then
+            cp -a "$TARGET_SHA" "$BACKUP_DIR/Fabula.apk.sha256"
+          fi
+
+          rollback() {
+            set +e
+            cp -a "$BACKUP_DIR/Fabula.apk" "$TARGET_APK"
+            if [ -f "$BACKUP_DIR/version.json" ]; then
+              cp -a "$BACKUP_DIR/version.json" "$TARGET_VERSION"
+            fi
+            if [ -f "$BACKUP_DIR/Fabula.apk.sha256" ]; then
+              cp -a "$BACKUP_DIR/Fabula.apk.sha256" "$TARGET_SHA"
+            fi
+            echo "ROLLBACK_OK backup=$BACKUP_DIR"
+          }
+          trap rollback ERR
+
+          install -m 0644 /tmp/Fabula.apk "$TARGET_APK"
+          install -m 0644 /tmp/version.json "$TARGET_VERSION"
+          install -m 0644 /tmp/Fabula.apk.sha256 "$TARGET_SHA"
+
+          EXPECTED_SHA=$(awk '{print $1}' /tmp/Fabula.apk.sha256)
+          EXPECTED_SIZE=$(stat -c %s /tmp/Fabula.apk)
+          curl -fsS --max-time 60             https://router1.tech/fabula/android/Fabula.apk             -o /tmp/Fabula-public.apk
+          ACTUAL_SHA=$(sha256sum /tmp/Fabula-public.apk | awk '{print $1}')
+          ACTUAL_SIZE=$(stat -c %s /tmp/Fabula-public.apk)
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
+          curl -fsS --max-time 15             https://router1.tech/fabula/android/version.json             -o /tmp/Fabula-public-version.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("/tmp/Fabula-public-version.json").read_text())
+          assert data["version"] == "0.4.4"
+          assert data["build"] == 14
+          assert data["sha256"]
+          assert data["size"] > 0
+          print(
+              "PUBLISH_OK "
+              f"version={data['version']} build={data['build']} "
+              f"size={data['size']} sha256={data['sha256']}"
+          )
+          PY
+
+          trap - ERR
+          echo "BACKUP_OK path=$BACKUP_DIR"
+          REMOTE
