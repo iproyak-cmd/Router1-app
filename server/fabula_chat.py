@@ -129,18 +129,29 @@ def request_openrouter(payload: FabulaChatPayload) -> str:
             "X-OpenRouter-Title": "Fabula",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=40) as response:
-            result = json.loads(response.read().decode())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise RuntimeError("OpenRouter unavailable") from error
-    try:
-        answer = result["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, TypeError, AttributeError) as error:
-        raise RuntimeError("OpenRouter returned an invalid response") from error
-    if not answer:
-        raise RuntimeError("OpenRouter returned an empty response")
-    return answer[:3000]
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=40) as response:
+                result = json.loads(response.read().decode())
+            answer = result["choices"][0]["message"]["content"].strip()
+            if answer:
+                return answer[:3000]
+            raise ValueError("empty response")
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            KeyError,
+            IndexError,
+            TypeError,
+            AttributeError,
+            ValueError,
+        ) as error:
+            last_error = error
+            if attempt < 2:
+                time.sleep(attempt + 1)
+    raise RuntimeError("OpenRouter unavailable after retries") from last_error
 
 
 def register_fabula_chat_routes(app: Any) -> None:
