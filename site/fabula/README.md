@@ -7,7 +7,7 @@ Production layout:
 - primary document root: `/var/www/html/fabula`;
 - mirror for the future subdomain: `/var/www/fabula`;
 - `index.html`: this directory;
-- `assets/hanged_man.webp`: `assets/fabula/tarot/hanged_man.webp` from the app repository;
+- `assets/empress.webp`: `assets/fabula/tarot/empress.webp` from the app repository;
 - Nginx template: `nginx.conf`;
 - downloads use stable branded URLs under `/fabula/android/` and `/fabula/windows/`.
 
