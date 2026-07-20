@@ -46,14 +46,14 @@ jobs:
           test -n "${SSHPASS:-}"
           test -s source/site/fabula/index.html
           test -s source/site/fabula/content/daily-looks.json
-          test -s source/assets/fabula/tarot/empress.webp
+          test -s source/assets/fabula/tarot/strength.webp
           test -s android-release/Fabula.apk
           test -s windows-release/FabulaSetup.exe
 
           stage="${RUNNER_TEMP}/fabula-site"
           install -d "$stage/assets" "$stage/android" "$stage/windows" "$stage/content/daily_looks"
           install -m 0644 source/site/fabula/index.html "$stage/index.html"
-          install -m 0644 source/assets/fabula/tarot/empress.webp "$stage/assets/empress.webp"
+          install -m 0644 source/assets/fabula/tarot/strength.webp "$stage/assets/strength.webp"
           install -m 0644 source/site/fabula/content/daily-looks.json "$stage/content/daily-looks.json"
           install -m 0644 source/assets/fabula/daily_looks/*.webp "$stage/content/daily_looks/"
           install -m 0644 android-release/Fabula.apk "$stage/android/Fabula.apk"
@@ -158,7 +158,7 @@ jobs:
           grep -Fq 'Музыка настроения' <<<"$page"
           grep -Fq 'AI-собеседник Fabula' <<<"$page"
           grep -Fq 'assets/empress.webp' <<<"$page"
-          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/empress.webp | grep -Fq '200'
+          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/strength.webp | grep -Fq '200'
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
