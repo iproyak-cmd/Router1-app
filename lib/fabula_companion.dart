@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 const _burgundy = Color(0xFF7A3045);
@@ -193,6 +194,28 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _copyMessage(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Сообщение скопировано')),
+      );
+    }
+  }
+
+  Future<void> _pasteMessage() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (text == null || text.isEmpty) return;
+    final selection = _controller.selection;
+    final start = selection.isValid ? selection.start : _controller.text.length;
+    final end = selection.isValid ? selection.end : _controller.text.length;
+    _controller.value = TextEditingValue(
+      text: _controller.text.replaceRange(start, end, text),
+      selection: TextSelection.collapsed(offset: start + text.length),
+    );
+  }
+
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
@@ -320,9 +343,31 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                 ),
                 border: mine ? null : Border.all(color: const Color(0xFFE5DED7)),
               ),
-              child: Text(
-                message.text,
-                style: TextStyle(color: mine ? Colors.white : _ink, height: 1.4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SelectableText(
+                    message.text,
+                    style: TextStyle(
+                      color: mine ? Colors.white : _ink,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      tooltip: 'Копировать',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _copyMessage(message.text),
+                      icon: Icon(
+                        Icons.copy_outlined,
+                        size: 16,
+                        color: mine ? Colors.white70 : _muted,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -352,6 +397,11 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                 ),
                 onSubmitted: (_) => _send(),
               ),
+            ),
+            IconButton(
+              tooltip: 'Вставить из буфера',
+              onPressed: _busy ? null : _pasteMessage,
+              icon: const Icon(Icons.content_paste_outlined),
             ),
             const SizedBox(width: 8),
             IconButton.filled(

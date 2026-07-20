@@ -24,12 +24,14 @@ jobs:
     env:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      FABULA_CLIENT_API_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate deployment secrets
         run: |
           test -n "$SSHPASS"
           test -n "$OPENROUTER_API_KEY"
+          test -n "$FABULA_CLIENT_API_TOKEN"
           case "$OPENROUTER_API_KEY" in sk-or-v1-*) ;; *) exit 1 ;; esac
       - name: Install SSH client helper
         run: |
@@ -39,12 +41,14 @@ jobs:
         run: |
           umask 077
           printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/openrouter.key"
+          printf '%s' "$FABULA_CLIENT_API_TOKEN" > "$RUNNER_TEMP/fabula-client.key"
           sshpass -e scp \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=15 \
             server/fabula_chat.py \
             server/fabula_chat_http.py \
             "$RUNNER_TEMP/openrouter.key" \
+            "$RUNNER_TEMP/fabula-client.key" \
             root@201.51.4.89:/tmp/
       - name: Deploy with backup, verification and rollback
         shell: bash
@@ -62,8 +66,9 @@ jobs:
           BACKUP_DIR="$ROOT/backups/fabula_chat_$STAMP"
           mkdir -p "$BACKUP_DIR"
           OPENROUTER_API_KEY=$(cat /tmp/openrouter.key)
-          rm -f /tmp/openrouter.key
-          export OPENROUTER_API_KEY
+          FABULA_CLIENT_API_TOKEN=$(cat /tmp/fabula-client.key)
+          rm -f /tmp/openrouter.key /tmp/fabula-client.key
+          export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN
 
           CONFIG=$(python3 - <<'PY'
           import pathlib
@@ -121,23 +126,29 @@ jobs:
           install -m 0644 /tmp/fabula_chat_http.py "$ROOT/fabula_chat_http.py"
           python3 -m py_compile "$ROOT/fabula_chat.py" "$ROOT/fabula_chat_http.py"
 
-          OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ENV_FILE="$ENV_FILE" python3 - <<'PY'
+          OPENROUTER_API_KEY="$OPENROUTER_API_KEY" FABULA_CLIENT_API_TOKEN="$FABULA_CLIENT_API_TOKEN" ENV_FILE="$ENV_FILE" python3 - <<'PY'
           import os
           from pathlib import Path
 
           path = Path(os.environ["ENV_FILE"])
           key = os.environ["OPENROUTER_API_KEY"].strip()
+          client_key = os.environ["FABULA_CLIENT_API_TOKEN"].strip()
           lines = path.read_text(encoding="utf-8").splitlines()
           output = []
-          replaced = False
+          replaced = set()
           for line in lines:
               if line.strip().startswith("OPENROUTER_API_KEY="):
                   output.append(f"OPENROUTER_API_KEY={key}")
-                  replaced = True
+                  replaced.add("openrouter")
+              elif line.strip().startswith("FABULA_CLIENT_API_TOKEN="):
+                  output.append(f"FABULA_CLIENT_API_TOKEN={client_key}")
+                  replaced.add("client")
               else:
                   output.append(line)
-          if not replaced:
+          if "openrouter" not in replaced:
               output.append(f"OPENROUTER_API_KEY={key}")
+          if "client" not in replaced:
+              output.append(f"FABULA_CLIENT_API_TOKEN={client_key}")
           path.write_text("\n".join(output) + "\n", encoding="utf-8")
           os.chmod(path, 0o600)
           PY
@@ -221,20 +232,9 @@ jobs:
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8012/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
 
-          APP_API_TOKEN=$(python3 - <<'PY'
-          from pathlib import Path
-          values = {}
-          for raw in Path("/opt/vpn_bot/.env").read_text(encoding="utf-8").splitlines():
-              line = raw.strip()
-              if line and not line.startswith("#") and "=" in line:
-                  key, value = line.split("=", 1)
-                  values[key.strip()] = value.strip().strip('"').strip("'")
-          print(values.get("APP_API_TOKEN", ""))
-          PY
-          )
-          test -n "$APP_API_TOKEN"
+          test -n "$FABULA_CLIENT_API_TOKEN"
           curl -fsS --max-time 55 \
-            -H "Authorization: Bearer $APP_API_TOKEN" \
+            -H "Authorization: Bearer $FABULA_CLIENT_API_TOKEN" \
             -H 'Content-Type: application/json' \
             --data '{"installation_id":"deploy-check-001","name":"Анна","messages":[{"role":"user","content":"Мне тревожно. Просто выслушай меня."}]}' \
             https://router1.tech/api/fabula/chat \

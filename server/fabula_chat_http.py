@@ -18,6 +18,7 @@ from fabula_chat import (
 HOST = os.environ.get("FABULA_CHAT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FABULA_CHAT_PORT", "8012"))
 API_TOKEN = os.environ.get("APP_API_TOKEN", "").strip()
+CLIENT_API_TOKEN = os.environ.get("FABULA_CLIENT_API_TOKEN", "").strip()
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 LIMITER = SlidingWindowLimiter(
     limit=int(os.environ.get("FABULA_CHAT_DAILY_LIMIT", "50")),
@@ -81,7 +82,11 @@ class Handler(BaseHTTPRequestHandler):
         header = self.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return False
-        return hmac.compare_digest(header[7:].strip(), API_TOKEN)
+        supplied = header[7:].strip()
+        return hmac.compare_digest(supplied, API_TOKEN) or (
+            bool(CLIENT_API_TOKEN)
+            and hmac.compare_digest(supplied, CLIENT_API_TOKEN)
+        )
 
     def _json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
