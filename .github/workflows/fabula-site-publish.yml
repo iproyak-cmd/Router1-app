@@ -46,14 +46,16 @@ jobs:
           test -n "${SSHPASS:-}"
           test -s source/site/fabula/index.html
           test -s source/site/fabula/content/daily-looks.json
-          test -s source/assets/fabula/tarot/strength.webp
+          test -s source/site/fabula/assets/hero-strength.webp
+          test -s source/site/fabula/assets/brand-mark.webp
           test -s android-release/Fabula.apk
           test -s windows-release/FabulaSetup.exe
 
           stage="${RUNNER_TEMP}/fabula-site"
           install -d "$stage/assets" "$stage/android" "$stage/windows" "$stage/content/daily_looks"
           install -m 0644 source/site/fabula/index.html "$stage/index.html"
-          install -m 0644 source/assets/fabula/tarot/strength.webp "$stage/assets/strength.webp"
+          install -m 0644 source/site/fabula/assets/hero-strength.webp "$stage/assets/hero-strength.webp"
+          install -m 0644 source/site/fabula/assets/brand-mark.webp "$stage/assets/brand-mark.webp"
           install -m 0644 source/site/fabula/content/daily-looks.json "$stage/content/daily-looks.json"
           install -m 0644 source/assets/fabula/daily_looks/*.webp "$stage/content/daily_looks/"
           install -m 0644 android-release/Fabula.apk "$stage/android/Fabula.apk"
@@ -118,7 +120,7 @@ jobs:
           publish_root() {
             root="$1"
             install -d -m 0755 "$root/assets" "$root/android" "$root/windows" "$root/content/daily_looks"
-            for item in index.html assets/strength.webp content/daily-looks.json android/Fabula.apk android/version.json windows/FabulaSetup.exe windows/version.json SHA256SUMS; do
+            for item in index.html assets/hero-strength.webp assets/brand-mark.webp content/daily-looks.json android/Fabula.apk android/version.json windows/FabulaSetup.exe windows/version.json SHA256SUMS; do
               if [ -f "$root/$item" ]; then
                 install -d -m 0755 "$backup/$(dirname "$item")"
                 cp -a "$root/$item" "$backup/$item"
@@ -152,11 +154,14 @@ jobs:
         run: |
           set -euo pipefail
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
-          grep -Fq 'Ваш VPN.' <<<"$page"
+          grep -Fq 'Женский VPN.' <<<"$page"
           grep -Fq 'Опора и вдохновение.' <<<"$page"
-          grep -Fq 'Скачивайте и наслаждайтесь' <<<"$page"
-          grep -Fq 'assets/strength.webp' <<<"$page"
-          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/strength.webp | grep -Fq '200'
+          grep -Fq 'получите 6 месяцев бесплатно' <<<"$page"
+          grep -Fq 'Скачать Fabula' <<<"$page"
+          grep -Fq 'assets/hero-strength.webp' <<<"$page"
+          grep -Fq 'assets/brand-mark.webp' <<<"$page"
+          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/hero-strength.webp | grep -Fq '200'
+          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/brand-mark.webp | grep -Fq '200'
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
