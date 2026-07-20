@@ -138,8 +138,11 @@ jobs:
           from pathlib import Path
 
           data = json.loads(Path("/tmp/Fabula-public-version.json").read_text())
-          assert data["version"] == "0.4.4"
-          assert data["build"] == 14
+          expected = json.loads(Path("/tmp/version.json").read_text())
+          assert data["version"] == expected["version"]
+          assert data["build"] == expected["build"]
+          assert data["sha256"] == expected["sha256"]
+          assert data["size"] == expected["size"]
           assert data["sha256"]
           assert data["size"] > 0
           print(
