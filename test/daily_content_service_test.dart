@@ -41,7 +41,7 @@ void main() {
   test('accepts only a package for the requested date and sign', () async {
     final day = DateTime(2026, 7, 20);
     final service = DailyContentService(
-      _FakeApi((_, _) async => _forecast(day)),
+      _FakeApi((sign, requestedDate) async => _forecast(day)),
     );
     final prefs = await SharedPreferences.getInstance();
 
@@ -61,7 +61,7 @@ void main() {
     final day = DateTime(2026, 7, 20);
     final stale = DateTime(2026, 7, 19);
     final service = DailyContentService(
-      _FakeApi((_, _) async => _forecast(stale)),
+      _FakeApi((sign, requestedDate) async => _forecast(stale)),
     );
     final prefs = await SharedPreferences.getInstance();
 
@@ -82,12 +82,12 @@ void main() {
     final day = DateTime(2026, 7, 20);
     final prefs = await SharedPreferences.getInstance();
     final online = DailyContentService(
-      _FakeApi((_, _) async => _forecast(day)),
+      _FakeApi((sign, requestedDate) async => _forecast(day)),
     );
     await online.resolve(sign: 'libra', date: day, preferences: prefs);
 
     final offline = DailyContentService(
-      _FakeApi((_, _) async => throw Exception('offline')),
+      _FakeApi((sign, requestedDate) async => throw Exception('offline')),
     );
     final cached = await offline.resolve(
       sign: 'libra',
