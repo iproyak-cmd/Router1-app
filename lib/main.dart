@@ -1087,6 +1087,64 @@ Text _editorial(String text, {double size = 30}) => Text(
   ),
 );
 
+class _DailyContentStatus extends StatelessWidget {
+  const _DailyContentStatus({
+    required this.source,
+    required this.notice,
+    required this.updatedAt,
+  });
+
+  final DailyContentSource source;
+  final String notice;
+  final DateTime? updatedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = source == DailyContentSource.live;
+    final cached = source == DailyContentSource.cached;
+    final time = updatedAt == null
+        ? ''
+        : ' · ${updatedAt!.hour.toString().padLeft(2, '0')}:'
+              '${updatedAt!.minute.toString().padLeft(2, '0')}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: live
+            ? const Color(0xFFE8EDE7)
+            : cached
+            ? const Color(0xFFF1ECE3)
+            : const Color(0xFFF3E4E8),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            live
+                ? Icons.cloud_done_outlined
+                : cached
+                ? Icons.history
+                : Icons.cloud_off_outlined,
+            size: 17,
+            color: live ? const Color(0xFF526A50) : _burgundy,
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              '$notice$time',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
