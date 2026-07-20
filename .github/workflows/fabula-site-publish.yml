@@ -27,18 +27,6 @@ jobs:
         with:
           path: source
 
-      - name: Checkout Android release
-        uses: actions/checkout@v4
-        with:
-          ref: fabula-android-builds
-          path: android-release
-
-      - name: Checkout Windows release
-        uses: actions/checkout@v4
-        with:
-          ref: fabula-builds
-          path: windows-release
-
       - name: Prepare verified production bundle
         shell: bash
         run: |
@@ -48,50 +36,14 @@ jobs:
           test -s source/site/fabula/content/daily-looks.json
           test -s source/site/fabula/assets/hero-strength.webp
           test -s source/site/fabula/assets/brand-mark.webp
-          test -s android-release/Fabula.apk
-          test -s windows-release/FabulaSetup.exe
 
           stage="${RUNNER_TEMP}/fabula-site"
-          install -d "$stage/assets" "$stage/android" "$stage/windows" "$stage/content/daily_looks"
+          install -d "$stage/assets" "$stage/content/daily_looks"
           install -m 0644 source/site/fabula/index.html "$stage/index.html"
           install -m 0644 source/site/fabula/assets/hero-strength.webp "$stage/assets/hero-strength.webp"
           install -m 0644 source/site/fabula/assets/brand-mark.webp "$stage/assets/brand-mark.webp"
           install -m 0644 source/site/fabula/content/daily-looks.json "$stage/content/daily-looks.json"
           install -m 0644 source/assets/fabula/daily_looks/*.webp "$stage/content/daily_looks/"
-          install -m 0644 android-release/Fabula.apk "$stage/android/Fabula.apk"
-          install -m 0644 windows-release/FabulaSetup.exe "$stage/windows/FabulaSetup.exe"
-
-          android_sha=$(sha256sum "$stage/android/Fabula.apk" | awk '{print $1}')
-          android_size=$(stat -c '%s' "$stage/android/Fabula.apk")
-          windows_sha=$(sha256sum "$stage/windows/FabulaSetup.exe" | awk '{print $1}')
-          windows_size=$(stat -c '%s' "$stage/windows/FabulaSetup.exe")
-
-          cat > "$stage/android/version.json" <<JSON
-          {
-            "version": "0.4.5",
-            "build": 15,
-            "min_supported_build": 11,
-            "url": "https://router1.tech/fabula/android/Fabula.apk",
-            "sha256": "$android_sha",
-            "size": $android_size,
-            "notes": "Надёжное VPN-подключение: повторное использование активного демо-доступа и автоматические повторы при временном сбое сети."
-          }
-          JSON
-
-          cat > "$stage/windows/version.json" <<JSON
-          {
-            "version": "0.4.5",
-            "build": 15,
-            "min_supported_build": 11,
-            "url": "https://router1.tech/fabula/windows/FabulaSetup.exe",
-            "sha256": "$windows_sha",
-            "size": $windows_size,
-            "notes": "Надёжное VPN-подключение: повторное использование активного демо-доступа и автоматические повторы при временном сбое сети."
-          }
-          JSON
-
-          printf '%s  %s\n' "$android_sha" "android/Fabula.apk" > "$stage/SHA256SUMS"
-          printf '%s  %s\n' "$windows_sha" "windows/FabulaSetup.exe" >> "$stage/SHA256SUMS"
 
       - name: Upload and publish with rollback copy
         shell: bash
@@ -110,8 +62,6 @@ jobs:
             root@201.51.4.89 "REMOTE_STAGE='${remote}' bash -s" <<'REMOTE'
           set -euo pipefail
           test -s "$REMOTE_STAGE/index.html"
-          test -s "$REMOTE_STAGE/android/Fabula.apk"
-          test -s "$REMOTE_STAGE/windows/FabulaSetup.exe"
 
           stamp=$(date -u +%Y%m%dT%H%M%SZ)
           backup="/var/backups/fabula-site/$stamp"
@@ -119,8 +69,8 @@ jobs:
 
           publish_root() {
             root="$1"
-            install -d -m 0755 "$root/assets" "$root/android" "$root/windows" "$root/content/daily_looks"
-            for item in index.html assets/hero-strength.webp assets/brand-mark.webp content/daily-looks.json android/Fabula.apk android/version.json windows/FabulaSetup.exe windows/version.json SHA256SUMS; do
+            install -d -m 0755 "$root/assets" "$root/content/daily_looks"
+            for item in index.html assets/hero-strength.webp assets/brand-mark.webp content/daily-looks.json; do
               if [ -f "$root/$item" ]; then
                 install -d -m 0755 "$backup/$(dirname "$item")"
                 cp -a "$root/$item" "$backup/$item"
@@ -145,7 +95,6 @@ jobs:
           rm -rf "$REMOTE_STAGE"
 
           curl -fsS http://127.0.0.1/fabula/ >/dev/null
-          curl -fsS http://127.0.0.1/fabula/android/version.json >/dev/null
           echo "FABULA_SITE_PUBLISH_OK backup=$backup"
           REMOTE
 
@@ -154,9 +103,10 @@ jobs:
         run: |
           set -euo pipefail
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
-          grep -Fq 'Женский VPN.' <<<"$page"
-          grep -Fq 'Опора и вдохновение.' <<<"$page"
-          grep -Fq 'Скачать Fabula' <<<"$page"
+          grep -Fq 'Рядом, когда хочется поговорить.' <<<"$page"
+          grep -Fq 'Личный проводник по чувствам и знакам.' <<<"$page"
+          grep -Fq 'Fabula Free' <<<"$page"
+          ! grep -Fiq 'Женский VPN' <<<"$page"
           grep -Fq 'assets/hero-strength.webp' <<<"$page"
           grep -Fq 'assets/brand-mark.webp' <<<"$page"
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/assets/hero-strength.webp | grep -Fq '200'
@@ -164,4 +114,4 @@ jobs:
           curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/content/daily-looks.json | jq -e '.looks | length >= 8' >/dev/null
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/android/Fabula.apk | grep -Fq '200'
           curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
-          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | grep -Fq '"build": 15'
+          curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/android/version.json | jq -e '.build >= 16' >/dev/null
