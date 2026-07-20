@@ -1,0 +1,43 @@
+name: Fabula Daily Content Checks
+
+on:
+  pull_request:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/fabula-daily-content-checks.yml"
+      - "lib/**"
+      - "test/**"
+      - "server/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabula-daily-content-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test persistent server content
+        working-directory: server
+        run: python -m unittest -v test_fabula_daily_content.py
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - name: Build Android test APK
+        env:
+          ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+        run: |
+          test -n "$ROUTER1_APP_TOKEN"
+          flutter build apk --debug --target-platform android-arm64 \
+            --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
