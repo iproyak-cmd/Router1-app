@@ -712,8 +712,19 @@ class Router1Api {
     }
   }
 
-  Future<Router1DailyHoroscope> dailyHoroscope(String sign) async {
-    final data = await _get('/fabula/horoscope/${Uri.encodeComponent(sign)}');
+  Future<Router1DailyHoroscope> dailyHoroscope(
+    String sign, {
+    DateTime? date,
+  }) async {
+    final day = date ?? DateTime.now();
+    final dateValue =
+        '${day.year.toString().padLeft(4, '0')}-'
+        '${day.month.toString().padLeft(2, '0')}-'
+        '${day.day.toString().padLeft(2, '0')}';
+    final query = Uri(queryParameters: {'date': dateValue}).query;
+    final data = await _get(
+      '/fabula/horoscope/${Uri.encodeComponent(sign)}?$query',
+    );
     return Router1DailyHoroscope.fromJson(data);
   }
 
