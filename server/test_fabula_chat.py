@@ -40,6 +40,7 @@ class FabulaChatTests(unittest.TestCase):
             {
                 "installation_id": "installation-123",
                 "name": "Анна",
+                "assistant_name": "Марк",
                 "messages": [
                     {"role": "user", "content": f"сообщение {index}"}
                     for index in range(12)
@@ -52,6 +53,8 @@ class FabulaChatTests(unittest.TestCase):
         self.assertEqual(result["model"], DEFAULT_MODEL)
         self.assertEqual(len(result["messages"]), 13)
         self.assertIn("Анна", result["messages"][0]["content"])
+        self.assertIn("Марк", result["messages"][0]["content"])
+        self.assertIn("мужском роде", result["messages"][0]["content"])
         self.assertNotIn("provider", result)
         self.assertLessEqual(result["max_tokens"], 300)
 
