@@ -80,6 +80,18 @@ jobs:
           systemctl list-units --type=service --all --no-legend \
             | grep -Ei '(xray|sing-box|wireguard|wg-quick|proxy)' \
             || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          names = []
+          for raw in Path('/opt/vpn_bot/.env').read_text(encoding='utf-8').splitlines():
+              if '=' not in raw or raw.lstrip().startswith('#'):
+                  continue
+              name = raw.split('=', 1)[0].strip()
+              if re.search(r'(SSH|NL2|FR|R1PRO|SERVER)', name, re.I):
+                  names.append(name)
+          print('FABULA_AVAILABLE_ENV_KEYS=' + ','.join(sorted(names)))
+          PY
           for target in '92.51.46.27 22 NL' '201.51.23.60 5445 NL2' '213.176.93.13 5443 FR'; do
             set -- $target
             host=$1 port=$2 label=$3
