@@ -200,20 +200,17 @@ def register_fabula_chat_routes(app: Any) -> None:
 def register_fabula_proxy_routes(app: Any) -> None:
     """Register the public route in Router1 site_api and proxy it to FR."""
 
-    from fastapi import Header, HTTPException, Request
+    from fastapi import Header, HTTPException
 
     @app.post("/api/fabula/chat", include_in_schema=False)
     def fabula_chat_proxy(
         payload: dict[str, Any],
-        request: Request,
         authorization: str | None = Header(default=None),
     ) -> dict[str, str]:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if authorization:
             headers["Authorization"] = authorization
-        if request.client:
-            headers["X-Forwarded-For"] = request.client.host
         upstream = urllib.request.Request(
             "http://127.0.0.1:8012/api/fabula/chat",
             data=body,
