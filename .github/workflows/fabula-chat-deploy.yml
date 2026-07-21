@@ -206,23 +206,102 @@ jobs:
           os.chmod(path, 0o600)
           PY
 
-          cat >"$UNIT" <<'UNITFILE'
+          FR_SSH_PASSWORD=$(python3 - <<'PY'
+          from pathlib import Path
+          values = {}
+          for raw in Path('/opt/vpn_bot/.env').read_text(encoding='utf-8').splitlines():
+              if '=' in raw and not raw.lstrip().startswith('#'):
+                  key, value = raw.split('=', 1)
+                  values[key.strip()] = value.strip().strip('"').strip("'")
+          print(values.get('R1PRO_FR_SSH_PASSWORD', ''))
+          PY
+          )
+          test -n "$FR_SSH_PASSWORD"
+          command -v sshpass >/dev/null
+          export SSHPASS="$FR_SSH_PASSWORD"
+          printf '%s' "$OPENROUTER_API_KEY" > /tmp/fr-openrouter.key
+          printf '%s' "$FABULA_CLIENT_API_TOKEN" > /tmp/fr-fabula-client.key
+          chmod 600 /tmp/fr-openrouter.key /tmp/fr-fabula-client.key
+          sshpass -e scp -P 5443 \
+            -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            /tmp/fabula_chat.py /tmp/fabula_chat_http.py \
+            /tmp/fr-openrouter.key /tmp/fr-fabula-client.key \
+            root@213.176.93.13:/tmp/
+          rm -f /tmp/fr-openrouter.key /tmp/fr-fabula-client.key
+          sshpass -e ssh -p 5443 \
+            -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            root@213.176.93.13 'bash -s' <<'FRREMOTE'
+          set -Eeuo pipefail
+          install -d -m 0700 /opt/fabula-chat
+          install -m 0644 /tmp/fabula_chat.py /opt/fabula-chat/fabula_chat.py
+          install -m 0644 /tmp/fabula_chat_http.py /opt/fabula-chat/fabula_chat_http.py
+          python3 -m py_compile /opt/fabula-chat/fabula_chat.py /opt/fabula-chat/fabula_chat_http.py
+          OPENROUTER_API_KEY=$(cat /tmp/fr-openrouter.key)
+          FABULA_CLIENT_API_TOKEN=$(cat /tmp/fr-fabula-client.key)
+          rm -f /tmp/fr-openrouter.key /tmp/fr-fabula-client.key
+          APP_API_TOKEN=$(python3 - <<'PY'
+          from pathlib import Path
+          values = {}
+          path = Path('/opt/vpn_bot/.env')
+          if path.exists():
+              for raw in path.read_text(encoding='utf-8').splitlines():
+                  if '=' in raw and not raw.lstrip().startswith('#'):
+                      key, value = raw.split('=', 1)
+                      values[key.strip()] = value.strip().strip('"').strip("'")
+          print(values.get('APP_API_TOKEN', ''))
+          PY
+          )
+          if [ -z "$APP_API_TOKEN" ]; then APP_API_TOKEN="$FABULA_CLIENT_API_TOKEN"; fi
+          umask 077
+          {
+            printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY"
+            printf 'FABULA_CLIENT_API_TOKEN=%s\n' "$FABULA_CLIENT_API_TOKEN"
+            printf 'APP_API_TOKEN=%s\n' "$APP_API_TOKEN"
+          } >/opt/fabula-chat/.env
+          cat >/etc/systemd/system/fabula-chat.service <<'UNITFILE'
           [Unit]
-          Description=Fabula AI companion gateway
+          Description=Fabula AI companion gateway (FR egress)
           After=network-online.target
           Wants=network-online.target
 
           [Service]
           Type=simple
           User=root
-          WorkingDirectory=/opt/vpn_bot
-          EnvironmentFile=/opt/vpn_bot/.env
+          WorkingDirectory=/opt/fabula-chat
+          EnvironmentFile=/opt/fabula-chat/.env
           Environment=FABULA_CHAT_HOST=127.0.0.1
-          Environment=FABULA_CHAT_PORT=8012
+          Environment=FABULA_CHAT_PORT=18012
           Environment=FABULA_CHAT_DAILY_LIMIT=50
           Environment=FABULA_CHAT_ANONYMOUS_DAILY_LIMIT=10
           Environment=OPENROUTER_MODEL=openrouter/free
-          ExecStart=/usr/bin/python3 /opt/vpn_bot/fabula_chat_http.py
+          ExecStart=/usr/bin/python3 /opt/fabula-chat/fabula_chat_http.py
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
+          systemctl daemon-reload
+          systemctl enable fabula-chat.service
+          systemctl restart fabula-chat.service
+          curl -fsS --max-time 8 http://127.0.0.1:18012/health \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+          FRREMOTE
+
+          cat >"$UNIT" <<'UNITFILE'
+          [Unit]
+          Description=Fabula AI companion tunnel to FR
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          EnvironmentFile=/opt/vpn_bot/.env
+          ExecStart=/bin/bash -c 'export SSHPASS="$R1PRO_FR_SSH_PASSWORD"; exec /usr/bin/sshpass -e /usr/bin/ssh -N -T -p 5443 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -L 127.0.0.1:8012:127.0.0.1:18012 root@213.176.93.13'
           Restart=always
           RestartSec=3
           NoNewPrivileges=true
