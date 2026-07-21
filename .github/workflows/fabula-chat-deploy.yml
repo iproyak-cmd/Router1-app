@@ -281,6 +281,21 @@ jobs:
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8012/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
 
+          echo "FABULA_NGINX_ROUTE_DIAGNOSTIC"
+          nginx -T 2>&1 \
+            | grep -nE 'configuration file|server_name.*router1\.tech|FABULA_CHAT|location = /api/fabula/chat' \
+            || true
+          curl -sS --max-time 15 \
+            -o /tmp/fabula-route-body \
+            -D /tmp/fabula-route-headers \
+            -w 'FABULA_ROUTE_HTTP=%{http_code}\n' \
+            -H 'Content-Type: application/json' \
+            --data '{"installation_id":"route-diagnostic","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
+            https://router1.tech/api/fabula/chat \
+            || true
+          sed -n '1,20p' /tmp/fabula-route-headers
+          sed -n '1,20p' /tmp/fabula-route-body
+
           test -n "$FABULA_CLIENT_API_TOKEN"
           curl -fsS --max-time 55 \
             -H "Authorization: Bearer $FABULA_CLIENT_API_TOKEN" \
