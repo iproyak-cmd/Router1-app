@@ -36,6 +36,7 @@ class FabulaCompanionApi {
     required String installationId,
     required String name,
     required String assistantName,
+    required String assistantGender,
     required List<FabulaChatMessage> messages,
   }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
@@ -50,6 +51,7 @@ class FabulaCompanionApi {
           'installation_id': installationId,
           'name': name,
           'assistant_name': assistantName,
+          'assistant_gender': assistantGender,
           'messages': messages.takeLast(12).map((item) => item.toJson()).toList(),
         }),
       );
@@ -82,6 +84,7 @@ class FabulaCompanionPage extends StatefulWidget {
     required this.installationId,
     required this.name,
     required this.assistantName,
+    required this.assistantGender,
     required this.onChooseAssistantName,
   });
 
@@ -89,6 +92,7 @@ class FabulaCompanionPage extends StatefulWidget {
   final String installationId;
   final String name;
   final String assistantName;
+  final String assistantGender;
   final Future<void> Function() onChooseAssistantName;
 
   @override
@@ -168,6 +172,7 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
         installationId: widget.installationId,
         name: widget.name,
         assistantName: widget.assistantName,
+        assistantGender: widget.assistantGender,
         messages: _messages,
       );
       if (!mounted) return;

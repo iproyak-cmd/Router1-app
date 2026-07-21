@@ -16,7 +16,7 @@ from typing import Any
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openrouter/free"
-SYSTEM_PROMPT = """Ты — личный ассистент-мужчина в приложении Fabula: спокойный, внимательный и уверенный собеседник для женщин.
+SYSTEM_PROMPT = """Ты — личный ассистент в приложении Fabula: спокойный, внимательный и уверенный собеседник для женщин.
 Твоя основная задача — внимательно слушать, помогать человеку назвать чувства и спокойнее посмотреть на ситуацию.
 
 Правила:
@@ -27,8 +27,7 @@ SYSTEM_PROMPT = """Ты — личный ассистент-мужчина в п
 - сначала прояви понимание, затем задай не больше одного уместного вопроса;
 - совет давай только по просьбе или мягко предложи его;
 - обращайся на «ты» и отвечай только по-русски;
-- говори о себе в мужском роде;
-- не изображай виртуального парня и не навязывай флирт;
+- не изображай романтического партнёра и не навязывай флирт;
 - обычный ответ ограничивай 700 символами;
 - эзотерические трактовки подавай как способ рефлексии, а не достоверный прогноз.
 
@@ -46,6 +45,7 @@ class FabulaChatPayload:
     installation_id: str
     name: str
     assistant_name: str
+    assistant_gender: str
     messages: list[ChatMessage]
 
     @classmethod
@@ -53,6 +53,7 @@ class FabulaChatPayload:
         installation_id = str(value.get("installation_id", "")).strip()
         name = str(value.get("name", "")).strip()
         assistant_name = str(value.get("assistant_name", "")).strip()
+        assistant_gender = str(value.get("assistant_gender", "male")).strip()
         raw_messages = value.get("messages")
         if not 8 <= len(installation_id) <= 128:
             raise ValueError("invalid installation_id")
@@ -60,6 +61,8 @@ class FabulaChatPayload:
             raise ValueError("name is too long")
         if len(assistant_name) > 24:
             raise ValueError("assistant name is too long")
+        if assistant_gender not in {"male", "female"}:
+            raise ValueError("invalid assistant gender")
         if not isinstance(raw_messages, list) or not 1 <= len(raw_messages) <= 12:
             raise ValueError("messages must contain 1 to 12 items")
         messages: list[ChatMessage] = []
@@ -77,6 +80,7 @@ class FabulaChatPayload:
             installation_id=installation_id,
             name=name,
             assistant_name=assistant_name,
+            assistant_gender=assistant_gender,
             messages=messages,
         )
 
@@ -112,10 +116,15 @@ def build_openrouter_payload(payload: FabulaChatPayload) -> dict[str, Any]:
         if payload.assistant_name
         else ""
     )
+    gender_hint = (
+        "Ты женщина: говори о себе в женском роде. "
+        if payload.assistant_gender == "female"
+        else "Ты мужчина: говори о себе в мужском роде. "
+    )
     messages: list[dict[str, str]] = [
         {
             "role": "system",
-            "content": f"{SYSTEM_PROMPT}\n\n{name_hint}{assistant_hint}".strip(),
+            "content": f"{SYSTEM_PROMPT}\n\n{name_hint}{gender_hint}{assistant_hint}".strip(),
         }
     ]
     messages.extend(

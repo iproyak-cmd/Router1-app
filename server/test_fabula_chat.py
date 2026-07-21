@@ -65,6 +65,18 @@ class FabulaChatTests(unittest.TestCase):
         self.assertFalse(limiter.allowed("one"))
         self.assertTrue(limiter.allowed("another"))
 
+    def test_female_assistant_uses_feminine_voice(self):
+        payload = FabulaChatPayload.from_dict({
+            "installation_id": "installation-123",
+            "name": "Анна",
+            "assistant_name": "София",
+            "assistant_gender": "female",
+            "messages": [{"role": "user", "content": "Привет"}],
+        })
+        prompt = build_openrouter_payload(payload)["messages"][0]["content"]
+        self.assertIn("София", prompt)
+        self.assertIn("женском роде", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
