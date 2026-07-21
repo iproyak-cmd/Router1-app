@@ -37,6 +37,290 @@ LINE 1064         if marker.get("source") == "fabula_free_access":
 LINE 1245             "source": "fabula_free_access" if request.url.path.startswith("/api/fabula/") else "router1_free_trial",
 LINE 1335     if order.product not in {"smartphone_test", "laptop_test"}:
 LINE 2209         if device_type in {"smartphone_test", "laptop_test"}:
+BLOCK complete_paid_site_order
+def complete_paid_site_order(order: sqlite3.Row, payload: dict[str, Any], external_id: str | None) -> dict[str, Any]:
+    if order["status"] == "paid" and order["conf_path"] and order["qr_path"]:
+        if order["product"] in {"iphone", "iphone_test"}:
+            schedule_iphone_delivery(str(order["id"]))
+        return {"ok": True, "already_paid": True, "order_id": order["id"]}
+
+    product = PRODUCTS.get(order["product"])
+    if not product:
+        raise RuntimeError(f"unknown product for order {order['id']}: {order['product']}")
+
+    result = mark_payment_paid_and_activate(
+        payment_id=int(order["internal_payment_id"]),
+        external_payment_id=external_id,
+        raw_payload=json.dumps(payload, ensure_ascii=False),
+    )
+    if not result.get("ok"):
+        raise RuntimeError(f"payment activation failed: {result}")
+
+    generation: dict[str, Any] | None = None
+    conf_path = order["conf_path"]
+    qr_path = order["qr_path"]
+    device_id = result.get("device_id") or order["device_id"]
+
+    if device_id and result.get("does_create_config"):
+        relabel_generated_device(int(device_id), product, order["product"])
+        if result.get("reused_test_device"):
+            # Апгрейд с бесплатного теста на полный тариф: mark_payment_paid_and_activate
+            # уже переиспользовала существующий пир/ключи на этом device_id — конфиг не перевыпускаем,
+            # клиенту не придётся заново настраивать роутер/устройство.
+            with db() as conn:
+                existing_row = conn.execute(
+                    "SELECT config_path, conf_path, qr_path FROM client_configs WHERE id = ?",
+                    (int(device_id),),
+                ).fetchone()
+            if existing_row:
+                conf_path = existing_row["config_path"] or existing_row["conf_path"] or conf_path
+                qr_path = existing_row["qr_path"] or qr_path
+        elif not result.get("already_paid") or not conf_path:
+            generation = generate_for_client_device(int(result["client_id"]), int(device_id))
+            if generation.get("ok"):
+                conf_path = str(generation.get("config_path") or "")
+                qr_path = str(generation.get("qr_path") or "")
+            else:
+                logger.error("WG generation failed for order %s: %s", order["id"], generation)
+
+    if product.get("requires_setup_request") and not result.get("already_paid"):
+        create_setup_request(
+            int(result["client_id"]),
+            "router",
+            "site_order",
+            comment=f"Заказ с сайта {order['id']}",
+        )
+
+    paid_at = to_iso(utc_now())
+    with db() as conn:
+        conn.execute(
+            """
+            UPDATE site_orders
+            SET status = 'paid',
+                paid_at = COALESCE(paid_at, ?),
+                device_id = COALESCE(?, device_id),
+                conf_path = COALESCE(?, conf_path),
+                qr_path = COALESCE(?, qr_path),
+                generation_status = ?,
+                generation_error = ?,
+                raw_payload = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                paid_at,
+                int(device_id) if device_id else None,
+                conf_path,
+                qr_path,
+                "ready" if conf_path and qr_path else "generation_error",
+                None if conf_path and qr_path else json.dumps(generation or {}, ensure_ascii=False),
+                json.dumps(payload, ensure_ascii=False),
+                paid_at,
+                order["id"],
+            ),
+        )
+        conn.commit()
+    notify_payment_success(
+        payment_id=int(order["internal_payment_id"]) if order["internal_payment_id"] else None,
+        client_id=int(result["client_id"]) if result.get("client_id") else int(order["client_id"]),
+        source="site",
+        device_id=int(device_id) if device_id else None,
+        order_id=str(order["id"]),
+        generation=generation,
+    )
+    if order["product"] in {"iphone", "iphone_test"} and conf_path:
+        schedule_iphone_delivery(str(order["id"]))
+    return {"ok": True, "order_id": order["id"], "generation": generation}
+BLOCK _complete_free_trial_order
+def _complete_free_trial_order(
+    order_id: str,
+    marker: dict[str, Any],
+    client_id: int,
+    payment_id: int,
+) -> None:
+    try:
+        with db() as conn:
+            order = conn.execute("SELECT * FROM site_orders WHERE id = ?", (order_id,)).fetchone()
+        if order is None:
+            raise RuntimeError("free trial order not found")
+        activation = complete_paid_site_order(
+            order,
+            marker,
+            f"free-trial-{client_id}-{payment_id}",
+        )
+        generation = activation.get("generation") if isinstance(activation, dict) else None
+        status = "generation_error" if isinstance(generation, dict) and not generation.get("ok") else "active"
+        config_id = None
+        if isinstance(activation, dict):
+            raw_config_id = activation.get("device_id") or activation.get("config_id")
+            if raw_config_id:
+                config_id = int(raw_config_id)
+        if isinstance(generation, dict):
+            raw_config_id = generation.get("device_id") or generation.get("config_id")
+            if raw_config_id:
+                config_id = int(raw_config_id)
+        if marker.get("source") == "fabula_free_access":
+            if config_id:
+                # Fabula uses a stable direct full tunnel. The optional
+                # Router1 AI transparent redirect can leave Android with a
+                # handshake but no usable DNS/Telegram/YouTube traffic.
+                from r1pro_admin import use_direct_routing_for_device
+
+                use_direct_routing_for_device(client_id, config_id)
+            with db() as conn:
+                conn.execute(
+                    "UPDATE fabula_access_claims SET status = ?, config_id = COALESCE(?, config_id), updated_at = ? WHERE client_id = ? AND device_type = ?",
+                    (status, config_id, to_iso(utc_now()), client_id, marker.get("product")),
+                )
+                conn.commit()
+        else:
+            update_free_trial_claim(client_id, status, payment_id)
+        logger.info(
+            "free_trial_completed client_id=%s order_id=%s payment_id=%s status=%s",
+            client_id,
+            order_id,
+            payment_id,
+            status,
+        )
+    except Exception as exc:
+        if marker.get("source") == "fabula_free_access":
+            with db() as claim_conn:
+                claim_conn.execute(
+                    "UPDATE fabula_access_claims SET status = 'activation_error', updated_at = ? WHERE client_id = ? AND device_type = ?",
+                    (to_iso(utc_now()), client_id, marker.get("product")),
+                )
+                claim_conn.commit()
+        else:
+            update_free_trial_claim(client_id, "activation_error", payment_id)
+        with db() as conn:
+            conn.execute(
+                "UPDATE site_orders SET status = 'generation_error', generation_error = ?, updated_at = ? WHERE id = ?",
+                (str(exc)[:500], to_iso(utc_now()), order_id),
+            )
+            conn.commit()
+        logger.exception("free_trial_activation_failed client_id=%s order_id=%s", client_id, order_id)
+BLOCK create_order
+def create_order(order: OrderIn, background_tasks: BackgroundTasks, request: Request) -> dict[str, Any]:
+    ensure_site_schema()
+    product = PRODUCTS.get(order.product)
+    if not product:
+        raise HTTPException(status_code=400, detail="unknown product")
+    product = dict(product)
+
+    client_id = upsert_site_client(order)
+    click_id = (request.cookies.get("r1_click") or "").strip()
+    referral_code = clean_partner_ref(order)
+    if not referral_code and click_id:
+        with db() as click_conn:
+            click_row = click_conn.execute(
+                "SELECT referral_code FROM partner_clicks WHERE id = ? LIMIT 1", (click_id,)
+            ).fetchone()
+            referral_code = click_row["referral_code"] if click_row else None
+    partner_id = None
+    promo_applied = False
+    with connect() as conn:
+        if referral_code:
+            partner_id = link_partner_client(referral_code, client_id, conn, status="registered")
+            if partner_id is None and get_partner_by_code(referral_code, conn) is None:
+                logger.info("site_order_unknown_partner_ref referral_code=%s client_id=%s", referral_code, client_id)
+        if click_id:
+            conn.execute(
+                "UPDATE partner_clicks SET client_id = COALESCE(client_id, ?), linked_at = COALESCE(linked_at, ?) WHERE id = ?",
+                (client_id, to_iso(utc_now()), click_id),
+            )
+        discounted_amount, promo_applied = apply_launch_promo(
+            conn, referral_code, product, int(product["amount"])
+        )
+    free_trial = free_trial_active() and is_free_trial_product(order.product)
+    if free_trial:
+        is_fabula = request.url.path.startswith("/api/fabula/")
+        if is_fabula:
+            now_iso = to_iso(utc_now())
+            with db() as fabula_conn:
+                existing = fabula_conn.execute(
+                    "SELECT 1 FROM fabula_access_claims WHERE client_id = ? AND device_type = ?",
+                    (client_id, order.product),
+                ).fetchone()
+                if existing:
+                    claim = {"ok": False, "reason": "already_claimed"}
+                else:
+                    fabula_conn.execute(
+                        "INSERT INTO fabula_access_claims(client_id, device_type, claimed_at, updated_at) VALUES (?, ?, ?, ?)",
+                        (client_id, order.product, now_iso, now_iso),
+                    )
+                    fabula_conn.commit()
+                    claim = {"ok": True, "mode": order.trial_mode or "standard"}
+        else:
+            claim = claim_free_trial(
+                client_id,
+                "app_or_site",
+                order.product,
+                order.trial_mode or "standard",
+            )
+        if not claim.get("ok"):
+            logger.info("free_trial_denied client_id=%s product=%s reason=%s", client_id, order.product, claim.get("reason"))
+            raise HTTPException(
+                status_code=409,
+                detail="free trial has already been used by this client",
+            )
+        days = free_trial_days()
+        product["amount"] = 0
+        product["period_days"] = days
+        product["period"] = f"{days}d"
+        product["title"] = f"Бесплатный доступ Router1 на {days} дня"
+        product["does_apply_referral_bonus"] = False
+    if promo_applied:
+        product = dict(product)
+        product["amount"] = discounted_amount
+        product["title"] = product["title"]
+        logger.info(
+            "launch_promo_applied client_id=%s product=%s amount=%s",
+            client_id, order.product, discounted_amount,
+        )
+    payment_id = create_payment_placeholder(
+        client_id=client_id,
+        product_type=product["product_type"],
+        amount=int(product["amount"]),
+        period=str(product["period"]),
+        purpose=product["title"],
+        subscription_type="test" if free_trial or is_free_trial_product(order.product) else "monthly",
+        protocol=product["protocol"],
+        period_days=int(product["period_days"]),
+        payment_purpose=product["payment_purpose"],
+        does_activate_subscription=True,
+        does_create_config=True,
+        does_apply_referral_bonus=bool(product["does_apply_referral_bonus"]),
+    )
+    order_id = str(uuid.uuid4())
+    insert_site_order(
+        order_id=order_id,
+        client_id=client_id,
+        internal_payment_id=payment_id,
+        order=order,
+        referral_code=referral_code,
+        partner_id=partner_id,
+    )
+    if free_trial:
+        if request.url.path.startswith("/api/fabula/"):
+            with db() as fabula_conn:
+                fabula_conn.execute(
+                    "UPDATE fabula_access_claims SET status = 'activating', payment_id = ?, updated_at = ? WHERE client_id = ? AND device_type = ?",
+                    (payment_id, to_iso(utc_now()), client_id, order.product),
+                )
+                fabula_conn.commit()
+        else:
+            update_free_trial_claim(client_id, "activating", payment_id)
+        marker = {
+            "source": "fabula_free_access" if request.url.path.startswith("/api/fabula/") else "router1_free_trial",
+            "days": int(product["period_days"]),
+            "product": order.product,
+            "order_id": order_id,
+            "mode": claim.get("mode", "standard"),
+            "mode_locked": False,
+        }
+        with db() as conn:
+            conn.execute(
+                "UPDATE site_orders SET status = 'generating', raw_payload = ?, updated_at = ? WHERE id = ?",
 BLOCK create_fabula_access
 def create_fabula_access(
     order: OrderIn,
@@ -47,64 +331,77 @@ def create_fabula_access(
     if order.product not in {"smartphone_test", "laptop_test"}:
         raise HTTPException(status_code=400, detail="unsupported Fabula device")
     return create_order(order, background_tasks, request)
-BLOCK _fabula_daily_horoscope
-async def _fabula_daily_horoscope(sign: str, request: Request):
+BLOCK _app_billing_offers_for_client
+def _app_billing_offers_for_client(client_id: int) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM client_configs
+            WHERE client_id=? AND COALESCE(config_path, conf_path, '') != ''
+            ORDER BY id DESC
+            """,
+            (client_id,),
+        ).fetchall()
+    has_full_purchase = any(
+        (row["subscription_type"] or "").lower() != "test"
+        and (row["payment_status"] or "").lower() in {"paid", "active", "manual_grant"}
+        for row in rows
+    )
+    if has_full_purchase:
+        return APP_RENEWAL_OFFERS
+    test_rows = [row for row in rows if (row["subscription_type"] or "").lower() == "test"]
+    if not test_rows:
+        return []
+    row = test_rows[0]
+    raw = " ".join(str(row[key] or "") for key in ("product_type", "device_type", "device_name")).lower()
+    if "router" in raw or "роут" in raw:
+        key = "router_specialist"
+    elif "iphone" in raw or "ios" in raw:
+        key = "iphone_wg"
+    elif "pc" in raw or "laptop" in raw or "ноут" in raw or "комп" in raw:
+        key = "pc_xray"
+    else:
+        key = "smartphone_wg"
+    return [APP_TRIAL_CONVERSION_OFFERS[key]]
+BLOCK _app_renewal_offers
+async def _app_renewal_offers(request: Request, phone: str | None = None) -> dict[str, Any]:
+    _require_app_auth(request)
+    if not phone:
+        return {"ok": True, "offers": []}
+    with connect() as conn:
+        client = _app_client_by_identity(conn, phone, None)
+    if client is None:
+        return {"ok": True, "offers": []}
+    return {"ok": True, "offers": _app_billing_offers_for_client(int(client["id"]))}
+BLOCK _app_renewal_order
+async def _app_renewal_order(request: Request) -> dict[str, Any]:
     _require_app_auth(request)
     try:
-        result = daily_horoscope(sign)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="unknown zodiac sign")
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
-            ("horoscope_view", sign, utc_now().isoformat()),
-        )
-        conn.commit()
-    return result
-BLOCK _fabula_client_lookup
-async def _fabula_client_lookup(
-    request: Request,
-    phone: str | None = None,
-    telegram_id: str | None = None,
-    device_type: str | None = None,
-):
-    result = await _app_client_lookup(request, phone, telegram_id)
-    client_id = int(result["client"]["id"])
-    with db() as conn:
-        if device_type in {"smartphone_test", "laptop_test"}:
-            claims = conn.execute(
-                "SELECT config_id FROM fabula_access_claims WHERE client_id = ? AND device_type = ? AND status = 'active'",
-                (client_id, device_type),
-            ).fetchall()
-        else:
-            claims = conn.execute(
-                "SELECT config_id FROM fabula_access_claims WHERE client_id = ? AND status = 'active'",
-                (client_id,),
-            ).fetchall()
-        allowed_ids = {int(row["config_id"]) for row in claims if row["config_id"]}
-        result["configs"] = [config for config in result.get("configs", []) if int(config.get("id") or 0) in allowed_ids]
-        result["recommended_config_id"] = next(iter(allowed_ids), None)
-        conn.execute(
-            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
-            ("client_lookup", "found", utc_now().isoformat()),
-        )
-        conn.commit()
-    return result
-BLOCK _fabula_config_text
-async def _fabula_config_text(
-    device_id: int,
-    request: Request,
-    phone: str | None = None,
-    telegram_id: str | None = None,
-):
-    result = await _app_config_text(device_id, request, phone, telegram_id)
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
-            ("vpn_config", str(device_id), utc_now().isoformat()),
-        )
-        conn.commit()
-    return result
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid json")
+    phone = str(body.get("phone") or "").strip()
+    offer_key = str(body.get("offer_key") or "").strip()
+    if offer_key not in APP_RENEWAL_KEYS | set(APP_TRIAL_CONVERSION_OFFERS):
+        raise HTTPException(status_code=400, detail="unknown renewal offer")
+    with connect() as conn:
+        client = _app_client_by_identity(conn, phone, None)
+    if client is None:
+        raise HTTPException(status_code=404, detail="client not found")
+    allowed = {item["key"] for item in _app_billing_offers_for_client(int(client["id"]))}
+    if offer_key not in allowed:
+        raise HTTPException(status_code=409, detail="offer is not available for this client")
+    result = create_billing_payment_draft(int(client["id"]), offer_key)
+    if not result.get("ok") or not result.get("payment_url"):
+        logger.error("app_renewal_payment_failed client_id=%s offer=%s result=%s", client["id"], offer_key, result)
+        raise HTTPException(status_code=503, detail="payment temporarily unavailable")
+    return {
+        "ok": True,
+        "payment_id": result.get("payment_id"),
+        "amount": result.get("amount"),
+        "payment_url": result.get("payment_url"),
+        "text": result.get("text"),
+    }
 FILE platega_webhook.py True
 SYMBOL platega_webhook.py _extract_internal_payment_id 43 56
 SYMBOL platega_webhook.py _extract_site_order_id 59 69
@@ -140,9 +437,11 @@ TABLES
 client_configs id:INTEGER|client_id:INTEGER|device_name:TEXT|device_type:TEXT|public_key:TEXT|vpn_ip:TEXT|conf_path:TEXT|qr_path:TEXT|status:TEXT|payment_status:TEXT|created_at:TEXT|updated_at:TEXT|private_key:TEXT|address:TEXT|config_path:TEXT|paid_at:TEXT|product_type:TEXT|subscription_type:TEXT|period:TEXT|amount:INTEGER|last_used_at:TEXT|last_external_ip:TEXT|last_handshake_at:TEXT|last_endpoint:TEXT|protocol:TEXT|generation_error:TEXT|paid_until:TEXT|expired_notified_at:TEXT|blocked_at:TEXT|unblocked_at:TEXT|warning_7d_at:TEXT|warning_3d_at:TEXT|warning_0d_at:TEXT|block_reason:TEXT|server_code:TEXT|server_host:TEXT
 client_identities id:INTEGER|client_id:INTEGER|type:TEXT|value:TEXT|verified_at:TEXT|created_at:TEXT|updated_at:TEXT
 clients id:INTEGER|name:TEXT|phone:TEXT|protocol:TEXT|vpn_ip:TEXT|status:TEXT|paid_until:TEXT|comment:TEXT|created_at:TEXT|public_key:TEXT|last_handshake:TEXT|traffic:TEXT|source_file:TEXT|start_date:TEXT|telegram:TEXT|email:TEXT|router:TEXT|telegram_id:TEXT|tariff:TEXT|payment_link:TEXT|conf_path:TEXT|qr_path:TEXT|discount:TEXT|balance:INTEGER|bonus_points:INTEGER|client_code:TEXT|full_name:TEXT|router_model:TEXT|vpn_type:TEXT|config_name:TEXT|activation_date:TEXT|next_payment_date:TEXT|monthly_fee:INTEGER|notes:TEXT|updated_at:TEXT|ref_code:TEXT|referrer_id:INTEGER|bonus_days:INTEGER|referrals_count:INTEGER|paid_referrals_count:INTEGER|notify_7_sent_at:TEXT|notify_3_sent_at:TEXT|notify_0_sent_at:TEXT|phone_normalized:TEXT|configs_count:INTEGER|is_guest:INTEGER|referral_code:TEXT|role:TEXT
+fabula_access_claims client_id:INTEGER|device_type:TEXT|status:TEXT|payment_id:INTEGER|claimed_at:TEXT|updated_at:TEXT|config_id:INTEGER
 partner_referral_clients id:INTEGER|partner_id:INTEGER|client_id:INTEGER|status:TEXT|created_at:TEXT|registered_at:TEXT|first_paid_at:TEXT
 payments id:INTEGER|client_id:INTEGER|amount:INTEGER|currency:TEXT|status:TEXT|created_at:TEXT|purpose:TEXT|product_type:TEXT|subscription_type:TEXT|period:TEXT|payment_status:TEXT|external_payment_id:TEXT|paid_at:TEXT|protocol:TEXT|period_days:INTEGER|payment_purpose:TEXT|does_activate_subscription:INTEGER|does_create_config:INTEGER|does_apply_referral_bonus:INTEGER|payment_url:TEXT|raw_payload:TEXT|webhook_processed_at:TEXT|promo_code:TEXT
 site_orders id:TEXT|client_id:INTEGER|internal_payment_id:INTEGER|product:TEXT|name:TEXT|phone:TEXT|phone_normalized:TEXT|email:TEXT|telegram:TEXT|status:TEXT|payment_id:TEXT|payment_url:TEXT|device_id:INTEGER|conf_path:TEXT|qr_path:TEXT|generation_status:TEXT|generation_error:TEXT|raw_payload:TEXT|created_at:TEXT|paid_at:TEXT|updated_at:TEXT|referral_code:TEXT|partner_id:INTEGER|telegram_delivery_status:TEXT|email_delivery_status:TEXT|delivery_error:TEXT|delivered_at:TEXT
 subscription_compensations campaign:TEXT|client_id:INTEGER|subscription_id:INTEGER|days:INTEGER|expires_before:TEXT|expires_after:TEXT|applied_at:TEXT
 subscriptions id:INTEGER|client_id:INTEGER|status:TEXT|started_at:TEXT|expires_at:TEXT
 OWNER_MATCH clients 1
+OWNER_MATCH site_orders 16
