@@ -391,11 +391,11 @@ jobs:
           path = Path("/opt/vpn_bot/site_api.py")
           text = path.read_text(encoding="utf-8")
           marker = "# FABULA_CHAT_SITE_API"
-          block = """
-# FABULA_CHAT_SITE_API
-from fabula_chat import register_fabula_proxy_routes
-register_fabula_proxy_routes(app)
-"""
+          block = (
+              "\n# FABULA_CHAT_SITE_API\n"
+              "from fabula_chat import register_fabula_proxy_routes\n"
+              "register_fabula_proxy_routes(app)\n"
+          )
           if marker not in text:
               path.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
           PY
