@@ -71,6 +71,16 @@ jobs:
           rm -f /tmp/openrouter.key /tmp/fabula-client.key
           export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN
 
+          echo "FABULA_EGRESS_DIAGNOSTIC"
+          ip -brief address
+          ip route show
+          ss -lntup \
+            | grep -E '(:1080|:10808|:2080|:3128|:7890|:8080|xray|sing-box)' \
+            || true
+          systemctl list-units --type=service --all --no-legend \
+            | grep -Ei '(xray|sing-box|wireguard|wg-quick|proxy)' \
+            || true
+
           CONFIG_LIST="$BACKUP_DIR/nginx-config-paths"
           python3 - <<'PY' >"$CONFIG_LIST"
           import re
