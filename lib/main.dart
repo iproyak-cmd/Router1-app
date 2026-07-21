@@ -15,8 +15,8 @@ import 'services/awg_tunnel_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.9+19';
-const fabulaBuild = 19;
+const fabulaVersion = '0.5.0+20';
+const fabulaBuild = 20;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -133,6 +133,7 @@ class _FabulaShellState extends State<FabulaShell> {
   var updateBusy = false;
   Router1InternalUpdate? availableUpdate;
   String name = '';
+  String assistantName = '';
   String phone = '';
   String birthday = '';
   String sign = 'libra';
@@ -165,6 +166,7 @@ class _FabulaShellState extends State<FabulaShell> {
     final prefs = await SharedPreferences.getInstance();
     installationId = await _installationId();
     name = prefs.getString('fabula_name') ?? '';
+    assistantName = prefs.getString('fabula_assistant_name') ?? '';
     phone = prefs.getString('fabula_phone') ?? '';
     birthday = prefs.getString('fabula_birthday') ?? '';
     sign = prefs.getString('fabula_sign') ?? 'libra';
@@ -525,8 +527,10 @@ class _FabulaShellState extends State<FabulaShell> {
     String valueName,
     String valuePhone,
     DateTime valueBirthday,
+    String valueAssistantName,
   ) async {
     name = valueName.trim();
+    assistantName = valueAssistantName.trim();
     phone = valuePhone.trim();
     birthday =
         '${valueBirthday.year.toString().padLeft(4, '0')}-'
@@ -535,6 +539,7 @@ class _FabulaShellState extends State<FabulaShell> {
     sign = _zodiacFor(valueBirthday.month, valueBirthday.day);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_name', name);
+    await prefs.setString('fabula_assistant_name', assistantName);
     await prefs.setString('fabula_phone', phone);
     await prefs.setString('fabula_birthday', birthday);
     await prefs.setString('fabula_sign', sign);
@@ -545,6 +550,33 @@ class _FabulaShellState extends State<FabulaShell> {
     }
     await _loadForecast();
     if (connectionEntitled) unawaited(_warmVpnAccess());
+  }
+
+  Future<void> _editAssistantName() async {
+    final controller = TextEditingController(text: assistantName);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Имя ассистента'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 24,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(hintText: 'Например, Марк'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Сохранить')),
+        ],
+      ),
+    );
+    final value = controller.text.trim();
+    controller.dispose();
+    if (saved != true || value.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('fabula_assistant_name', value);
+    if (mounted) setState(() => assistantName = value);
   }
 
   Future<void> _saveCycle(CycleSettings value) async {
@@ -706,11 +738,13 @@ class _FabulaShellState extends State<FabulaShell> {
             ),
             installationId: installationId,
             name: name,
+            assistantName: assistantName,
+            onChooseAssistantName: _editAssistantName,
           ),
-          destination: const NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            selectedIcon: Icon(Icons.chat_bubble),
-            label: 'Рядом',
+          destination: NavigationDestination(
+            icon: const Icon(Icons.chat_bubble_outline),
+            selectedIcon: const Icon(Icons.chat_bubble),
+            label: assistantName.isEmpty ? 'Ассистент' : assistantName,
           ),
         ),
       if (visibleNavigation.contains(cycleModuleId))
@@ -738,6 +772,8 @@ class _FabulaShellState extends State<FabulaShell> {
           name: name,
           phone: phone,
           sign: sign,
+          assistantName: assistantName,
+          onEditAssistantName: _editAssistantName,
           onEdit: _editProfile,
           enabledModules: enabledModules,
           onModuleChanged: _toggleModule,
@@ -872,7 +908,7 @@ class _Page extends StatelessWidget {
 
 class _OnboardingPage extends StatefulWidget {
   const _OnboardingPage({required this.onComplete});
-  final Future<void> Function(String, String, DateTime) onComplete;
+  final Future<void> Function(String, String, DateTime, String) onComplete;
   @override
   State<_OnboardingPage> createState() => _OnboardingPageState();
 }
@@ -880,20 +916,21 @@ class _OnboardingPage extends StatefulWidget {
 class _OnboardingPageState extends State<_OnboardingPage> {
   final name = TextEditingController();
   final phone = TextEditingController();
+  final assistantName = TextEditingController();
   DateTime? birthday;
   var saving = false;
 
   Future<void> _save() async {
     if (name.text.trim().isEmpty ||
         phone.text.trim().isEmpty ||
-        birthday == null) {
+        birthday == null || assistantName.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Заполните имя, телефон и дату рождения')),
+        const SnackBar(content: Text('Заполните данные и выберите имя ассистента')),
       );
       return;
     }
     setState(() => saving = true);
-    await widget.onComplete(name.text, phone.text, birthday!);
+    await widget.onComplete(name.text, phone.text, birthday!, assistantName.text);
     if (mounted) setState(() => saving = false);
   }
 
@@ -949,6 +986,17 @@ class _OnboardingPageState extends State<_OnboardingPage> {
                 );
                 if (value != null) setState(() => birthday = value);
               },
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: assistantName,
+              maxLength: 24,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Как будут звать вашего ассистента?',
+                hintText: 'Например, Марк',
+                helperText: 'Спокойный личный собеседник-мужчина',
+              ),
             ),
             const SizedBox(height: 18),
             SizedBox(
@@ -2455,12 +2503,15 @@ class _ProfilePage extends StatelessWidget {
     required this.name,
     required this.phone,
     required this.sign,
+    required this.assistantName,
+    required this.onEditAssistantName,
     required this.onEdit,
     required this.enabledModules,
     required this.onModuleChanged,
   });
-  final String name, phone, sign;
+  final String name, phone, sign, assistantName;
   final VoidCallback onEdit;
+  final VoidCallback onEditAssistantName;
   final Set<String> enabledModules;
   final Future<void> Function(String, bool) onModuleChanged;
   @override
@@ -2491,6 +2542,17 @@ class _ProfilePage extends StatelessWidget {
                 child: const Text('Изменить профиль'),
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Card(
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.chat_bubble_outline, color: _burgundy),
+            title: const Text('Ассистент'),
+            subtitle: Text(assistantName.isEmpty ? 'Имя ещё не выбрано' : assistantName),
+            trailing: const Icon(Icons.edit_outlined),
+            onTap: onEditAssistantName,
           ),
         ),
         const SizedBox(height: 16),
