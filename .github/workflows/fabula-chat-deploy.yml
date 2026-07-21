@@ -618,9 +618,15 @@ jobs:
           PY
           python3 -m py_compile "$ROOT/site_api.py"
           systemctl restart router1-site-api.service
+          TOKEN=$(sed -n 's/^FABULA_CLIENT_API_TOKEN=//p' "$ROOT/.env" | tail -1)
+          test -n "$TOKEN"
           for attempt in 1 2 3 4 5; do
-            if curl -fsS --max-time 5 http://127.0.0.1:8000/openapi.json \
-              | grep -q '/api/fabula/chat'; then
+            if curl -fsS --max-time 55 \
+              -H "Authorization: Bearer $TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data '{"installation_id":"site-api-live-check","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
+              http://127.0.0.1:8000/api/fabula/chat \
+              | python3 -c 'import json,sys; assert json.load(sys.stdin)["reply"].strip()'; then
               echo FABULA_SITE_API_ROUTE_OK
               exit 0
             fi
