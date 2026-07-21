@@ -1,7 +1,7 @@
 name: fabula_app
 description: Fabula — личный проводник по чувствам и знакам.
 publish_to: "none"
-version: 0.4.9+19
+version: 0.5.0+20
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
