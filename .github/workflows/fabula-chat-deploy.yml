@@ -72,44 +72,35 @@ jobs:
           export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN
 
           CONFIG=$(python3 - <<'PY'
-          import pathlib
           import re
+          import subprocess
 
-          def server_blocks(text):
+          rendered = subprocess.run(
+              ["nginx", "-T"], check=True, text=True,
+              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+          ).stdout
+          sections = re.split(r"^# configuration file (.+?):\n", rendered, flags=re.M)
+          for index in range(1, len(sections), 2):
+              path, text = sections[index], sections[index + 1]
               for match in re.finditer(r"server\s*\{", text):
                   depth = 0
-                  for index in range(text.find("{", match.start()), len(text)):
-                      if text[index] == "{":
+                  end = None
+                  for offset in range(text.find("{", match.start()), len(text)):
+                      if text[offset] == "{":
                           depth += 1
-                      elif text[index] == "}":
+                      elif text[offset] == "}":
                           depth -= 1
                           if depth == 0:
-                              yield text[match.start():index + 1]
+                              end = offset + 1
                               break
-
-          seen = set()
-          for directory in ("/etc/nginx/sites-enabled", "/etc/nginx/conf.d"):
-              root = pathlib.Path(directory)
-              if not root.exists():
-                  continue
-              for candidate in root.glob("*"):
-                  try:
-                      path = candidate.resolve()
-                      if path in seen or not path.is_file():
-                          continue
-                      seen.add(path)
-                      text = path.read_text(encoding="utf-8")
-                  except (OSError, UnicodeError):
-                      continue
-                  blocks = list(server_blocks(text))
-                  if any(
+                  block = text[match.start():end] if end else ""
+                  if (
                       re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
                       and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
-                      for block in blocks
                   ):
                       print(path)
                       raise SystemExit
-          raise SystemExit("router1.tech TLS nginx config not found")
+          raise SystemExit("active router1.tech TLS nginx config not found")
           PY
           )
 
@@ -298,3 +289,14 @@ jobs:
           trap - ERR
           echo "DEPLOY_OK backup=$BACKUP_DIR"
           REMOTE
+
+      - name: Verify from outside the production server
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(curl -fsS --max-time 55 \
+            --resolve router1.tech:443:201.51.4.89 \
+            -H 'Content-Type: application/json' \
+            --data '{"installation_id":"github-external-check","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
+            https://router1.tech/api/fabula/chat)
+          jq -e '.reply | strings | length > 0' <<<"$response" >/dev/null
