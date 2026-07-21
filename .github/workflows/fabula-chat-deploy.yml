@@ -658,8 +658,20 @@ jobs:
           systemctl daemon-reload
           systemctl enable --now fabula-chat.service
           systemctl restart fabula-chat.service
-          curl -fsS --max-time 8 http://127.0.0.1:18012/health \
-            | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+          ready=0
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 5 http://127.0.0.1:18012/health \
+              | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then
+            systemctl status fabula-chat.service --no-pager || true
+            journalctl -u fabula-chat.service --no-pager -n 50 || true
+            exit 1
+          fi
           echo FABULA_FR_RESTRICTED_ENDPOINT_OK
           REMOTE
 
