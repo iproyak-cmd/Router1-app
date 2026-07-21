@@ -35,6 +35,7 @@ class FabulaCompanionApi {
   Future<String> reply({
     required String installationId,
     required String name,
+    required String assistantName,
     required List<FabulaChatMessage> messages,
   }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
@@ -48,6 +49,7 @@ class FabulaCompanionApi {
         jsonEncode({
           'installation_id': installationId,
           'name': name,
+          'assistant_name': assistantName,
           'messages': messages.takeLast(12).map((item) => item.toJson()).toList(),
         }),
       );
@@ -79,11 +81,15 @@ class FabulaCompanionPage extends StatefulWidget {
     required this.api,
     required this.installationId,
     required this.name,
+    required this.assistantName,
+    required this.onChooseAssistantName,
   });
 
   final FabulaCompanionApi api;
   final String installationId;
   final String name;
+  final String assistantName;
+  final Future<void> Function() onChooseAssistantName;
 
   @override
   State<FabulaCompanionPage> createState() => _FabulaCompanionPageState();
@@ -138,6 +144,10 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
 
   Future<void> _send([String? suggested]) async {
     if (_busy) return;
+    if (widget.assistantName.isEmpty) {
+      await widget.onChooseAssistantName();
+      return;
+    }
     final text = (suggested ?? _controller.text).trim();
     if (text.isEmpty) return;
     if (text.length > 2000) {
@@ -157,6 +167,7 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
       final answer = await widget.api.reply(
         installationId: widget.installationId,
         name: widget.name,
+        assistantName: widget.assistantName,
         messages: _messages,
       );
       if (!mounted) return;
@@ -252,8 +263,10 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Fabula рядом',
+                      Text(
+                        widget.assistantName.isEmpty
+                            ? 'Ассистент'
+                            : widget.assistantName,
                         style: TextStyle(fontFamily: 'serif', fontSize: 30, color: _ink),
                       ),
                       Text(
@@ -282,7 +295,7 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                 children: [
                   SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                   SizedBox(width: 10),
-                  Text('Fabula отвечает…', style: TextStyle(color: _muted)),
+                  Text('Ассистент отвечает…', style: TextStyle(color: _muted)),
                 ],
               ),
             ),
@@ -300,12 +313,19 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
               borderRadius: BorderRadius.circular(26),
               border: Border.all(color: const Color(0xFFE5DED7)),
             ),
-            child: const Text(
-              'Здесь не нужно подбирать правильные слова. Расскажите, что тревожит, радует или не даёт принять решение. Fabula выслушает и поможет посмотреть на ситуацию спокойнее.',
+            child: Text(
+              widget.assistantName.isEmpty
+                  ? 'Сначала выберите имя своему личному ассистенту — спокойному и внимательному собеседнику.'
+                  : 'Здесь не нужно подбирать правильные слова. Расскажите, что тревожит, радует или не даёт принять решение. ${widget.assistantName} выслушает и поможет посмотреть на ситуацию спокойнее.',
               style: TextStyle(fontSize: 17, height: 1.5, color: _ink),
             ),
           ),
           const SizedBox(height: 18),
+          if (widget.assistantName.isEmpty)
+            FilledButton(
+              onPressed: widget.onChooseAssistantName,
+              child: const Text('Выбрать имя ассистента'),
+            ),
           for (final prompt in const [
             'Мне нужно выговориться',
             'Помоги разобраться в чувствах',
@@ -394,24 +414,15 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: Focus(
-                onKeyEvent: (_, event) {
-                  final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
-                      event.logicalKey == LogicalKeyboardKey.numpadEnter;
-                  if (event is KeyDownEvent &&
-                      isEnter &&
-                      !HardwareKeyboard.instance.isShiftPressed) {
-                    _send();
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
+              child: CallbackShortcuts(
+                bindings: <ShortcutActivator, VoidCallback>{
+                  const SingleActivator(LogicalKeyboardKey.enter): _send,
+                  const SingleActivator(LogicalKeyboardKey.numpadEnter): _send,
                 },
                 child: TextField(
                   controller: _controller,
                   minLines: 1,
                   maxLines: 5,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
                     hintText: 'Напишите, что происходит…',
@@ -422,6 +433,7 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                       borderSide: BorderSide.none,
                     ),
                   ),
+                  onSubmitted: (_) => _send(),
                 ),
               ),
             ),
