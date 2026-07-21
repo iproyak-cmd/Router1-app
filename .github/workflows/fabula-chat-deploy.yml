@@ -592,12 +592,77 @@ jobs:
       - name: Register Fabula in the live Router1 site API
         shell: bash
         run: |
+          umask 077
+          printf '%s' "$FABULA_FR_SSH_PASSWORD" > "$RUNNER_TEMP/fabula-fr-live-password"
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            "$RUNNER_TEMP/fabula-fr-live-password" \
+            root@201.51.4.89:/tmp/
           sshpass -e ssh \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=15 \
             root@201.51.4.89 'bash -s' <<'REMOTE'
           set -Eeuo pipefail
           ROOT=/opt/vpn_bot
+          FR_PASSWORD=$(cat /tmp/fabula-fr-live-password)
+          rm -f /tmp/fabula-fr-live-password
+          export FR_PASSWORD
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("/opt/vpn_bot/.env")
+          replacements = {
+              "FABULA_EGRESS_HOST": "213.176.93.13",
+              "FABULA_EGRESS_PORT": "22",
+              "FABULA_EGRESS_SSH_PASSWORD": os.environ["FR_PASSWORD"],
+          }
+          output = []
+          seen = set()
+          for line in path.read_text(encoding="utf-8").splitlines():
+              key = line.split("=", 1)[0].strip() if "=" in line else ""
+              if key in replacements:
+                  output.append(f"{key}={replacements[key]}")
+                  seen.add(key)
+              else:
+                  output.append(line)
+          for key, value in replacements.items():
+              if key not in seen:
+                  output.append(f"{key}={value}")
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          os.chmod(path, 0o600)
+          PY
+          cat >/etc/systemd/system/fabula-chat.service <<'UNITFILE'
+          [Unit]
+          Description=Fabula AI companion tunnel to FR
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          EnvironmentFile=/opt/vpn_bot/.env
+          ExecStart=/bin/bash -c 'export SSHPASS="$FABULA_EGRESS_SSH_PASSWORD"; exec /usr/bin/sshpass -e /usr/bin/ssh -N -T -p "$FABULA_EGRESS_PORT" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -L 127.0.0.1:8012:127.0.0.1:18012 "root@$FABULA_EGRESS_HOST"'
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
+          systemctl daemon-reload
+          systemctl restart fabula-chat.service
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 5 http://127.0.0.1:8012/health >/dev/null; then
+              echo FABULA_FR_TUNNEL_OK
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS --max-time 5 http://127.0.0.1:8012/health >/dev/null
           STAMP=$(date -u +%Y%m%dT%H%M%SZ)
           cp -a "$ROOT/site_api.py" "$ROOT/backups/site_api_before_fabula_chat_$STAMP.py"
           install -m 0644 /tmp/fabula_chat.py "$ROOT/fabula_chat.py"
