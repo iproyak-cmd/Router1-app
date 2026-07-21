@@ -206,31 +206,87 @@ jobs:
           os.chmod(path, 0o600)
           PY
 
-          FR_SSH_PASSWORD=$(python3 - <<'PY'
+          mapfile -t R1PRO_VALUES < <(python3 - <<'PY'
           from pathlib import Path
           values = {}
           for raw in Path('/opt/vpn_bot/.env').read_text(encoding='utf-8').splitlines():
               if '=' in raw and not raw.lstrip().startswith('#'):
                   key, value = raw.split('=', 1)
                   values[key.strip()] = value.strip().strip('"').strip("'")
-          print(values.get('R1PRO_FR_SSH_PASSWORD', ''))
+          for name in (
+              'R1PRO_HOST', 'R1PRO_PORT', 'R1PRO_SSH_PASSWORD',
+              'R1PRO_FR_SSH_PASSWORD', 'R1PRO_NL2_SSH_PASSWORD',
+          ):
+              print(values.get(name, ''))
           PY
           )
-          test -n "$FR_SSH_PASSWORD"
+          R1PRO_HOST=${R1PRO_VALUES[0]}
+          R1PRO_PORT=${R1PRO_VALUES[1]}
+          R1PRO_SSH_PASSWORD=${R1PRO_VALUES[2]}
+          FR_SSH_PASSWORD=${R1PRO_VALUES[3]}
+          NL2_SSH_PASSWORD=${R1PRO_VALUES[4]}
           command -v sshpass >/dev/null
-          export SSHPASS="$FR_SSH_PASSWORD"
+          SELECTED_HOST=
+          SELECTED_PORT=
+          SELECTED_PASSWORD=
+          for candidate in \
+            "$R1PRO_HOST|$R1PRO_PORT|$R1PRO_SSH_PASSWORD" \
+            "213.176.93.13|5443|$FR_SSH_PASSWORD" \
+            "213.176.93.13|22|$FR_SSH_PASSWORD" \
+            "201.51.23.60|5445|$NL2_SSH_PASSWORD" \
+            "201.51.23.60|22|$NL2_SSH_PASSWORD"; do
+            IFS='|' read -r host port password <<EOF
+          $candidate
+          EOF
+            if [ -z "$host" ] || [ -z "$port" ] || [ -z "$password" ]; then continue; fi
+            export SSHPASS="$password"
+            if sshpass -e ssh -p "$port" \
+              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+              "root@$host" 'curl -fsS --max-time 12 https://openrouter.ai/api/v1/models >/dev/null'; then
+              SELECTED_HOST=$host
+              SELECTED_PORT=$port
+              SELECTED_PASSWORD=$password
+              break
+            fi
+          done
+          test -n "$SELECTED_HOST"
+          export SSHPASS="$SELECTED_PASSWORD"
+          FABULA_EGRESS_HOST="$SELECTED_HOST" FABULA_EGRESS_PORT="$SELECTED_PORT" FABULA_EGRESS_PASSWORD="$SELECTED_PASSWORD" ENV_FILE="$ENV_FILE" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path(os.environ['ENV_FILE'])
+          replacements = {
+              'FABULA_EGRESS_HOST': os.environ['FABULA_EGRESS_HOST'],
+              'FABULA_EGRESS_PORT': os.environ['FABULA_EGRESS_PORT'],
+              'FABULA_EGRESS_SSH_PASSWORD': os.environ['FABULA_EGRESS_PASSWORD'],
+          }
+          output = []
+          seen = set()
+          for line in path.read_text(encoding='utf-8').splitlines():
+              key = line.split('=', 1)[0].strip() if '=' in line else ''
+              if key in replacements:
+                  output.append(f'{key}={replacements[key]}')
+                  seen.add(key)
+              else:
+                  output.append(line)
+          for key, value in replacements.items():
+              if key not in seen:
+                  output.append(f'{key}={value}')
+          path.write_text('\n'.join(output) + '\n', encoding='utf-8')
+          os.chmod(path, 0o600)
+          PY
           printf '%s' "$OPENROUTER_API_KEY" > /tmp/fr-openrouter.key
           printf '%s' "$FABULA_CLIENT_API_TOKEN" > /tmp/fr-fabula-client.key
           chmod 600 /tmp/fr-openrouter.key /tmp/fr-fabula-client.key
-          sshpass -e scp -P 5443 \
+          sshpass -e scp -P "$SELECTED_PORT" \
             -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             /tmp/fabula_chat.py /tmp/fabula_chat_http.py \
             /tmp/fr-openrouter.key /tmp/fr-fabula-client.key \
-            root@213.176.93.13:/tmp/
+            "root@$SELECTED_HOST:/tmp/"
           rm -f /tmp/fr-openrouter.key /tmp/fr-fabula-client.key
-          sshpass -e ssh -p 5443 \
+          sshpass -e ssh -p "$SELECTED_PORT" \
             -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            root@213.176.93.13 'bash -s' <<'FRREMOTE'
+            "root@$SELECTED_HOST" 'bash -s' <<'FRREMOTE'
           set -Eeuo pipefail
           install -d -m 0700 /opt/fabula-chat
           install -m 0644 /tmp/fabula_chat.py /opt/fabula-chat/fabula_chat.py
@@ -301,7 +357,7 @@ jobs:
           Type=simple
           User=root
           EnvironmentFile=/opt/vpn_bot/.env
-          ExecStart=/bin/bash -c 'export SSHPASS="$R1PRO_FR_SSH_PASSWORD"; exec /usr/bin/sshpass -e /usr/bin/ssh -N -T -p 5443 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -L 127.0.0.1:8012:127.0.0.1:18012 root@213.176.93.13'
+          ExecStart=/bin/bash -c 'export SSHPASS="$FABULA_EGRESS_SSH_PASSWORD"; exec /usr/bin/sshpass -e /usr/bin/ssh -N -T -p "$FABULA_EGRESS_PORT" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -L 127.0.0.1:8012:127.0.0.1:18012 "root@$FABULA_EGRESS_HOST"'
           Restart=always
           RestartSec=3
           NoNewPrivileges=true
