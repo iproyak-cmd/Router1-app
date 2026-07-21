@@ -139,6 +139,20 @@ def request_openrouter(payload: FabulaChatPayload) -> str:
             if answer:
                 return answer[:3000]
             raise ValueError("empty response")
+        except urllib.error.HTTPError as error:
+            last_error = error
+            try:
+                detail = error.read().decode("utf-8", errors="replace")[:800]
+            except Exception:
+                detail = "unreadable response"
+            print(
+                f"OpenRouter HTTP {error.code}: {detail}",
+                flush=True,
+            )
+            if attempt < 1 and error.code >= 500:
+                time.sleep(attempt + 1)
+                continue
+            break
         except (
             urllib.error.URLError,
             TimeoutError,
