@@ -457,6 +457,59 @@ jobs:
               path.write_text(text, encoding="utf-8")
           PY
 
+          # The canonical live TLS file contains the generic /api/ proxy.
+          # Insert the exact Fabula route immediately before it so nginx's
+          # location precedence cannot send chat requests to site_api:8000.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("/etc/nginx/sites-enabled/router1.conf")
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_CHAT_CANONICAL"
+          while marker in text:
+              start = text.rfind("\n", 0, text.index(marker)) + 1
+              location_start = text.find("location", start)
+              brace_start = text.find("{", location_start)
+              depth = 0
+              end = None
+              for index in range(brace_start, len(text)):
+                  if text[index] == "{":
+                      depth += 1
+                  elif text[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = index + 1
+                          break
+              if end is None:
+                  raise SystemExit("unterminated canonical Fabula route")
+              text = text[:start] + text[end:]
+
+          generic = re.search(r"(?m)^(\s*)location\s+/api/\s*\{", text)
+          if not generic:
+              raise SystemExit("canonical /api/ location not found")
+          indent = generic.group(1)
+          block = (
+              f"{indent}# FABULA_CHAT_CANONICAL\n"
+              f"{indent}location = /api/fabula/chat {{\n"
+              f"{indent}    limit_except POST {{ deny all; }}\n"
+              f"{indent}    proxy_pass http://127.0.0.1:8012;\n"
+              f"{indent}    proxy_http_version 1.1;\n"
+              f"{indent}    proxy_set_header Host $host;\n"
+              f"{indent}    proxy_set_header Authorization $http_authorization;\n"
+              f"{indent}    proxy_set_header X-Real-IP $remote_addr;\n"
+              f"{indent}    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+              f"{indent}    add_header X-Fabula-Route canonical always;\n"
+              f"{indent}    proxy_connect_timeout 5s;\n"
+              f"{indent}    proxy_read_timeout 50s;\n"
+              f"{indent}    client_max_body_size 64k;\n"
+              f"{indent}}}\n\n"
+          )
+          text = text[:generic.start()] + block + text[generic.start():]
+          path.write_text(text, encoding="utf-8")
+          PY
+          grep -q "FABULA_CHAT_CANONICAL" /etc/nginx/sites-enabled/router1.conf
+
           nginx -t
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8012/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
