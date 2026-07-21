@@ -31,8 +31,107 @@ SYMBOL site_api.py _app_client_lookup 2115 2166
 SYMBOL site_api.py _fabula_client_lookup 2200 2227
 SYMBOL site_api.py _fabula_config_text 2231 2244
 SYMBOL site_api.py _app_order_config_text 2381 2401
+LINE 90 
+LINE 91 
+LINE 92 
+LINE 93 PRODUCTS: dict[str, dict[str, Any]] = {
+LINE 94     "router": {
+LINE 95         "title": "VPN для роутера",
+LINE 96         "amount": 1300,
+LINE 97         "period_days": 30,
+LINE 98         "period": "1m",
+LINE 99         "product_type": "router",
+LINE 100         "protocol": "amneziawg",
+LINE 101         "payment_purpose": "site_router_vpn",
+LINE 102         "does_apply_referral_bonus": True,
+LINE 103         "device_label": "AWG FR для роутера",
+LINE 104         "requires_setup_request": True,
+LINE 105     },
+LINE 106     "smartphone": {
+LINE 107         "title": "VPN AmneziaWG для смартфона",
+LINE 108         "amount": 390,
+LINE 109         "period_days": 30,
+LINE 110         "period": "1m",
+LINE 111         "product_type": "vpn_config",
+LINE 112         "protocol": "amneziawg",
+LINE 113         "payment_purpose": "site_smartphone_vpn",
+LINE 114         "does_apply_referral_bonus": True,
+LINE 115         "device_label": "VPN AmneziaWG для смартфона",
+LINE 116     },
+LINE 117     "iphone": {
+LINE 118         "title": "Router1 для iPhone",
+LINE 119         "amount": 390,
+LINE 120         "period_days": 30,
+LINE 121         "period": "1m",
+LINE 122         "product_type": "iphone",
+LINE 123         "protocol": "wireguard",
+LINE 124         "payment_purpose": "site_iphone_vpn",
+LINE 125         "does_apply_referral_bonus": True,
+LINE 126         "device_label": "VPN WireGuard для iPhone",
+LINE 127     },
+LINE 128     "iphone_test": {
+LINE 129         "title": "Бесплатный доступ Router1 для iPhone на 3 дня",
+LINE 130         "amount": 0,
+LINE 131         "period_days": 3,
+LINE 132         "period": "3d",
+LINE 133         "product_type": "iphone",
+LINE 134         "protocol": "wireguard",
+LINE 135         "payment_purpose": "test_access_1day",
+LINE 136         "does_apply_referral_bonus": False,
+LINE 137         "device_label": "Тест WireGuard для iPhone",
+LINE 138     },
+LINE 139     "laptop": {
+LINE 140         "title": "VPN AmneziaWG для ноутбука / ПК",
+LINE 141         "amount": 490,
+LINE 142         "period_days": 30,
+LINE 143         "period": "1m",
+LINE 144         "product_type": "vpn_config",
+LINE 145         "protocol": "amneziawg",
+LINE 146         "payment_purpose": "site_laptop_vpn",
+LINE 147         "does_apply_referral_bonus": True,
+LINE 148         "device_label": "VPN AmneziaWG для ноутбука / ПК",
+LINE 149     },
 LINE 150     "smartphone_test": {
+LINE 151         "title": "Бесплатный доступ Router1 для смартфона на 3 дня",
+LINE 152         "amount": 0,
+LINE 153         "period_days": 3,
+LINE 154         "period": "3d",
+LINE 155         "product_type": "vpn_config",
+LINE 156         "protocol": "amneziawg",
+LINE 157         "payment_purpose": "test_access_1day",
+LINE 158         "does_apply_referral_bonus": False,
+LINE 159         "device_label": "Тест VPN AmneziaWG для смартфона",
+LINE 160     },
+LINE 161     "router_test": {
+LINE 162         "title": "Бесплатный доступ Router1 для роутера на 3 дня",
+LINE 163         "amount": 0,
+LINE 164         "period_days": 3,
+LINE 165         "period": "3d",
+LINE 166         "product_type": "router",
+LINE 167         "protocol": "amneziawg",
+LINE 168         "payment_purpose": "test_router_access_1day",
+LINE 169         "does_apply_referral_bonus": False,
+LINE 170         "device_label": "Тест AWG FR для роутера",
+LINE 171         "requires_setup_request": True,
+LINE 172     },
 LINE 173     "laptop_test": {
+LINE 174         "title": "Бесплатный доступ Router1 для ноутбука / ПК на 3 дня",
+LINE 175         "amount": 0,
+LINE 176         "period_days": 3,
+LINE 177         "period": "3d",
+LINE 178         "product_type": "vpn_config",
+LINE 179         "protocol": "amneziawg",
+LINE 180         "payment_purpose": "test_access_1day",
+LINE 181         "does_apply_referral_bonus": False,
+LINE 182         "device_label": "Тест VPN AmneziaWG для ноутбука / ПК",
+LINE 183     },
+LINE 184 }
+LINE 185 
+LINE 186 # --- Промо-акция "-40% до 15 июля" (добавлено claude 09.07.2026, обновлено 09.07.2026:
+LINE 187 # было "первым 100 клиентам -30%", стало дедлайн по дате вместо лимита по количеству) ---
+LINE 188 LAUNCH_PROMO_CODE = "ROUTER30"
+LINE 189 LAUNCH_PROMO_MULTIPLIER = 1.0
+LINE 190 LAUNCH_PROMO_DEADLINE = datetime(2026, 7, 15, 21, 0, 0, tzinfo=timezone.utc)  # 15 июля 23:59 МСК
 LINE 1040         if marker.get("source") == "fabula_free_access":
 LINE 1064         if marker.get("source") == "fabula_free_access":
 LINE 1245             "source": "fabula_free_access" if request.url.path.startswith("/api/fabula/") else "router1_free_trial",
