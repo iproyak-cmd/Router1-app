@@ -103,9 +103,10 @@ jobs:
         run: |
           set -euo pipefail
           page=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/)
-          grep -Fq 'Рядом, когда хочется поговорить.' <<<"$page"
-          grep -Fq 'Личный проводник по чувствам и знакам.' <<<"$page"
-          grep -Fq 'Fabula Free' <<<"$page"
+          grep -Fq 'Главное на сегодня — в одном приложении.' <<<"$page"
+          grep -Fq 'Личный ассистент, ежедневные подсказки и полноценный интернет.' <<<"$page"
+          grep -Fq 'Что вы будете получать' <<<"$page"
+          grep -Fq 'Полноценный интернет' <<<"$page"
           ! grep -Fiq 'Женский VPN' <<<"$page"
           grep -Fq 'assets/hero-strength.webp' <<<"$page"
           grep -Fq 'assets/brand-mark.webp' <<<"$page"
