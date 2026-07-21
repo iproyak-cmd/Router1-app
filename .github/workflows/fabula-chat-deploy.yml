@@ -592,14 +592,62 @@ jobs:
       - name: Expose FR companion only to the Moscow API
         shell: bash
         run: |
+          umask 077
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/openrouter.key"
+          printf '%s' "$FABULA_CLIENT_API_TOKEN" > "$RUNNER_TEMP/fabula-client.key"
           export SSHPASS="$FABULA_FR_SSH_PASSWORD"
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            server/fabula_chat.py \
+            server/fabula_chat_http.py \
+            "$RUNNER_TEMP/openrouter.key" \
+            "$RUNNER_TEMP/fabula-client.key" \
+            root@213.176.93.13:/tmp/
           sshpass -e ssh \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=15 \
             root@213.176.93.13 'bash -s' <<'REMOTE'
           set -Eeuo pipefail
-          sed -i 's/Environment=FABULA_CHAT_HOST=127.0.0.1/Environment=FABULA_CHAT_HOST=0.0.0.0/' \
-            /etc/systemd/system/fabula-chat.service
+          install -d -m 0700 /opt/fabula-chat
+          install -m 0644 /tmp/fabula_chat.py /opt/fabula-chat/fabula_chat.py
+          install -m 0644 /tmp/fabula_chat_http.py /opt/fabula-chat/fabula_chat_http.py
+          python3 -m py_compile /opt/fabula-chat/fabula_chat.py /opt/fabula-chat/fabula_chat_http.py
+          OPENROUTER_API_KEY=$(cat /tmp/openrouter.key)
+          FABULA_CLIENT_API_TOKEN=$(cat /tmp/fabula-client.key)
+          rm -f /tmp/openrouter.key /tmp/fabula-client.key
+          umask 077
+          {
+            printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY"
+            printf 'FABULA_CLIENT_API_TOKEN=%s\n' "$FABULA_CLIENT_API_TOKEN"
+            printf 'APP_API_TOKEN=%s\n' "$FABULA_CLIENT_API_TOKEN"
+          } >/opt/fabula-chat/.env
+          cat >/etc/systemd/system/fabula-chat.service <<'UNITFILE'
+          [Unit]
+          Description=Fabula AI companion gateway (FR)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/fabula-chat
+          EnvironmentFile=/opt/fabula-chat/.env
+          Environment=FABULA_CHAT_HOST=0.0.0.0
+          Environment=FABULA_CHAT_PORT=18012
+          Environment=FABULA_CHAT_DAILY_LIMIT=50
+          Environment=FABULA_CHAT_ANONYMOUS_DAILY_LIMIT=10
+          Environment=OPENROUTER_MODEL=openrouter/free
+          ExecStart=/usr/bin/python3 /opt/fabula-chat/fabula_chat_http.py
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
           iptables -C INPUT -p tcp -s 201.51.4.89 --dport 18012 -j ACCEPT 2>/dev/null \
             || iptables -I INPUT 1 -p tcp -s 201.51.4.89 --dport 18012 -j ACCEPT
           iptables -C INPUT -p tcp --dport 18012 -j DROP 2>/dev/null \
@@ -608,6 +656,7 @@ jobs:
             netfilter-persistent save
           fi
           systemctl daemon-reload
+          systemctl enable --now fabula-chat.service
           systemctl restart fabula-chat.service
           curl -fsS --max-time 8 http://127.0.0.1:18012/health \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
