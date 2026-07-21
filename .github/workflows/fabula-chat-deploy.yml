@@ -472,8 +472,11 @@ jobs:
             | sed -E 's/sk-or-v1-[A-Za-z0-9_-]+/[REDACTED]/g'
 
           echo "FABULA_NGINX_ROUTE_DIAGNOSTIC"
+          ss -ltnp '( sport = :443 )' || true
+          iptables-save -t nat 2>/dev/null | grep -E 'dport 443|--to-ports? 443|:443' || true
+          nft list ruleset 2>/dev/null | grep -E 'dport 443|:443' || true
           nginx -T 2>&1 \
-            | grep -nE 'configuration file|server_name.*router1\.tech|FABULA_CHAT|location = /api/fabula/chat' \
+            | grep -nE 'configuration file|listen .*443|server_name.*router1\.tech|FABULA_CHAT|location = /api/fabula/chat' \
             || true
           curl -sS --max-time 15 \
             -o /tmp/fabula-route-body \
@@ -512,11 +515,13 @@ jobs:
           response_file=$(mktemp)
           http_code=$(curl -sS --max-time 55 \
             -o "$response_file" \
+            -D "$response_file.headers" \
             -w '%{http_code}' \
             -H 'Content-Type: application/json' \
             --data '{"installation_id":"github-external-check","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
             https://router1.tech/api/fabula/chat)
           echo "FABULA_EXTERNAL_HTTP=$http_code"
+          sed -n '1,30p' "$response_file.headers"
           if [ "$http_code" != "200" ]; then
             sed -n '1,20p' "$response_file"
             exit 1
