@@ -68,6 +68,12 @@ jobs:
           name: Fabula-Windows
           path: build-output/windows/FabulaSetup.exe
           if-no-files-found: error
+      - name: Require a complete installer
+        shell: powershell
+        run: |
+          if (-not (Test-Path ".\\build-output\\windows\\FabulaSetup.exe")) {
+            throw "FabulaSetup.exe was not created"
+          }
       - name: Prepare latest installer for Router1 delivery
         if: always()
         shell: powershell
@@ -100,3 +106,61 @@ jobs:
           publish_branch: fabula-builds
           publish_dir: ${{ runner.temp }}/fabula-release
           force_orphan: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Fabula-Windows
+          path: release
+      - name: Publish installer and version manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSHPASS"
+          test -s release/FabulaSetup.exe
+          version=$(sed -n 's/^version: \([0-9][^+]*\)+\([0-9][0-9]*\)$/\1/p' pubspec.yaml)
+          build=$(sed -n 's/^version: \([0-9][^+]*\)+\([0-9][0-9]*\)$/\2/p' pubspec.yaml)
+          test -n "$version"
+          test -n "$build"
+          sha=$(sha256sum release/FabulaSetup.exe | awk '{print $1}')
+          size=$(stat -c '%s' release/FabulaSetup.exe)
+          jq -n \
+            --arg version "$version" --argjson build "$build" \
+            --arg url 'https://router1.tech/fabula/windows/FabulaSetup.exe' \
+            --arg sha256 "$sha" --argjson size "$size" \
+            '{version:$version,build:$build,min_supported_build:11,url:$url,sha256:$sha256,size:$size,notes:"Чат Fabula: ответы, копирование, вставка и отправка по Enter."}' \
+            > release/version.json
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          SSHPASS="$SSHPASS" sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            release/FabulaSetup.exe release/version.json \
+            root@201.51.4.89:/tmp/
+          SSHPASS="$SSHPASS" sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          for root in /var/www/html/fabula /var/www/fabula; do
+            install -d -m 0755 "$root/windows"
+            install -m 0644 /tmp/FabulaSetup.exe "$root/windows/FabulaSetup.exe.new"
+            install -m 0644 /tmp/version.json "$root/windows/version.json.new"
+            mv -f "$root/windows/FabulaSetup.exe.new" "$root/windows/FabulaSetup.exe"
+            mv -f "$root/windows/version.json.new" "$root/windows/version.json"
+          done
+          rm -f /tmp/FabulaSetup.exe /tmp/version.json
+          REMOTE
+      - name: Verify public Windows release
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(sed -n 's/^version: \([0-9][^+]*\)+.*$/\1/p' pubspec.yaml)
+          actual=$(curl -fsS --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/version.json | jq -r .version)
+          test "$actual" = "$expected"
+          curl -fsSI --retry 5 --retry-delay 2 https://router1.tech/fabula/windows/FabulaSetup.exe | grep -Fq '200'
