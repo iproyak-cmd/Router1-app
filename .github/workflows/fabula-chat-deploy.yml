@@ -71,7 +71,8 @@ jobs:
           rm -f /tmp/openrouter.key /tmp/fabula-client.key
           export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN
 
-          CONFIG=$(python3 - <<'PY'
+          CONFIG_LIST="$BACKUP_DIR/nginx-config-paths"
+          python3 - <<'PY' >"$CONFIG_LIST"
           import re
           import subprocess
 
@@ -80,6 +81,7 @@ jobs:
               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
           ).stdout
           sections = re.split(r"^# configuration file (.+?):\n", rendered, flags=re.M)
+          paths = []
           for index in range(1, len(sections), 2):
               path, text = sections[index], sections[index + 1]
               for match in re.finditer(r"server\s*\{", text):
@@ -98,13 +100,19 @@ jobs:
                       re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
                       and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
                   ):
-                      print(path)
-                      raise SystemExit
-          raise SystemExit("active router1.tech TLS nginx config not found")
+                      if path not in paths:
+                          paths.append(path)
+                      break
+          if not paths:
+              raise SystemExit("router1.tech TLS nginx config not found")
+          print(*paths, sep="\n")
           PY
-          )
 
-          cp -a "$CONFIG" "$BACKUP_DIR/nginx.conf"
+          while IFS= read -r config; do
+            relative=${config#/}
+            mkdir -p "$BACKUP_DIR/nginx/$(dirname "$relative")"
+            cp -a "$config" "$BACKUP_DIR/nginx/$relative"
+          done <"$CONFIG_LIST"
           cp -a "$ENV_FILE" "$BACKUP_DIR/env"
           if [ -f "$UNIT" ]; then cp -a "$UNIT" "$BACKUP_DIR/service.unit"; else touch "$BACKUP_DIR/service.unit.missing"; fi
           for name in fabula_chat.py fabula_chat_http.py; do
@@ -113,7 +121,9 @@ jobs:
 
           rollback() {
             set +e
-            cp -a "$BACKUP_DIR/nginx.conf" "$CONFIG"
+            while IFS= read -r config; do
+              cp -a "$BACKUP_DIR/nginx/${config#/}" "$config"
+            done <"$CONFIG_LIST"
             cp -a "$BACKUP_DIR/env" "$ENV_FILE"
             for name in fabula_chat.py fabula_chat_http.py; do
               if [ -f "$BACKUP_DIR/$name.missing" ]; then rm -f "$ROOT/$name"; else cp -a "$BACKUP_DIR/$name" "$ROOT/$name"; fi
@@ -192,64 +202,12 @@ jobs:
           systemctl daemon-reload
           systemctl enable --now fabula-chat.service
 
-          CONFIG="$CONFIG" python3 - <<'PY'
+          CONFIG_LIST="$CONFIG_LIST" python3 - <<'PY'
           import os
           import pathlib
           import re
 
-          path = pathlib.Path(os.environ["CONFIG"])
-          text = path.read_text(encoding="utf-8")
           marker = "# FABULA_CHAT"
-
-          # Remove an older generated location, even when a previous deploy put
-          # it in the port-80 redirect server. A global marker-only early exit
-          # used to leave the real HTTPS virtual host without the chat route.
-          while marker in text:
-              marker_start = text.index(marker)
-              location_start = text.find("location", marker_start)
-              brace_start = text.find("{", location_start)
-              if location_start < 0 or brace_start < 0:
-                  raise SystemExit("malformed FABULA_CHAT nginx block")
-              depth = 0
-              location_end = None
-              for index in range(brace_start, len(text)):
-                  if text[index] == "{":
-                      depth += 1
-                  elif text[index] == "}":
-                      depth -= 1
-                      if depth == 0:
-                          location_end = index + 1
-                          break
-              if location_end is None:
-                  raise SystemExit("unterminated FABULA_CHAT nginx block")
-              line_start = text.rfind("\n", 0, marker_start) + 1
-              text = text[:line_start] + text[location_end:]
-
-          target = None
-          for match in re.finditer(r"server\s*\{", text):
-              start = match.start()
-              depth = 0
-              end = None
-              for index in range(text.find("{", start), len(text)):
-                  if text[index] == "{":
-                      depth += 1
-                  elif text[index] == "}":
-                      depth -= 1
-                      if depth == 0:
-                          end = index
-                          break
-              if end is None:
-                  continue
-              block = text[start:end + 1]
-              if (
-                  re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
-                  and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
-              ):
-                  target = (start, end)
-                  break
-          if target is None:
-              raise SystemExit("router1.tech TLS server block not found")
-          start, end = target
           location = """
               # FABULA_CHAT
               location = /api/fabula/chat {
@@ -265,7 +223,58 @@ jobs:
                   client_max_body_size 64k;
               }
           """
-          path.write_text(text[:end] + location + text[end:], encoding="utf-8")
+
+          for raw_path in pathlib.Path(os.environ["CONFIG_LIST"]).read_text().splitlines():
+              path = pathlib.Path(raw_path)
+              text = path.read_text(encoding="utf-8")
+
+              while marker in text:
+                  marker_start = text.index(marker)
+                  location_start = text.find("location", marker_start)
+                  brace_start = text.find("{", location_start)
+                  if location_start < 0 or brace_start < 0:
+                      raise SystemExit(f"malformed FABULA_CHAT block in {path}")
+                  depth = 0
+                  location_end = None
+                  for index in range(brace_start, len(text)):
+                      if text[index] == "{":
+                          depth += 1
+                      elif text[index] == "}":
+                          depth -= 1
+                          if depth == 0:
+                              location_end = index + 1
+                              break
+                  if location_end is None:
+                      raise SystemExit(f"unterminated FABULA_CHAT block in {path}")
+                  line_start = text.rfind("\n", 0, marker_start) + 1
+                  text = text[:line_start] + text[location_end:]
+
+              targets = []
+              for match in re.finditer(r"server\s*\{", text):
+                  start = match.start()
+                  depth = 0
+                  end = None
+                  for index in range(text.find("{", start), len(text)):
+                      if text[index] == "{":
+                          depth += 1
+                      elif text[index] == "}":
+                          depth -= 1
+                          if depth == 0:
+                              end = index
+                              break
+                  if end is None:
+                      continue
+                  block = text[start:end + 1]
+                  if (
+                      re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
+                      and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
+                  ):
+                      targets.append(end)
+              if not targets:
+                  raise SystemExit(f"router1.tech TLS server block not found in {path}")
+              for end in reversed(targets):
+                  text = text[:end] + location + text[end:]
+              path.write_text(text, encoding="utf-8")
           PY
 
           nginx -t
