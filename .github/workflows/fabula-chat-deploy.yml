@@ -74,6 +74,18 @@ jobs:
           import pathlib
           import re
 
+          def server_blocks(text):
+              for match in re.finditer(r"server\s*\{", text):
+                  depth = 0
+                  for index in range(text.find("{", match.start()), len(text)):
+                      if text[index] == "{":
+                          depth += 1
+                      elif text[index] == "}":
+                          depth -= 1
+                          if depth == 0:
+                              yield text[match.start():index + 1]
+                              break
+
           seen = set()
           for directory in ("/etc/nginx/sites-enabled", "/etc/nginx/conf.d"):
               root = pathlib.Path(directory)
@@ -88,10 +100,15 @@ jobs:
                       text = path.read_text(encoding="utf-8")
                   except (OSError, UnicodeError):
                       continue
-                  if re.search(r"server_name[^;]*router1\.tech[^;]*;", text):
+                  blocks = list(server_blocks(text))
+                  if any(
+                      re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
+                      and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
+                      for block in blocks
+                  ):
                       print(path)
                       raise SystemExit
-          raise SystemExit("router1.tech nginx config not found")
+          raise SystemExit("router1.tech TLS nginx config not found")
           PY
           )
 
@@ -191,37 +208,66 @@ jobs:
           path = pathlib.Path(os.environ["CONFIG"])
           text = path.read_text(encoding="utf-8")
           marker = "# FABULA_CHAT"
-          if marker in text:
-              raise SystemExit(0)
-          match = re.search(r"server_name[^;]*router1\.tech[^;]*;", text)
-          if not match:
-              raise SystemExit("router1.tech server block not found")
-          starts = list(re.finditer(r"server\s*\{", text[: match.start()]))
-          if not starts:
-              raise SystemExit("nginx server block start not found")
-          start = starts[-1].start()
-          depth = 0
-          end = None
-          for index in range(text.find("{", start), len(text)):
-              if text[index] == "{":
-                  depth += 1
-              elif text[index] == "}":
-                  depth -= 1
-                  if depth == 0:
-                      end = index
-                      break
-          if end is None:
-              raise SystemExit("nginx server block end not found")
+
+          # Remove an older generated location, even when a previous deploy put
+          # it in the port-80 redirect server. A global marker-only early exit
+          # used to leave the real HTTPS virtual host without the chat route.
+          while marker in text:
+              marker_start = text.index(marker)
+              location_start = text.find("location", marker_start)
+              brace_start = text.find("{", location_start)
+              if location_start < 0 or brace_start < 0:
+                  raise SystemExit("malformed FABULA_CHAT nginx block")
+              depth = 0
+              location_end = None
+              for index in range(brace_start, len(text)):
+                  if text[index] == "{":
+                      depth += 1
+                  elif text[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          location_end = index + 1
+                          break
+              if location_end is None:
+                  raise SystemExit("unterminated FABULA_CHAT nginx block")
+              line_start = text.rfind("\n", 0, marker_start) + 1
+              text = text[:line_start] + text[location_end:]
+
+          target = None
+          for match in re.finditer(r"server\s*\{", text):
+              start = match.start()
+              depth = 0
+              end = None
+              for index in range(text.find("{", start), len(text)):
+                  if text[index] == "{":
+                      depth += 1
+                  elif text[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = index
+                          break
+              if end is None:
+                  continue
+              block = text[start:end + 1]
+              if (
+                  re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
+                  and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
+              ):
+                  target = (start, end)
+                  break
+          if target is None:
+              raise SystemExit("router1.tech TLS server block not found")
+          start, end = target
           location = """
               # FABULA_CHAT
               location = /api/fabula/chat {
                   limit_except POST { deny all; }
                   proxy_pass http://127.0.0.1:8012;
                   proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header Authorization $http_authorization;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header Host $host;
+                  proxy_set_header Authorization $http_authorization;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                   proxy_connect_timeout 5s;
                   proxy_read_timeout 50s;
                   client_max_body_size 64k;

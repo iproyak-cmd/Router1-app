@@ -1,0 +1,89 @@
+name: Deploy Fabula Windows release
+
+on:
+  workflow_run:
+    workflows: ["Fabula Windows"]
+    types: [completed]
+    branches: [fabula]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabula-windows-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - name: Checkout Fabula source
+        uses: actions/checkout@v4
+        with:
+          ref: fabula
+          path: source
+      - name: Checkout published Windows installer
+        uses: actions/checkout@v4
+        with:
+          ref: fabula-builds
+          path: release
+      - name: Prepare verified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release/FabulaSetup.exe
+          full_version=$(awk '/^version:/ {print $2; exit}' source/pubspec.yaml)
+          version=${full_version%%+*}
+          build=${full_version##*+}
+          sha256=$(sha256sum release/FabulaSetup.exe | awk '{print $1}')
+          size=$(stat -c %s release/FabulaSetup.exe)
+          jq -n \
+            --arg version "$version" \
+            --argjson build "$build" \
+            --arg sha256 "$sha256" \
+            --argjson size "$size" \
+            '{version:$version,build:$build,url:"https://router1.tech/fabula/windows/FabulaSetup.exe",sha256:$sha256,size:$size,notes:"Рабочий собеседник, отправка по Enter, копирование и вставка текста."}' \
+            > release/version.json
+          printf '%s  FabulaSetup.exe\n' "$sha256" > release/FabulaSetup.exe.sha256
+      - name: Install SSH helper
+        run: |
+          test -n "$SSHPASS"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Upload and publish installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sshpass -e scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            release/FabulaSetup.exe release/FabulaSetup.exe.sha256 release/version.json \
+            root@201.51.4.89:/tmp/
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          backup="/opt/vpn_bot/backups/fabula_windows_$stamp"
+          mkdir -p "$backup"
+          mapfile -t targets < <(find /var/www /srv -type f -path '*/fabula/windows/FabulaSetup.exe' 2>/dev/null || true)
+          test "${#targets[@]}" -gt 0
+          for target in "${targets[@]}"; do
+            directory=$(dirname "$target")
+            key=$(printf '%s' "$target" | sha256sum | cut -c1-12)
+            mkdir -p "$backup/$key"
+            cp -a "$target" "$backup/$key/FabulaSetup.exe"
+            [ ! -f "$directory/version.json" ] || cp -a "$directory/version.json" "$backup/$key/version.json"
+            install -m 0644 /tmp/FabulaSetup.exe "$target"
+            install -m 0644 /tmp/FabulaSetup.exe.sha256 "$directory/FabulaSetup.exe.sha256"
+            install -m 0644 /tmp/version.json "$directory/version.json"
+          done
+          expected=$(awk '{print $1}' /tmp/FabulaSetup.exe.sha256)
+          curl -fsS --max-time 120 https://router1.tech/fabula/windows/FabulaSetup.exe -o /tmp/FabulaSetup-public.exe
+          actual=$(sha256sum /tmp/FabulaSetup-public.exe | awk '{print $1}')
+          test "$actual" = "$expected"
+          curl -fsS --max-time 15 https://router1.tech/fabula/windows/version.json | jq -e '.build == 19 and .version == "0.4.9"' >/dev/null
+          echo "WINDOWS_PUBLISH_OK sha256=$actual backup=$backup"
+          REMOTE

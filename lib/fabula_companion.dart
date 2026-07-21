@@ -381,15 +381,24 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: CallbackShortcuts(
-                bindings: <ShortcutActivator, VoidCallback>{
-                  const SingleActivator(LogicalKeyboardKey.enter): _send,
-                  const SingleActivator(LogicalKeyboardKey.numpadEnter): _send,
+              child: Focus(
+                onKeyEvent: (_, event) {
+                  final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter;
+                  if (event is KeyDownEvent &&
+                      isEnter &&
+                      !HardwareKeyboard.instance.isShiftPressed) {
+                    _send();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
                 },
                 child: TextField(
                   controller: _controller,
                   minLines: 1,
                   maxLines: 5,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
                     hintText: 'Напишите, что происходит…',
@@ -400,7 +409,6 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
                       borderSide: BorderSide.none,
                     ),
                   ),
-                  onSubmitted: (_) => _send(),
                 ),
               ),
             ),
