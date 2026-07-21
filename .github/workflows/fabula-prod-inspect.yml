@@ -1,4 +1,4 @@
-name: Inspect Fabula production billing
+name: Inspect Fabula production billing # final
 
 on:
   push:
