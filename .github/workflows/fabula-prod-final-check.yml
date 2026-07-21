@@ -1,0 +1,48 @@
+name: Final Fabula production check
+on:
+  push:
+    branches: [fabula]
+    paths: [".github/workflows/fabula-prod-final-check.yml"]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fabula
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Verify
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new root@201.51.4.89 'ROOT=/opt/vpn_bot python3 -' > fabula-final-check.txt <<'PY'
+          import os, sqlite3
+          from pathlib import Path
+          root=Path(os.environ["ROOT"])
+          text=(root/"site_api.py").read_text(encoding="utf-8")
+          print("billing_marker", "# FABULA_BILLING_V1" in text)
+          print("monthly_product", '"fabula_monthly"' in text)
+          print("trial_one_day", "days = 1 if is_fabula else free_trial_days()" in text)
+          print("monthly_allowed", '{"smartphone_test", "laptop_test", "fabula_monthly"}' in text)
+          db=sqlite3.connect(root/"database.db")
+          db.row_factory=sqlite3.Row
+          row=db.execute("select id,status,paid_until,monthly_fee,tariff from clients where phone_normalized like ?",("%9262508050",)).fetchone()
+          print("owner", dict(row) if row else None)
+          if row:
+              configs=db.execute("select status,payment_status,paid_until,subscription_type from client_configs where client_id=?",(row["id"],)).fetchall()
+              print("owner_configs",[dict(x) for x in configs])
+          import subprocess
+          print("site_api",subprocess.run(["systemctl","is-active","router1-site-api"],capture_output=True,text=True).stdout.strip())
+          PY
+      - name: Commit result
+        run: |
+          git config user.name codex-production-check
+          git config user.email codex@router1.local
+          git add fabula-final-check.txt
+          git commit -m "codex: record final Fabula billing check"
+          git push origin HEAD:fabula
