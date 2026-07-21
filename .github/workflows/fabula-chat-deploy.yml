@@ -218,6 +218,7 @@ jobs:
                   proxy_set_header Authorization $http_authorization;
                   proxy_set_header X-Real-IP $remote_addr;
                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  add_header X-Fabula-Route active always;
                   proxy_connect_timeout 5s;
                   proxy_read_timeout 50s;
                   client_max_body_size 64k;
@@ -280,6 +281,17 @@ jobs:
           nginx -t
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8012/health | python3 -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+
+          curl -sS --max-time 15 \
+            -o /tmp/fabula-backend-body \
+            -D /tmp/fabula-backend-headers \
+            -w 'FABULA_BACKEND_HTTP=%{http_code}\n' \
+            -H 'Content-Type: application/json' \
+            --data '{"installation_id":"backend-diagnostic","name":"","messages":[{"role":"user","content":"Ответь одним словом: рядом."}]}' \
+            http://127.0.0.1:8012/api/fabula/chat \
+            || true
+          sed -n '1,20p' /tmp/fabula-backend-headers
+          sed -n '1,20p' /tmp/fabula-backend-body
 
           echo "FABULA_NGINX_ROUTE_DIAGNOSTIC"
           nginx -T 2>&1 \
