@@ -129,9 +129,11 @@ def request_openrouter(payload: FabulaChatPayload) -> str:
         },
     )
     last_error: Exception | None = None
-    for attempt in range(3):
+    # Keep the whole retry window below nginx/client timeouts so the app always
+    # receives a structured error instead of a dropped connection.
+    for attempt in range(2):
         try:
-            with urllib.request.urlopen(request, timeout=40) as response:
+            with urllib.request.urlopen(request, timeout=18) as response:
                 result = json.loads(response.read().decode())
             answer = result["choices"][0]["message"]["content"].strip()
             if answer:
@@ -148,7 +150,7 @@ def request_openrouter(payload: FabulaChatPayload) -> str:
             ValueError,
         ) as error:
             last_error = error
-            if attempt < 2:
+            if attempt < 1:
                 time.sleep(attempt + 1)
     raise RuntimeError("OpenRouter unavailable after retries") from last_error
 
