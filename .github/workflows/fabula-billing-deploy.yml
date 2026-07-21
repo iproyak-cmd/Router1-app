@@ -1,0 +1,129 @@
+name: Deploy Fabula billing
+
+on:
+  push:
+    branches: [fabula]
+    paths: [".github/workflows/fabula-billing-deploy.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - name: Install SSH helper
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Deploy Fabula billing with rollback
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          ROOT=/opt/vpn_bot
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP="$ROOT/backups/fabula_billing_$STAMP"
+          mkdir -p "$BACKUP"
+          cp -a "$ROOT/site_api.py" "$BACKUP/site_api.py"
+          cp -a "$ROOT/database.db" "$BACKUP/database.db"
+          rollback() {
+            set +e
+            cp -a "$BACKUP/site_api.py" "$ROOT/site_api.py"
+            cp -a "$BACKUP/database.db" "$ROOT/database.db"
+            systemctl restart router1-site-api
+            echo "ROLLBACK_OK $BACKUP"
+          }
+          trap rollback ERR
+
+          SITE_API="$ROOT/site_api.py" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path=Path(os.environ["SITE_API"])
+          text=path.read_text(encoding="utf-8")
+          marker='# FABULA_BILLING_V1'
+          if marker not in text:
+              anchor='class OrderIn('
+              pos=text.index(anchor)
+              snippet='''# FABULA_BILLING_V1
+# Separate Fabula subscription; Router1 prices remain unchanged.
+PRODUCTS["fabula_monthly"] = {
+    **PRODUCTS["smartphone"],
+    "title": "Fabula — спокойный интернет на 30 дней",
+    "amount": 390,
+    "period": "30d",
+    "period_days": 30,
+    "product_type": "smartphone",
+    "payment_purpose": "Fabula VPN subscription",
+    "does_apply_referral_bonus": False,
+}
+
+'''
+              text=text[:pos]+snippet+text[pos:]
+          old='if order.product not in {"smartphone_test", "laptop_test"}:'
+          new='if order.product not in {"smartphone_test", "laptop_test", "fabula_monthly"}:'
+          if old in text:
+              text=text.replace(old,new,1)
+          elif new not in text:
+              raise SystemExit("Fabula allow-list anchor not found")
+          path.write_text(text,encoding="utf-8")
+          PY
+
+          "$ROOT/venv/bin/python" -m py_compile "$ROOT/site_api.py"
+          cd "$ROOT"
+          "$ROOT/venv/bin/python" - <<'PY'
+          import site_api
+          p=site_api.PRODUCTS["fabula_monthly"]
+          assert p["amount"] == 390 and p["period_days"] == 30
+          print("PRODUCT_OK",p["amount"],p["period_days"])
+          PY
+
+          ROOT="$ROOT" "$ROOT/venv/bin/python" - <<'PY'
+          import os, sqlite3
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path(os.environ["ROOT"])
+          conn=sqlite3.connect(root/"database.db")
+          conn.row_factory=sqlite3.Row
+          digits="89262508050"
+          clients=conn.execute("""
+            SELECT * FROM clients
+            WHERE phone_normalized LIKE ? OR
+              replace(replace(replace(replace(replace(phone,'+',''),' ',''),'-',''),'(',''),')','') LIKE ?
+          """,("%"+digits[-10:],"%"+digits[-10:])).fetchall()
+          assert len(clients)==1, f"owner match count={len(clients)}"
+          client_id=int(clients[0]["id"])
+          rows=conn.execute("SELECT * FROM client_configs WHERE client_id=?",(client_id,)).fetchall()
+          forever="2099-12-31T23:59:59+00:00"
+          now=datetime.now(timezone.utc).isoformat()
+          conn.execute("UPDATE clients SET status='active', paid_until=?, next_payment_date=?, monthly_fee=0, tariff='Fabula owner lifetime', updated_at=? WHERE id=?",(forever,forever,now,client_id))
+          conn.execute("""UPDATE client_configs SET status='active', payment_status='manual_grant',
+            paid_until=?, subscription_type='lifetime', period='lifetime', amount=0,
+            blocked_at=NULL, block_reason=NULL, unblocked_at=? WHERE client_id=?""",(forever,now,client_id))
+          conn.execute("UPDATE fabula_access_claims SET status='active', updated_at=? WHERE client_id=?",(now,client_id))
+          conn.commit()
+          print("OWNER_GRANT_OK","configs",len(rows))
+          # Restore any previously blocked live peer using the production helper.
+          import router1.db as dbmod
+          restore=getattr(dbmod,"_restore_peer_for_row",None)
+          if restore:
+              for row in rows:
+                  try:
+                      restore(row)
+                  except TypeError:
+                      try: restore(conn,row)
+                      except Exception as exc: print("RESTORE_WARNING",type(exc).__name__)
+                  except Exception as exc:
+                      print("RESTORE_WARNING",type(exc).__name__)
+          conn.close()
+          PY
+
+          systemctl restart router1-site-api
+          systemctl is-active --quiet router1-site-api
+          sleep 2
+          curl -fsS http://127.0.0.1:8000/api/health >/dev/null
+          trap - ERR
+          echo "DEPLOY_OK backup=$BACKUP"
+          REMOTE
