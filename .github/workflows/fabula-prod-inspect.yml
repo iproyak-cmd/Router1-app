@@ -41,7 +41,7 @@ jobs:
               for node in tree.body:
                   if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):
                       name=node.name.lower()
-                      if any(x in name for x in ("fabula","order","payment","renew","activate","client")):
+                      if any(x in name for x in ("fabula","order","payment","renew","activate","client","trial")):
                           print("SYMBOL",filename,node.name,node.lineno,getattr(node,"end_lineno",node.lineno))
               if filename=="site_api.py":
                   lines=text.splitlines()
@@ -50,7 +50,7 @@ jobs:
                       if any(x in low for x in ('"/fabula/','"fabula','smartphone_test','laptop_test','products =')):
                           print("LINE",i,line[:240])
                   for node in tree.body:
-                      if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and "fabula" in node.name.lower():
+                      if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name in {"create_fabula_access","create_order","_complete_free_trial_order","_app_billing_offers_for_client","_app_renewal_offers","_app_renewal_order","complete_paid_site_order"}:
                           print("BLOCK",node.name)
                           for line in lines[node.lineno-1:min(getattr(node,"end_lineno",node.lineno),node.lineno+120)]:
                               print(line[:300])
@@ -58,10 +58,10 @@ jobs:
           print("TABLES")
           for (name,) in db.execute("select name from sqlite_master where type='table' order by name"):
               cols=[r[1]+":"+r[2] for r in db.execute(f'pragma table_info("{name}")')]
-              if any(x in name.lower() for x in ("client","order","payment","device","subscription")):
+              if any(x in name.lower() for x in ("client","order","payment","device","subscription","fabula_access")):
                   print(name,"|".join(cols))
           digits="89262508050"
-          for table in ("clients","orders","payments","devices"):
+          for table in ("clients","site_orders","payments","client_configs","fabula_access_claims"):
               try:
                   cols=[r[1] for r in db.execute(f'pragma table_info("{table}")')]
                   if "phone" in cols:
