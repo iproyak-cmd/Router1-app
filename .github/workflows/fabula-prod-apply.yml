@@ -1,0 +1,103 @@
+name: Apply Fabula billing atomically
+on:
+  push:
+    branches: [fabula]
+    paths: [".github/workflows/fabula-prod-apply.yml"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fabula
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Apply
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new root@201.51.4.89 'bash -s' > fabula-apply-result.txt <<'REMOTE'
+          set -euo pipefail
+          ROOT=/opt/vpn_bot
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP="$ROOT/backups/fabula_atomic_$STAMP"
+          mkdir -p "$BACKUP"
+          cp -a "$ROOT/site_api.py" "$BACKUP/site_api.py"
+          cp -a "$ROOT/database.db" "$BACKUP/database.db"
+          SITE_API="$ROOT/site_api.py" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path=Path(os.environ["SITE_API"])
+          text=path.read_text(encoding="utf-8")
+          if "# FABULA_BILLING_V2" not in text:
+              anchor="class OrderIn("
+              pos=text.index(anchor)
+              addition='''# FABULA_BILLING_V2
+PRODUCTS["fabula_monthly"] = {
+    **PRODUCTS["smartphone"],
+    "title": "Fabula — спокойный интернет на 30 дней",
+    "amount": 390,
+    "period_days": 30,
+    "period": "1m",
+    "product_type": "vpn_config",
+    "protocol": "amneziawg",
+    "payment_purpose": "fabula_monthly",
+    "does_apply_referral_bonus": False,
+    "device_label": "Fabula VPN",
+}
+
+'''
+              text=text[:pos]+addition+text[pos:]
+          text=text.replace("days = free_trial_days()","days = 1 if is_fabula else free_trial_days()",1)
+          text=text.replace(
+              'if order.product not in {"smartphone_test", "laptop_test"}:',
+              'if order.product not in {"smartphone_test", "laptop_test", "fabula_monthly"}:',
+              1,
+          )
+          required=("# FABULA_BILLING_V2",'"fabula_monthly"', "days = 1 if is_fabula")
+          assert all(x in text for x in required)
+          tmp=path.with_suffix(".py.fabula-new")
+          tmp.write_text(text,encoding="utf-8")
+          tmp.replace(path)
+          PY
+          "$ROOT/venv/bin/python" -m py_compile "$ROOT/site_api.py"
+          ROOT="$ROOT" python3 - <<'PY'
+          import os, sqlite3
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path(os.environ["ROOT"])
+          conn=sqlite3.connect(root/"database.db")
+          conn.row_factory=sqlite3.Row
+          owner=conn.execute("select id from clients where phone_normalized like ?",("%9262508050",)).fetchall()
+          assert len(owner)==1
+          client_id=int(owner[0]["id"])
+          ids=[int(r[0]) for r in conn.execute("select config_id from fabula_access_claims where client_id=? and config_id is not null",(client_id,))]
+          forever="2099-12-31T23:59:59+00:00"
+          now=datetime.now(timezone.utc).isoformat()
+          if ids:
+              marks=",".join("?"*len(ids))
+              conn.execute(f"""update client_configs set status='active',payment_status='manual_grant',
+                paid_until=?,subscription_type='lifetime',period='lifetime',amount=0,
+                blocked_at=null,block_reason=null,unblocked_at=? where id in ({marks})""",(forever,now,*ids))
+          conn.execute("update fabula_access_claims set status='active',updated_at=? where client_id=?",(now,client_id))
+          conn.commit()
+          print("owner_fabula_configs",len(ids))
+          PY
+          systemctl restart router1-site-api
+          systemctl is-active --quiet router1-site-api
+          echo "apply_ok"
+          echo "backup=$BACKUP"
+          REMOTE
+      - name: Commit result
+        if: always()
+        run: |
+          git config user.name codex-production-apply
+          git config user.email codex@router1.local
+          test -f fabula-apply-result.txt || echo apply_step_failed > fabula-apply-result.txt
+          git add fabula-apply-result.txt
+          git commit -m "codex: record Fabula billing application"
+          git push origin HEAD:fabula
