@@ -26,6 +26,7 @@ jobs:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       FABULA_CLIENT_API_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+      FABULA_FR_SSH_PASSWORD: ${{ secrets.FABULA_FR_SSH_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate deployment secrets
@@ -33,6 +34,7 @@ jobs:
           test -n "$SSHPASS"
           test -n "$OPENROUTER_API_KEY"
           test -n "$FABULA_CLIENT_API_TOKEN"
+          test -n "$FABULA_FR_SSH_PASSWORD"
           case "$OPENROUTER_API_KEY" in sk-or-v1-*) ;; *) exit 1 ;; esac
       - name: Install SSH client helper
         run: |
@@ -43,6 +45,7 @@ jobs:
           umask 077
           printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/openrouter.key"
           printf '%s' "$FABULA_CLIENT_API_TOKEN" > "$RUNNER_TEMP/fabula-client.key"
+          printf '%s' "$FABULA_FR_SSH_PASSWORD" > "$RUNNER_TEMP/fabula-fr-ssh-password"
           sshpass -e scp \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=15 \
@@ -50,6 +53,7 @@ jobs:
             server/fabula_chat_http.py \
             "$RUNNER_TEMP/openrouter.key" \
             "$RUNNER_TEMP/fabula-client.key" \
+            "$RUNNER_TEMP/fabula-fr-ssh-password" \
             root@201.51.4.89:/tmp/
       - name: Deploy with backup, verification and rollback
         shell: bash
@@ -68,8 +72,9 @@ jobs:
           mkdir -p "$BACKUP_DIR"
           OPENROUTER_API_KEY=$(cat /tmp/openrouter.key)
           FABULA_CLIENT_API_TOKEN=$(cat /tmp/fabula-client.key)
-          rm -f /tmp/openrouter.key /tmp/fabula-client.key
-          export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN
+          GITHUB_FR_SSH_PASSWORD=$(cat /tmp/fabula-fr-ssh-password)
+          rm -f /tmp/openrouter.key /tmp/fabula-client.key /tmp/fabula-fr-ssh-password
+          export OPENROUTER_API_KEY FABULA_CLIENT_API_TOKEN GITHUB_FR_SSH_PASSWORD
 
           echo "FABULA_EGRESS_DIAGNOSTIC"
           ip -brief address
@@ -230,6 +235,8 @@ jobs:
           SELECTED_PORT=
           SELECTED_PASSWORD=
           for candidate in \
+            "213.176.93.13|22|$GITHUB_FR_SSH_PASSWORD" \
+            "213.176.93.13|5443|$GITHUB_FR_SSH_PASSWORD" \
             "$R1PRO_HOST|$R1PRO_PORT|$R1PRO_SSH_PASSWORD" \
             "213.176.93.13|5443|$FR_SSH_PASSWORD" \
             "213.176.93.13|22|$FR_SSH_PASSWORD" \
