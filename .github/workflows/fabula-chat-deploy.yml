@@ -153,6 +153,7 @@ jobs:
             cp -a "$config" "$BACKUP_DIR/nginx/$relative"
           done <"$CONFIG_LIST"
           cp -a "$ENV_FILE" "$BACKUP_DIR/env"
+          cp -a "$ROOT/site_api.py" "$BACKUP_DIR/site_api.py"
           if [ -f "$UNIT" ]; then cp -a "$UNIT" "$BACKUP_DIR/service.unit"; else touch "$BACKUP_DIR/service.unit.missing"; fi
           for name in fabula_chat.py fabula_chat_http.py; do
             if [ -f "$ROOT/$name" ]; then cp -a "$ROOT/$name" "$BACKUP_DIR/$name"; else touch "$BACKUP_DIR/$name.missing"; fi
@@ -166,6 +167,7 @@ jobs:
               cp -a "$BACKUP_DIR/nginx/${config#/}" "$config"
             done <"$CONFIG_LIST"
             cp -a "$BACKUP_DIR/env" "$ENV_FILE"
+            cp -a "$BACKUP_DIR/site_api.py" "$ROOT/site_api.py"
             for name in fabula_chat.py fabula_chat_http.py; do
               if [ -f "$BACKUP_DIR/$name.missing" ]; then rm -f "$ROOT/$name"; else cp -a "$BACKUP_DIR/$name" "$ROOT/$name"; fi
             done
@@ -177,6 +179,7 @@ jobs:
             fi
             systemctl daemon-reload
             systemctl restart fabula-chat.service || true
+            systemctl restart router1-site-api.service || true
             nginx -t && systemctl reload nginx
             echo "ROLLBACK_OK backup=$BACKUP_DIR original_status=$status"
             exit "$status"
@@ -380,6 +383,29 @@ jobs:
 
           systemctl daemon-reload
           systemctl enable --now fabula-chat.service
+
+          SITE_API="$ROOT/site_api.py"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("/opt/vpn_bot/site_api.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_CHAT_SITE_API"
+          block = """
+# FABULA_CHAT_SITE_API
+from fabula_chat import register_fabula_proxy_routes
+register_fabula_proxy_routes(app)
+"""
+          if marker not in text:
+              path.write_text(text.rstrip() + "\n" + block, encoding="utf-8")
+          PY
+          python3 -m py_compile "$SITE_API"
+          systemctl restart router1-site-api.service
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 5 http://127.0.0.1:8000/openapi.json >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS --max-time 5 http://127.0.0.1:8000/openapi.json >/dev/null
 
           CONFIG_LIST="$CONFIG_LIST" python3 - <<'PY'
           import os
