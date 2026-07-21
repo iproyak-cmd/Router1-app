@@ -15,8 +15,8 @@ import 'services/awg_tunnel_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.4.8+18';
-const fabulaBuild = 18;
+const fabulaVersion = '0.4.9+19';
+const fabulaBuild = 19;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
