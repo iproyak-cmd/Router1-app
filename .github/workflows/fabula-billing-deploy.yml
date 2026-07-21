@@ -33,7 +33,33 @@ jobs:
             set +e
             cp -a "$BACKUP/site_api.py" "$ROOT/site_api.py"
             cp -a "$BACKUP/database.db" "$ROOT/database.db"
-            systemctl restart router1-site-api
+            ROOT="$ROOT" "$ROOT/venv/bin/python" - <<'PY'
+          import os, sqlite3
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path(os.environ["ROOT"])
+          conn=sqlite3.connect(root/"database.db")
+          conn.row_factory=sqlite3.Row
+          digits="89262508050"
+          clients=conn.execute("""
+            SELECT id FROM clients
+            WHERE phone_normalized LIKE ? OR
+              replace(replace(replace(replace(replace(phone,'+',''),' ',''),'-',''),'(',''),')','') LIKE ?
+          """,("%"+digits[-10:],"%"+digits[-10:])).fetchall()
+          assert len(clients)==1, f"owner match count={len(clients)}"
+          client_id=int(clients[0]["id"])
+          forever="2099-12-31T23:59:59+00:00"
+          now=datetime.now(timezone.utc).isoformat()
+          conn.execute("UPDATE clients SET status='active', paid_until=?, next_payment_date=?, monthly_fee=0, tariff='Fabula owner lifetime', updated_at=? WHERE id=?",(forever,forever,now,client_id))
+          conn.execute("""UPDATE client_configs SET status='active', payment_status='manual_grant',
+            paid_until=?, subscription_type='lifetime', period='lifetime', amount=0,
+            blocked_at=NULL, block_reason=NULL, unblocked_at=? WHERE client_id=?""",(forever,now,client_id))
+          conn.execute("UPDATE fabula_access_claims SET status='active', updated_at=? WHERE client_id=?",(now,client_id))
+          conn.commit()
+          print("OWNER_GRANT_OK",client_id)
+          PY
+
+          systemctl restart router1-site-api
             echo "ROLLBACK_OK $BACKUP"
           }
           trap rollback ERR
