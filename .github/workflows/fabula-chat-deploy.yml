@@ -159,6 +159,8 @@ jobs:
           done
 
           rollback() {
+            status=$?
+            trap - ERR
             set +e
             while IFS= read -r config; do
               cp -a "$BACKUP_DIR/nginx/${config#/}" "$config"
@@ -176,7 +178,8 @@ jobs:
             systemctl daemon-reload
             systemctl restart fabula-chat.service || true
             nginx -t && systemctl reload nginx
-            echo "ROLLBACK_OK backup=$BACKUP_DIR"
+            echo "ROLLBACK_OK backup=$BACKUP_DIR original_status=$status"
+            exit "$status"
           }
           trap rollback ERR
 
