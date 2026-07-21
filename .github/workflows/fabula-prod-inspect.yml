@@ -6,7 +6,7 @@ on:
     paths: [".github/workflows/fabula-prod-inspect.yml"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inspect:
@@ -15,18 +15,20 @@ jobs:
     env:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fabula
       - name: Install SSH helper
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
       - name: Inspect sanitized production structure
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@201.51.4.89 'python3 -' <<'PY'
-          import ast, sqlite3
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@201.51.4.89 'python3 -' > /tmp/fabula-prod-report.txt <<'PY'
+          import ast, sqlite3, subprocess
           from pathlib import Path
           root = Path("/opt/vpn_bot")
           print("SERVICES")
-          import subprocess
           for unit in ("router1-site-api","platega-webhook","vpn-bot"):
               p=subprocess.run(["systemctl","is-active",unit],capture_output=True,text=True)
               print(unit,p.stdout.strip())
@@ -42,10 +44,16 @@ jobs:
                       if any(x in name for x in ("fabula","order","payment","renew","activate","client")):
                           print("SYMBOL",filename,node.name,node.lineno,getattr(node,"end_lineno",node.lineno))
               if filename=="site_api.py":
-                  for i,line in enumerate(text.splitlines(),1):
+                  lines=text.splitlines()
+                  for i,line in enumerate(lines,1):
                       low=line.lower()
                       if any(x in low for x in ('"/fabula/','"fabula','smartphone_test','laptop_test','products =')):
                           print("LINE",i,line[:240])
+                  for node in tree.body:
+                      if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and "fabula" in node.name.lower():
+                          print("BLOCK",node.name)
+                          for line in lines[node.lineno-1:min(getattr(node,"end_lineno",node.lineno),node.lineno+120)]:
+                              print(line[:300])
           db=sqlite3.connect(root/"database.db")
           print("TABLES")
           for (name,) in db.execute("select name from sqlite_master where type='table' order by name"):
@@ -62,3 +70,11 @@ jobs:
               except sqlite3.Error:
                   pass
           PY
+          install -m 0644 /tmp/fabula-prod-report.txt fabula-prod-report.txt
+      - name: Save sanitized report
+        run: |
+          git config user.name codex-production-audit
+          git config user.email codex@router1.local
+          git add fabula-prod-report.txt
+          git commit -m "codex: record sanitized Fabula production audit"
+          git push origin HEAD:fabula
