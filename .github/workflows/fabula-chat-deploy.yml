@@ -507,6 +507,12 @@ jobs:
           echo "DEPLOY_OK backup=$BACKUP_DIR"
           REMOTE
 
+      - name: Inspect active public TLS listener
+        shell: bash
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@201.51.4.89 \
+            'echo FABULA_TLS_LISTENER; ss -ltnp "( sport = :443 )" || true; echo FABULA_NAT_443; iptables-save -t nat 2>/dev/null | grep -E "dport 443|:443" || true; echo FABULA_NGINX_FILES; nginx -T 2>&1 | grep -nE "configuration file|listen .*443|server_name.*router1\\.tech|FABULA_CHAT|location = /api/fabula/chat" || true'
+
       - name: Verify from outside the production server
         shell: bash
         run: |
