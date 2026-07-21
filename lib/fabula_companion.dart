@@ -162,11 +162,24 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
       if (!mounted) return;
       setState(() => _messages.add(FabulaChatMessage(role: 'assistant', text: answer)));
       await _save();
-    } catch (_) {
+    } on HttpException catch (error) {
+      if (mounted) {
+        final message = switch (error.message) {
+          'chat_429' => 'Бесплатный дневной лимит OpenRouter закончился.',
+          'chat_503' => 'Бесплатная модель OpenRouter сейчас недоступна.',
+          'chat_401' => 'Версия Fabula устарела. Установите обновление.',
+          'chat_404' => 'Сервер чата ещё не подключён к приложению.',
+          _ => 'Ошибка сервера (${error.message}). Попробуйте ещё раз.',
+        };
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Fabula пока не смогла ответить. Попробуйте ещё раз.'),
+          SnackBar(
+            content: Text('Нет связи с сервером: ${error.runtimeType}.'),
           ),
         );
       }
