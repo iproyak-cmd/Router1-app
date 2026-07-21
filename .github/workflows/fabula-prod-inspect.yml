@@ -28,7 +28,15 @@ jobs:
           import ast, sqlite3, subprocess
           from pathlib import Path
           root = Path("/opt/vpn_bot")
-          print("SERVICES")\n          import sys\n          sys.path.insert(0, str(root))\n          try:\n              import site_api\n              p=site_api.PRODUCTS.get("fabula_monthly")\n              print("FABULA_PRODUCT", bool(p), p.get("amount") if p else None, p.get("period_days") if p else None)\n          except Exception as exc:\n              print("FABULA_PRODUCT_ERROR", type(exc).__name__)
+          print("SERVICES")
+          import sys
+          sys.path.insert(0, str(root))
+          try:
+              import site_api
+              p=site_api.PRODUCTS.get("fabula_monthly")
+              print("FABULA_PRODUCT", bool(p), p.get("amount") if p else None, p.get("period_days") if p else None)
+          except Exception as exc:
+              print("FABULA_PRODUCT_ERROR", type(exc).__name__)
           for unit in ("router1-site-api","platega-webhook","vpn-bot"):
               p=subprocess.run(["systemctl","is-active",unit],capture_output=True,text=True)
               print(unit,p.stdout.strip())
