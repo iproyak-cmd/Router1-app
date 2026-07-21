@@ -216,7 +216,6 @@ class _FabulaShellState extends State<FabulaShell> {
     if (mounted) setState(() => loading = false);
     unawaited(_trackEvent('app_opened'));
     unawaited(_checkForUpdate());
-    if (phone.isNotEmpty) unawaited(_warmVpnAccess());
   }
 
   Future<void> _checkForUpdate() async {
@@ -331,14 +330,6 @@ class _FabulaShellState extends State<FabulaShell> {
     return future.whenComplete(() {
       if (identical(vpnAccessPreparation, future)) vpnAccessPreparation = null;
     });
-  }
-
-  Future<void> _warmVpnAccess() async {
-    try {
-      await _ensureVpnAccess();
-    } catch (_) {
-      // The visible VPN button retries; onboarding must not be blocked by network.
-    }
   }
 
   Future<Router1ClientLookup> _lookupOrCreateTrial() async {
@@ -511,7 +502,6 @@ class _FabulaShellState extends State<FabulaShell> {
     await prefs.setString('fabula_name', name);
     await prefs.setString('fabula_phone', phone);
     vpnAccessPreparation = null;
-    unawaited(_warmVpnAccess());
     if (mounted) setState(() {});
   }
 
@@ -544,7 +534,6 @@ class _FabulaShellState extends State<FabulaShell> {
       });
     }
     await _loadForecast();
-    unawaited(_warmVpnAccess());
   }
 
   Future<void> _editAssistantName() async {
