@@ -53,15 +53,21 @@ PRODUCTS["fabula_monthly"] = {
     **PRODUCTS["smartphone"],
     "title": "Fabula — спокойный интернет на 30 дней",
     "amount": 390,
-    "period": "30d",
+    "period": "1m",
     "period_days": 30,
-    "product_type": "smartphone",
+    "product_type": "vpn_config",
     "payment_purpose": "Fabula VPN subscription",
     "does_apply_referral_bonus": False,
 }
 
 '''
               text=text[:pos]+snippet+text[pos:]
+          trial_anchor='days = free_trial_days()'
+          trial_replacement='days = 1 if is_fabula else free_trial_days()'
+          if trial_anchor in text:
+              text=text.replace(trial_anchor,trial_replacement,1)
+          elif trial_replacement not in text:
+              raise SystemExit("Fabula trial-days anchor not found")
           old='if order.product not in {"smartphone_test", "laptop_test"}:'
           new='if order.product not in {"smartphone_test", "laptop_test", "fabula_monthly"}:'
           if old in text:
@@ -72,54 +78,6 @@ PRODUCTS["fabula_monthly"] = {
           PY
 
           "$ROOT/venv/bin/python" -m py_compile "$ROOT/site_api.py"
-          cd "$ROOT"
-          "$ROOT/venv/bin/python" - <<'PY'
-          import site_api
-          p=site_api.PRODUCTS["fabula_monthly"]
-          assert p["amount"] == 390 and p["period_days"] == 30
-          print("PRODUCT_OK",p["amount"],p["period_days"])
-          PY
-
-          ROOT="$ROOT" "$ROOT/venv/bin/python" - <<'PY'
-          import os, sqlite3
-          from datetime import datetime, timezone
-          from pathlib import Path
-          root=Path(os.environ["ROOT"])
-          conn=sqlite3.connect(root/"database.db")
-          conn.row_factory=sqlite3.Row
-          digits="89262508050"
-          clients=conn.execute("""
-            SELECT * FROM clients
-            WHERE phone_normalized LIKE ? OR
-              replace(replace(replace(replace(replace(phone,'+',''),' ',''),'-',''),'(',''),')','') LIKE ?
-          """,("%"+digits[-10:],"%"+digits[-10:])).fetchall()
-          assert len(clients)==1, f"owner match count={len(clients)}"
-          client_id=int(clients[0]["id"])
-          rows=conn.execute("SELECT * FROM client_configs WHERE client_id=?",(client_id,)).fetchall()
-          forever="2099-12-31T23:59:59+00:00"
-          now=datetime.now(timezone.utc).isoformat()
-          conn.execute("UPDATE clients SET status='active', paid_until=?, next_payment_date=?, monthly_fee=0, tariff='Fabula owner lifetime', updated_at=? WHERE id=?",(forever,forever,now,client_id))
-          conn.execute("""UPDATE client_configs SET status='active', payment_status='manual_grant',
-            paid_until=?, subscription_type='lifetime', period='lifetime', amount=0,
-            blocked_at=NULL, block_reason=NULL, unblocked_at=? WHERE client_id=?""",(forever,now,client_id))
-          conn.execute("UPDATE fabula_access_claims SET status='active', updated_at=? WHERE client_id=?",(now,client_id))
-          conn.commit()
-          print("OWNER_GRANT_OK","configs",len(rows))
-          # Restore any previously blocked live peer using the production helper.
-          import router1.db as dbmod
-          restore=getattr(dbmod,"_restore_peer_for_row",None)
-          if restore:
-              for row in rows:
-                  try:
-                      restore(row)
-                  except TypeError:
-                      try: restore(conn,row)
-                      except Exception as exc: print("RESTORE_WARNING",type(exc).__name__)
-                  except Exception as exc:
-                      print("RESTORE_WARNING",type(exc).__name__)
-          conn.close()
-          PY
-
           systemctl restart router1-site-api
           systemctl is-active --quiet router1-site-api
           sleep 2
