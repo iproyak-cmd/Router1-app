@@ -589,6 +589,48 @@ jobs:
           echo "DEPLOY_OK backup=$BACKUP_DIR"
           REMOTE
 
+      - name: Register Fabula in the live Router1 site API
+        shell: bash
+        run: |
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          ROOT=/opt/vpn_bot
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          cp -a "$ROOT/site_api.py" "$ROOT/backups/site_api_before_fabula_chat_$STAMP.py"
+          install -m 0644 /tmp/fabula_chat.py "$ROOT/fabula_chat.py"
+          python3 -m py_compile "$ROOT/fabula_chat.py"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("/opt/vpn_bot/site_api.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_CHAT_SITE_API"
+          block = (
+              "\n# FABULA_CHAT_SITE_API\n"
+              "from fabula_chat import register_fabula_proxy_routes\n"
+              "register_fabula_proxy_routes(app)\n"
+          )
+          if marker not in text:
+              path.write_text(text.rstrip() + block, encoding="utf-8")
+          PY
+          python3 -m py_compile "$ROOT/site_api.py"
+          systemctl restart router1-site-api.service
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS --max-time 5 http://127.0.0.1:8000/openapi.json \
+              | grep -q '/api/fabula/chat'; then
+              echo FABULA_SITE_API_ROUTE_OK
+              exit 0
+            fi
+            sleep 2
+          done
+          systemctl status router1-site-api.service --no-pager
+          journalctl -u router1-site-api.service --no-pager -n 40
+          exit 1
+          REMOTE
+
       - name: Inspect active public TLS listener
         shell: bash
         run: |
