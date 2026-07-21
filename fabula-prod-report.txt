@@ -1,0 +1,148 @@
+SERVICES
+router1-site-api active
+platega-webhook active
+vpn-bot active
+FILE site_api.py True
+SYMBOL site_api.py OrderIn 235 244
+SYMBOL site_api.py _find_client_id_for_order 400 472
+SYMBOL site_api.py upsert_site_client 498 560
+SYMBOL site_api.py create_platega_payment 563 617
+SYMBOL site_api.py refresh_pending_order_from_platega 647 663
+SYMBOL site_api.py insert_site_order 666 702
+SYMBOL site_api.py update_site_order_provider 705 715
+SYMBOL site_api.py parse_payment_payload 729 733
+SYMBOL site_api.py find_order_for_webhook 736 754
+SYMBOL site_api.py complete_paid_site_order 918 1010
+SYMBOL site_api.py _complete_free_trial_order 1013 1079
+SYMBOL site_api.py recover_free_trial_orders 1082 1111
+SYMBOL site_api.py create_order 1134 1325
+SYMBOL site_api.py create_fabula_access 1329 1337
+SYMBOL site_api.py get_order 1382 1419
+SYMBOL site_api.py _client_me 1658 1686
+SYMBOL site_api.py _client_addcfg 1689 1691
+SYMBOL site_api.py _client_renew 1694 1714
+SYMBOL site_api.py _app_client_by_identity 1897 1937
+SYMBOL site_api.py _app_billing_offers_for_client 2013 2043
+SYMBOL site_api.py _fabula_daily_horoscope 2056 2068
+SYMBOL site_api.py _app_renewal_offers 2072 2080
+SYMBOL site_api.py _app_renewal_order 2084 2111
+SYMBOL site_api.py _app_client_lookup 2115 2166
+SYMBOL site_api.py _fabula_client_lookup 2200 2227
+SYMBOL site_api.py _fabula_config_text 2231 2244
+SYMBOL site_api.py _app_order_config_text 2381 2401
+LINE 150     "smartphone_test": {
+LINE 173     "laptop_test": {
+LINE 1040         if marker.get("source") == "fabula_free_access":
+LINE 1064         if marker.get("source") == "fabula_free_access":
+LINE 1245             "source": "fabula_free_access" if request.url.path.startswith("/api/fabula/") else "router1_free_trial",
+LINE 1335     if order.product not in {"smartphone_test", "laptop_test"}:
+LINE 2209         if device_type in {"smartphone_test", "laptop_test"}:
+BLOCK create_fabula_access
+def create_fabula_access(
+    order: OrderIn,
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> dict[str, Any]:
+    _require_app_auth(request)
+    if order.product not in {"smartphone_test", "laptop_test"}:
+        raise HTTPException(status_code=400, detail="unsupported Fabula device")
+    return create_order(order, background_tasks, request)
+BLOCK _fabula_daily_horoscope
+async def _fabula_daily_horoscope(sign: str, request: Request):
+    _require_app_auth(request)
+    try:
+        result = daily_horoscope(sign)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="unknown zodiac sign")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
+            ("horoscope_view", sign, utc_now().isoformat()),
+        )
+        conn.commit()
+    return result
+BLOCK _fabula_client_lookup
+async def _fabula_client_lookup(
+    request: Request,
+    phone: str | None = None,
+    telegram_id: str | None = None,
+    device_type: str | None = None,
+):
+    result = await _app_client_lookup(request, phone, telegram_id)
+    client_id = int(result["client"]["id"])
+    with db() as conn:
+        if device_type in {"smartphone_test", "laptop_test"}:
+            claims = conn.execute(
+                "SELECT config_id FROM fabula_access_claims WHERE client_id = ? AND device_type = ? AND status = 'active'",
+                (client_id, device_type),
+            ).fetchall()
+        else:
+            claims = conn.execute(
+                "SELECT config_id FROM fabula_access_claims WHERE client_id = ? AND status = 'active'",
+                (client_id,),
+            ).fetchall()
+        allowed_ids = {int(row["config_id"]) for row in claims if row["config_id"]}
+        result["configs"] = [config for config in result.get("configs", []) if int(config.get("id") or 0) in allowed_ids]
+        result["recommended_config_id"] = next(iter(allowed_ids), None)
+        conn.execute(
+            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
+            ("client_lookup", "found", utc_now().isoformat()),
+        )
+        conn.commit()
+    return result
+BLOCK _fabula_config_text
+async def _fabula_config_text(
+    device_id: int,
+    request: Request,
+    phone: str | None = None,
+    telegram_id: str | None = None,
+):
+    result = await _app_config_text(device_id, request, phone, telegram_id)
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO fabula_events(event_type, event_value, created_at) VALUES (?, ?, ?)",
+            ("vpn_config", str(device_id), utc_now().isoformat()),
+        )
+        conn.commit()
+    return result
+FILE platega_webhook.py True
+SYMBOL platega_webhook.py _extract_internal_payment_id 43 56
+SYMBOL platega_webhook.py _extract_site_order_id 59 69
+SYMBOL platega_webhook.py _extract_external_payment_id 72 74
+FILE router1/db.py True
+SYMBOL router1/db.py get_client_by_telegram_id 423 428
+SYMBOL router1/db.py get_client 431 437
+SYMBOL router1/db.py get_client_by_phone 440 456
+SYMBOL router1/db.py get_client_by_referral_code 459 466
+SYMBOL router1/db.py get_referral_partner_for_client 603 624
+SYMBOL router1/db.py link_partner_client 627 650
+SYMBOL router1/db.py _mark_partner_payment_commission 707 756
+SYMBOL router1/db.py register_client 869 870
+SYMBOL router1/db.py client_has_active_subscription 897 898
+SYMBOL router1/db.py client_config_limit_remaining 914 915
+SYMBOL router1/db.py client_config_limit 918 919
+SYMBOL router1/db.py client_has_paid_config 922 923
+SYMBOL router1/db.py client_has_access 926 927
+SYMBOL router1/db.py promote_client_after_payment 930 937
+SYMBOL router1/db.py get_client_devices 940 962
+SYMBOL router1/db.py add_test_payment 987 998
+SYMBOL router1/db.py create_payment_placeholder 1001 1048
+SYMBOL router1/db.py get_payment 1089 1092
+SYMBOL router1/db.py update_payment_provider_data 1095 1113
+SYMBOL router1/db.py find_payment_for_webhook 1116 1128
+SYMBOL router1/db.py _device_name_for_payment 1131 1145
+SYMBOL router1/db.py _extend_subscription_for_payment 1160 1175
+SYMBOL router1/db.py active_config_rows_for_client 1178 1190
+SYMBOL router1/db.py mark_payment_paid_and_activate 1193 1420
+SYMBOL router1/db.py mark_payment_status_from_webhook 1562 1593
+FILE router1/pricing.py True
+TABLES
+client_configs id:INTEGER|client_id:INTEGER|device_name:TEXT|device_type:TEXT|public_key:TEXT|vpn_ip:TEXT|conf_path:TEXT|qr_path:TEXT|status:TEXT|payment_status:TEXT|created_at:TEXT|updated_at:TEXT|private_key:TEXT|address:TEXT|config_path:TEXT|paid_at:TEXT|product_type:TEXT|subscription_type:TEXT|period:TEXT|amount:INTEGER|last_used_at:TEXT|last_external_ip:TEXT|last_handshake_at:TEXT|last_endpoint:TEXT|protocol:TEXT|generation_error:TEXT|paid_until:TEXT|expired_notified_at:TEXT|blocked_at:TEXT|unblocked_at:TEXT|warning_7d_at:TEXT|warning_3d_at:TEXT|warning_0d_at:TEXT|block_reason:TEXT|server_code:TEXT|server_host:TEXT
+client_identities id:INTEGER|client_id:INTEGER|type:TEXT|value:TEXT|verified_at:TEXT|created_at:TEXT|updated_at:TEXT
+clients id:INTEGER|name:TEXT|phone:TEXT|protocol:TEXT|vpn_ip:TEXT|status:TEXT|paid_until:TEXT|comment:TEXT|created_at:TEXT|public_key:TEXT|last_handshake:TEXT|traffic:TEXT|source_file:TEXT|start_date:TEXT|telegram:TEXT|email:TEXT|router:TEXT|telegram_id:TEXT|tariff:TEXT|payment_link:TEXT|conf_path:TEXT|qr_path:TEXT|discount:TEXT|balance:INTEGER|bonus_points:INTEGER|client_code:TEXT|full_name:TEXT|router_model:TEXT|vpn_type:TEXT|config_name:TEXT|activation_date:TEXT|next_payment_date:TEXT|monthly_fee:INTEGER|notes:TEXT|updated_at:TEXT|ref_code:TEXT|referrer_id:INTEGER|bonus_days:INTEGER|referrals_count:INTEGER|paid_referrals_count:INTEGER|notify_7_sent_at:TEXT|notify_3_sent_at:TEXT|notify_0_sent_at:TEXT|phone_normalized:TEXT|configs_count:INTEGER|is_guest:INTEGER|referral_code:TEXT|role:TEXT
+partner_referral_clients id:INTEGER|partner_id:INTEGER|client_id:INTEGER|status:TEXT|created_at:TEXT|registered_at:TEXT|first_paid_at:TEXT
+payments id:INTEGER|client_id:INTEGER|amount:INTEGER|currency:TEXT|status:TEXT|created_at:TEXT|purpose:TEXT|product_type:TEXT|subscription_type:TEXT|period:TEXT|payment_status:TEXT|external_payment_id:TEXT|paid_at:TEXT|protocol:TEXT|period_days:INTEGER|payment_purpose:TEXT|does_activate_subscription:INTEGER|does_create_config:INTEGER|does_apply_referral_bonus:INTEGER|payment_url:TEXT|raw_payload:TEXT|webhook_processed_at:TEXT|promo_code:TEXT
+site_orders id:TEXT|client_id:INTEGER|internal_payment_id:INTEGER|product:TEXT|name:TEXT|phone:TEXT|phone_normalized:TEXT|email:TEXT|telegram:TEXT|status:TEXT|payment_id:TEXT|payment_url:TEXT|device_id:INTEGER|conf_path:TEXT|qr_path:TEXT|generation_status:TEXT|generation_error:TEXT|raw_payload:TEXT|created_at:TEXT|paid_at:TEXT|updated_at:TEXT|referral_code:TEXT|partner_id:INTEGER|telegram_delivery_status:TEXT|email_delivery_status:TEXT|delivery_error:TEXT|delivered_at:TEXT
+subscription_compensations campaign:TEXT|client_id:INTEGER|subscription_id:INTEGER|days:INTEGER|expires_before:TEXT|expires_after:TEXT|applied_at:TEXT
+subscriptions id:INTEGER|client_id:INTEGER|status:TEXT|started_at:TEXT|expires_at:TEXT
+OWNER_MATCH clients 1
