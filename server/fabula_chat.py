@@ -212,7 +212,10 @@ def register_fabula_proxy_routes(app: Any) -> None:
         if authorization:
             headers["Authorization"] = authorization
         upstream = urllib.request.Request(
-            "http://127.0.0.1:8012/api/fabula/chat",
+            os.environ.get(
+                "FABULA_CHAT_UPSTREAM_URL",
+                "http://127.0.0.1:8012/api/fabula/chat",
+            ),
             data=body,
             method="POST",
             headers=headers,
