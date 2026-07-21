@@ -292,6 +292,8 @@ jobs:
             || true
           sed -n '1,20p' /tmp/fabula-backend-headers
           sed -n '1,20p' /tmp/fabula-backend-body
+          journalctl -u fabula-chat.service --no-pager -n 30 \
+            | sed -E 's/sk-or-v1-[A-Za-z0-9_-]+/[REDACTED]/g'
 
           echo "FABULA_NGINX_ROUTE_DIAGNOSTIC"
           nginx -T 2>&1 \
