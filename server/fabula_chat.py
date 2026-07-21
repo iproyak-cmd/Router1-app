@@ -196,3 +196,47 @@ def register_fabula_chat_routes(app: Any) -> None:
             return {"reply": request_openrouter(validated)}
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
+
+def register_fabula_proxy_routes(app: Any) -> None:
+    """Register the public route in Router1 site_api and proxy it to FR."""
+
+    from fastapi import Header, HTTPException, Request
+
+    @app.post("/api/fabula/chat", include_in_schema=False)
+    def fabula_chat_proxy(
+        payload: dict[str, Any],
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if authorization:
+            headers["Authorization"] = authorization
+        if request.client:
+            headers["X-Forwarded-For"] = request.client.host
+        upstream = urllib.request.Request(
+            "http://127.0.0.1:8012/api/fabula/chat",
+            data=body,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(upstream, timeout=52) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            try:
+                upstream_error = json.loads(error.read().decode("utf-8"))
+                detail = str(upstream_error.get("detail", "Fabula unavailable"))
+            except Exception:
+                detail = "Fabula unavailable"
+            raise HTTPException(status_code=error.code, detail=detail) from error
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise HTTPException(
+                status_code=503,
+                detail="Fabula temporarily unavailable",
+            ) from error
+        reply = str(result.get("reply", "")).strip()
+        if not reply:
+            raise HTTPException(status_code=503, detail="Fabula returned no reply")
+        return {"reply": reply}
+
