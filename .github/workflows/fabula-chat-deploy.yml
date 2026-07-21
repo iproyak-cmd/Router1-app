@@ -80,6 +80,18 @@ jobs:
           systemctl list-units --type=service --all --no-legend \
             | grep -Ei '(xray|sing-box|wireguard|wg-quick|proxy)' \
             || true
+          for target in '92.51.46.27 22 NL' '201.51.23.60 5445 NL2' '213.176.93.13 5443 FR'; do
+            set -- $target
+            host=$1 port=$2 label=$3
+            if ssh -o BatchMode=yes -o ConnectTimeout=8 \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -p "$port" "root@$host" \
+              "code=\$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 https://openrouter.ai/api/v1/models); echo ${label}_SSH_OK_OPENROUTER=\$code"; then
+              :
+            else
+              echo "${label}_SSH_UNAVAILABLE"
+            fi
+          done
 
           CONFIG_LIST="$BACKUP_DIR/nginx-config-paths"
           python3 - <<'PY' >"$CONFIG_LIST"
