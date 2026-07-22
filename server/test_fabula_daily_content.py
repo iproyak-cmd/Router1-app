@@ -47,13 +47,31 @@ class DailyContentStoreTests(unittest.TestCase):
 
     def test_forecast_contains_real_ephemeris_basis(self):
         payload = self.store.get_or_create(dt.date(2026, 7, 22), "libra")
-        self.assertEqual(payload["engine_version"], 2)
+        self.assertEqual(payload["engine_version"], 3)
         self.assertEqual(
             payload["basis"]["reference"],
             "geocentric true ecliptic of date",
         )
         self.assertIn("moon", payload["basis"]["positions"])
         self.assertIn("°", payload["overview"])
+        self.assertTrue(1 <= payload["energy"] <= 100)
+        self.assertIn("транзит", payload["energy_reason"])
+        self.assertTrue(payload["mood_title"])
+        self.assertTrue(payload["affirmation"])
+        self.assertTrue(payload["lunar_guidance"])
+        self.assertTrue(payload["tarot"]["action"])
+        self.assertTrue(payload["tarot"]["question"])
+
+    def test_full_major_arcana_can_be_selected(self):
+        cards = {
+            generate_editorial_daily_content(
+                dt.date(2026, 1, 1) + dt.timedelta(days=offset),
+                sign,
+            )["tarot"]["title"]
+            for offset in range(90)
+            for sign in ("libra", "leo", "pisces", "taurus")
+        }
+        self.assertEqual(len(cards), 22)
 
     def test_rejects_unknown_sign(self):
         with self.assertRaises(ValueError):
