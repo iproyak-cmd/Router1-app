@@ -27,7 +27,8 @@ jobs:
       - name: Test persistent server content
         working-directory: server
         run: |
-          python -m py_compile fabula_daily_content.py fabula_daily_content_http.py
+          python -m pip install --require-hashes -r requirements-fabula-daily-content.txt
+          python -m py_compile fabula_daily_content.py fabula_ephemeris.py fabula_daily_content_http.py
           python -m unittest -v test_fabula_daily_content.py
       - uses: subosito/flutter-action@v2
         with:

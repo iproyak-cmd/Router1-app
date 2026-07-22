@@ -1,0 +1,2 @@
+astronomy-engine==2.1.19 \
+    --hash=sha256:232ba7dd2bbf42225c48be6721b676e8c6c079dbd4588d2781dfa68adcb6f67f

@@ -15,17 +15,20 @@ from typing import Any
 
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "openrouter/free"
-SYSTEM_PROMPT = """Ты — личный ассистент в приложении Fabula: спокойный, внимательный и уверенный собеседник для женщин.
-Твоя основная задача — внимательно слушать, помогать человеку назвать чувства и спокойнее посмотреть на ситуацию.
+DEFAULT_MODEL = "google/gemini-2.5-flash"
+SYSTEM_PROMPT = """Ты — личный ассистент в приложении Fabula: спокойный, внимательный и практичный помощник для женщин.
+Твоя задача — понимать текущие жизненные приоритеты пользовательницы, удерживать контекст и помогать сделать один полезный следующий шаг без давления.
 
 Правила:
 - отвечай естественно, тепло и без канцелярита;
 - не осуждай, не морализируй и не ставь диагнозы;
 - не называй себя психологом или врачом;
 - не принимай решения за человека и не утверждай, что знаешь чужие мысли;
-- сначала прояви понимание, затем задай не больше одного уместного вопроса;
-- совет давай только по просьбе или мягко предложи его;
+- не ограничивайся пересказом чувств: отдели факт от предположения и предложи конкретное действие, если запрос это допускает;
+- учитывай предыдущие сообщения и не спрашивай повторно то, что уже известно;
+- если данных недостаточно, задай один точный вопрос; если достаточно — сразу помогай;
+- при нескольких проблемах помоги выбрать приоритет по срочности, безопасности и влиянию на жизнь;
+- не заваливай вариантами: обычно давай один следующий шаг и максимум три коротких варианта;
 - обращайся на «ты» и отвечай только по-русски;
 - не изображай романтического партнёра и не навязывай флирт;
 - обычный ответ ограничивай 700 символами;
@@ -48,6 +51,8 @@ class FabulaChatPayload:
     assistant_name: str
     assistant_gender: str
     messages: list[ChatMessage]
+    birthday: str = ""
+    sign: str = ""
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "FabulaChatPayload":
@@ -64,8 +69,12 @@ class FabulaChatPayload:
             raise ValueError("assistant name is too long")
         if assistant_gender not in {"male", "female"}:
             raise ValueError("invalid assistant gender")
-        if not isinstance(raw_messages, list) or not 1 <= len(raw_messages) <= 12:
-            raise ValueError("messages must contain 1 to 12 items")
+        birthday = str(value.get("birthday", "")).strip()
+        sign = str(value.get("sign", "")).strip()
+        if len(birthday) > 20 or len(sign) > 24:
+            raise ValueError("invalid profile context")
+        if not isinstance(raw_messages, list) or not 1 <= len(raw_messages) <= 24:
+            raise ValueError("messages must contain 1 to 24 items")
         messages: list[ChatMessage] = []
         for raw in raw_messages:
             if not isinstance(raw, dict):
@@ -83,6 +92,8 @@ class FabulaChatPayload:
             assistant_name=assistant_name,
             assistant_gender=assistant_gender,
             messages=messages,
+            birthday=birthday,
+            sign=sign,
         )
 
 
@@ -122,23 +133,29 @@ def build_openrouter_payload(payload: FabulaChatPayload) -> dict[str, Any]:
         if payload.assistant_gender == "female"
         else "Ты мужчина: говори о себе в мужском роде. "
     )
+    profile_hint = " ".join(
+        part for part in (
+            f"Дата рождения пользовательницы: {payload.birthday}." if payload.birthday else "",
+            f"Знак: {payload.sign}." if payload.sign else "",
+        ) if part
+    )
     messages: list[dict[str, str]] = [
         {
             "role": "system",
-            "content": f"{SYSTEM_PROMPT}\n\n{name_hint}{gender_hint}{assistant_hint}".strip(),
+            "content": f"{SYSTEM_PROMPT}\n\n{name_hint}{profile_hint} {gender_hint}{assistant_hint}".strip(),
         }
     ]
     messages.extend(
         {"role": message.role, "content": message.content}
-        for message in payload.messages[-12:]
+        for message in payload.messages[-24:]
     )
     return {
         "model": os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL),
         "messages": messages,
         # Reasoning models may spend part of the budget before producing the
         # visible answer. Keep enough room for the final Russian reply.
-        "max_tokens": 500,
-        "temperature": 0.8,
+        "max_tokens": 800,
+        "temperature": 0.45,
         "usage": {"include": True},
     }
 

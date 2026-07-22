@@ -342,7 +342,7 @@ jobs:
           Environment=FABULA_CHAT_PORT=18012
           Environment=FABULA_CHAT_DAILY_LIMIT=50
           Environment=FABULA_CHAT_ANONYMOUS_DAILY_LIMIT=10
-          Environment=OPENROUTER_MODEL=openrouter/free
+          Environment=OPENROUTER_MODEL=google/gemini-2.5-flash
           ExecStart=/usr/bin/python3 /opt/fabula-chat/fabula_chat_http.py
           Restart=always
           RestartSec=3
@@ -637,7 +637,7 @@ jobs:
           Environment=FABULA_CHAT_PORT=18012
           Environment=FABULA_CHAT_DAILY_LIMIT=50
           Environment=FABULA_CHAT_ANONYMOUS_DAILY_LIMIT=10
-          Environment=OPENROUTER_MODEL=openrouter/free
+          Environment=OPENROUTER_MODEL=google/gemini-2.5-flash
           ExecStart=/usr/bin/python3 /opt/fabula-chat/fabula_chat_http.py
           Restart=always
           RestartSec=3

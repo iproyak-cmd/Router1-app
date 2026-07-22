@@ -16,6 +16,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from fabula_ephemeris import SIGN_ORDER, SIGN_TITLES, ephemeris_for
+
 VALID_SIGNS = {
     "aries": ("Овен", "♈"),
     "taurus": ("Телец", "♉"),
@@ -79,8 +81,10 @@ class DailyContentStore:
                 (day, normalized_sign),
             ).fetchone()
             if row is not None:
-                connection.commit()
-                return json.loads(str(row["payload_json"]))
+                stored = json.loads(str(row["payload_json"]))
+                if stored.get("engine_version") == 2 and stored.get("basis"):
+                    connection.commit()
+                    return stored
 
             payload = factory(content_date, normalized_sign)
             validate_daily_content(
@@ -91,7 +95,9 @@ class DailyContentStore:
             encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             connection.execute(
                 "INSERT INTO fabula_daily_content "
-                "(content_date, sign, payload_json, created_at) VALUES (?, ?, ?, ?)",
+                "(content_date, sign, payload_json, created_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(content_date, sign) DO UPDATE SET "
+                "payload_json=excluded.payload_json, created_at=excluded.created_at",
                 (
                     day,
                     normalized_sign,
@@ -146,38 +152,48 @@ def generate_editorial_daily_content(
 ) -> dict[str, Any]:
     title, symbol = VALID_SIGNS[sign]
     key = f"{content_date.isoformat()}:{sign}"
-    overviews = (
-        "Сегодня полезно выбрать один ясный приоритет и дать ему достаточно внимания.",
-        "День лучше раскрывается через спокойный темп, точные слова и завершённые дела.",
-        "Не всё требует немедленного ответа: пауза поможет увидеть более сильное решение.",
-        "Сосредоточьтесь на том, что возвращает ощущение опоры и управляемости.",
-        "Сегодня ценнее последовательность, чем резкий рывок или желание успеть всё.",
-        "Неожиданная деталь может подсказать практичный следующий шаг.",
+    sky = ephemeris_for(content_date, sign)
+    transits = sky["transits"]
+
+    planet_focus = {
+        "moon": ("настроение и привычные реакции", "не спешить с эмоциональными выводами"),
+        "mercury": ("разговоры, документы и решения", "перепроверить формулировки и детали"),
+        "venus": ("отношения, симпатии и чувство меры", "выбрать бережный и честный тон"),
+        "mars": ("действия, границы и запас энергии", "направить силы в одну конкретную задачу"),
+        "jupiter": ("возможности, обучение и расширение планов", "увидеть перспективу без лишних обещаний"),
+        "saturn": ("обязательства, сроки и устойчивость", "укрепить порядок и не брать лишнего"),
+    }
+
+    def transit_sentence(index: int, fallback: str) -> str:
+        if index >= len(transits):
+            moon = sky["positions"]["moon"]
+            moon_sign = SIGN_TITLES[SIGN_ORDER.index(moon["sign"])]
+            return f"Луна сегодня в {moon_sign}: {fallback}"
+        transit = transits[index]
+        focus, action = planet_focus[transit.planet]
+        if transit.tone == "supportive":
+            effect = "поддерживает сферу"
+        elif transit.tone == "challenging":
+            effect = "обращает внимание на сферу"
+        else:
+            effect = "усиливает сферу"
+        return (
+            f"{transit.planet_title} в {transit.sign_title}, {transit.aspect} к вашему знаку, "
+            f"{effect} «{focus}». Полезно {action}."
+        )
+
+    moon = sky["positions"]["moon"]
+    moon_title = VALID_SIGNS[moon["sign"]][0]
+    moon_degree = int(moon["longitude"] % 30)
+    overview = (
+        f"Луна сегодня в знаке «{moon_title}» ({moon_degree}°), фаза — "
+        f"{sky['lunar_phase'].lower()}. "
+        f"{transit_sentence(0, 'сначала прислушайтесь к состоянию, затем выбирайте темп дня.')}"
     )
-    work = (
-        "Закройте одну задачу с измеримым результатом прежде, чем открывать следующую.",
-        "Проверьте договорённости и сроки: ясность сегодня экономит силы завтра.",
-        "Отделите срочное от важного и защитите время для главной задачи.",
-        "Сначала зафиксируйте критерий результата, затем выбирайте способ.",
-    )
-    money = (
-        "Сверьте регулярные расходы и не принимайте решение только из-за срочности.",
-        "Сравните условия и зафиксируйте цифры письменно перед новым обязательством.",
-        "Разумнее укрепить уже работающий источник, чем распыляться на несколько новых.",
-        "Отложите импульсивную покупку до момента, когда сможете спокойно сравнить варианты.",
-    )
-    love = (
-        "Говорите прямо и бережно: ясная просьба сегодня лучше намёков.",
-        "Тёплый короткий контакт поможет больше, чем попытка решить всё одним разговором.",
-        "Оставьте место и близости, и личному пространству.",
-        "Не угадывайте чужие мысли: задайте спокойный уточняющий вопрос.",
-    )
-    advice = (
-        "Сделайте следующий шаг достаточно маленьким, чтобы начать без сопротивления.",
-        "Оставьте в расписании двадцать минут без экрана и новых задач.",
-        "Запишите решение одним предложением и проверьте, действительно ли оно ваше.",
-        "Выберите действие, после которого вечер станет спокойнее.",
-    )
+    work = transit_sentence(1, "зафиксируйте один измеримый результат на сегодня.")
+    money = transit_sentence(2, "сверьте цифры и отложите импульсивное решение.")
+    love = transit_sentence(3, "скажите о важном прямо, но без давления.")
+    advice = transit_sentence(4, "оставьте место для паузы и корректировки планов.")
     colors = (
         "Бордовый",
         "Золотой",
@@ -212,20 +228,34 @@ def generate_editorial_daily_content(
     tarot = pick(cards, "tarot")
     number_digest = hashlib.sha256(f"{key}:number".encode()).digest()
     return {
+        "engine_version": 2,
         "date": content_date.isoformat(),
         "sign": sign,
         "sign_title": title,
         "symbol": symbol,
-        "lunar_phase": lunar_phase_for(content_date),
-        "overview": pick(overviews, "overview"),
-        "work": pick(work, "work"),
-        "money": pick(money, "money"),
-        "love": pick(love, "love"),
-        "advice": pick(advice, "advice"),
+        "lunar_phase": sky["lunar_phase"],
+        "overview": overview,
+        "work": work,
+        "money": money,
+        "love": love,
+        "advice": advice,
         "color": pick(colors, "color"),
         "number": int.from_bytes(number_digest[:8], "big") % 9 + 1,
         "tarot": {"title": tarot[0], "meaning": tarot[1]},
-        "disclaimer": "Развлекательная редакционная подборка Fabula.",
+        "basis": {
+            "calculated_at_utc": sky["calculated_at_utc"],
+            "reference": sky["reference"],
+            "positions": sky["positions"],
+            "aspects": [
+                {
+                    "planet": item.planet,
+                    "aspect": item.aspect,
+                    "orb": round(item.orb, 3),
+                }
+                for item in transits
+            ],
+        },
+        "disclaimer": "Интерпретация реальных эфемерид; астрология не является научным прогнозом.",
     }
 
 

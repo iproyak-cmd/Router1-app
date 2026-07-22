@@ -96,7 +96,7 @@ class FabulaChatTests(unittest.TestCase):
         self.assertIn("Марк", result["messages"][0]["content"])
         self.assertIn("мужском роде", result["messages"][0]["content"])
         self.assertNotIn("provider", result)
-        self.assertEqual(result["max_tokens"], 500)
+        self.assertEqual(result["max_tokens"], 800)
 
     def test_rate_limiter_rejects_after_limit(self):
         limiter = SlidingWindowLimiter(limit=2, window_seconds=60)
@@ -116,6 +116,22 @@ class FabulaChatTests(unittest.TestCase):
         prompt = build_openrouter_payload(payload)["messages"][0]["content"]
         self.assertIn("София", prompt)
         self.assertIn("женском роде", prompt)
+
+    def test_accepts_extended_conversation_and_profile_context(self):
+        payload = FabulaChatPayload.from_dict({
+            "installation_id": "installation-123",
+            "name": "Анна",
+            "birthday": "1990-04-12",
+            "sign": "Овен",
+            "messages": [
+                {"role": "user", "content": f"Сообщение {index}"}
+                for index in range(24)
+            ],
+        })
+        result = build_openrouter_payload(payload)
+        self.assertEqual(len(result["messages"]), 25)
+        self.assertIn("1990-04-12", result["messages"][0]["content"])
+        self.assertIn("Овен", result["messages"][0]["content"])
 
 
 if __name__ == "__main__":

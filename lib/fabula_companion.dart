@@ -37,6 +37,8 @@ class FabulaCompanionApi {
     required String name,
     required String assistantName,
     required String assistantGender,
+    required String birthday,
+    required String sign,
     required List<FabulaChatMessage> messages,
   }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
@@ -52,7 +54,9 @@ class FabulaCompanionApi {
           'name': name,
           'assistant_name': assistantName,
           'assistant_gender': assistantGender,
-          'messages': messages.takeLast(12).map((item) => item.toJson()).toList(),
+          'birthday': birthday,
+          'sign': sign,
+          'messages': messages.takeLast(24).map((item) => item.toJson()).toList(),
         }),
       );
       final response = await request.close().timeout(const Duration(seconds: 45));
@@ -85,6 +89,8 @@ class FabulaCompanionPage extends StatefulWidget {
     required this.name,
     required this.assistantName,
     required this.assistantGender,
+    required this.birthday,
+    required this.sign,
     required this.onChooseAssistantName,
   });
 
@@ -93,6 +99,8 @@ class FabulaCompanionPage extends StatefulWidget {
   final String name;
   final String assistantName;
   final String assistantGender;
+  final String birthday;
+  final String sign;
   final Future<void> Function() onChooseAssistantName;
 
   @override
@@ -173,6 +181,8 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
         name: widget.name,
         assistantName: widget.assistantName,
         assistantGender: widget.assistantGender,
+        birthday: widget.birthday,
+        sign: widget.sign,
         messages: _messages,
       );
       if (!mounted) return;

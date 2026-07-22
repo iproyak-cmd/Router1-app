@@ -45,6 +45,16 @@ class DailyContentStoreTests(unittest.TestCase):
         self.assertNotEqual(first, next_day)
         self.assertNotEqual(first, other_sign)
 
+    def test_forecast_contains_real_ephemeris_basis(self):
+        payload = self.store.get_or_create(dt.date(2026, 7, 22), "libra")
+        self.assertEqual(payload["engine_version"], 2)
+        self.assertEqual(
+            payload["basis"]["reference"],
+            "geocentric true ecliptic of date",
+        )
+        self.assertIn("moon", payload["basis"]["positions"])
+        self.assertIn("°", payload["overview"])
+
     def test_rejects_unknown_sign(self):
         with self.assertRaises(ValueError):
             self.store.get_or_create(dt.date(2026, 7, 20), "unknown")

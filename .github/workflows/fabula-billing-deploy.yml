@@ -69,37 +69,28 @@ jobs:
           from pathlib import Path
           path=Path(os.environ["SITE_API"])
           text=path.read_text(encoding="utf-8")
-          marker='# FABULA_BILLING_V1'
+          marker='# FABULA_BILLING_V3'
           if marker not in text:
               anchor='class OrderIn('
               pos=text.index(anchor)
-              snippet='''# FABULA_BILLING_V1
-# Separate Fabula subscription; Router1 prices remain unchanged.
-PRODUCTS["fabula_monthly"] = {
-    **PRODUCTS["smartphone"],
-    "title": "Fabula — спокойный интернет на 30 дней",
-    "amount": 390,
-    "period": "1m",
-    "period_days": 30,
-    "product_type": "vpn_config",
-    "payment_purpose": "Fabula VPN subscription",
-    "does_apply_referral_bonus": False,
-}
+              if 'PRODUCTS["fabula_monthly"]' in text:
+                  snippet=marker + '\n'
+              else:
+                  snippet='''# FABULA_BILLING_V3
+          # Separate Fabula subscription; Router1 prices remain unchanged.
+          PRODUCTS["fabula_monthly"] = {
+              **PRODUCTS["smartphone"],
+              "title": "Fabula — защищённое подключение на 30 дней",
+              "amount": 390,
+              "period": "1m",
+              "period_days": 30,
+              "product_type": "vpn_config",
+              "payment_purpose": "Fabula VPN subscription",
+              "does_apply_referral_bonus": False,
+          }
 
-'''
+          '''
               text=text[:pos]+snippet+text[pos:]
-          trial_anchor='days = free_trial_days()'
-          trial_replacement='days = 1 if is_fabula else free_trial_days()'
-          if trial_anchor in text:
-              text=text.replace(trial_anchor,trial_replacement,1)
-          elif trial_replacement not in text:
-              raise SystemExit("Fabula trial-days anchor not found")
-          old='if order.product not in {"smartphone_test", "laptop_test"}:'
-          new='if order.product not in {"smartphone_test", "laptop_test", "fabula_monthly"}:'
-          if old in text:
-              text=text.replace(old,new,1)
-          elif new not in text:
-              raise SystemExit("Fabula allow-list anchor not found")
           path.write_text(text,encoding="utf-8")
           PY
 
@@ -108,6 +99,15 @@ PRODUCTS["fabula_monthly"] = {
           systemctl is-active --quiet router1-site-api
           sleep 2
           curl -fsS http://127.0.0.1:8000/api/health >/dev/null
+          ROOT="$ROOT" "$ROOT/venv/bin/python" - <<'PY'
+          import os, sys
+          sys.path.insert(0, os.environ["ROOT"])
+          import site_api
+          product=site_api.PRODUCTS.get("fabula_monthly")
+          assert product and int(product["amount"]) == 390
+          assert int(product.get("period_days", 0)) == 30
+          print("FABULA_PRODUCT_OK", product["amount"], product["period_days"])
+          PY
           trap - ERR
           echo "DEPLOY_OK backup=$BACKUP"
           REMOTE

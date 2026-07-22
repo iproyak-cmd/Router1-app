@@ -6,7 +6,9 @@ on:
     paths:
       - ".github/workflows/fabula-daily-content-deploy.yml"
       - "server/fabula_daily_content.py"
+      - "server/fabula_ephemeris.py"
       - "server/fabula_daily_content_http.py"
+      - "server/requirements-fabula-daily-content.txt"
   workflow_dispatch:
 
 permissions:
@@ -31,7 +33,14 @@ jobs:
           sudo apt-get install -y -qq sshpass
       - name: Upload daily content service
         run: |
-          sshpass -e scp             -o StrictHostKeyChecking=accept-new             -o ConnectTimeout=15             server/fabula_daily_content.py             server/fabula_daily_content_http.py             root@201.51.4.89:/tmp/
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            server/fabula_daily_content.py \
+            server/fabula_ephemeris.py \
+            server/fabula_daily_content_http.py \
+            server/requirements-fabula-daily-content.txt \
+            root@201.51.4.89:/tmp/
       - name: Deploy with backup, verification and rollback
         shell: bash
         run: |
@@ -75,7 +84,7 @@ jobs:
           else
             touch "$BACKUP_DIR/service.unit.missing"
           fi
-          for name in fabula_daily_content.py fabula_daily_content_http.py; do
+          for name in fabula_daily_content.py fabula_ephemeris.py fabula_daily_content_http.py requirements-fabula-daily-content.txt; do
             if [ -f "$ROOT/$name" ]; then
               cp -a "$ROOT/$name" "$BACKUP_DIR/$name"
             else
@@ -87,7 +96,7 @@ jobs:
             set +e
             cp -a "$BACKUP_DIR/nginx.conf" "$CONFIG"
             nginx -t && systemctl reload nginx
-            for name in fabula_daily_content.py fabula_daily_content_http.py; do
+            for name in fabula_daily_content.py fabula_ephemeris.py fabula_daily_content_http.py requirements-fabula-daily-content.txt; do
               if [ -f "$BACKUP_DIR/$name.missing" ]; then
                 rm -f "$ROOT/$name"
               else
@@ -107,8 +116,17 @@ jobs:
           trap rollback ERR
 
           install -m 0644 /tmp/fabula_daily_content.py "$ROOT/fabula_daily_content.py"
+          install -m 0644 /tmp/fabula_ephemeris.py "$ROOT/fabula_ephemeris.py"
           install -m 0644 /tmp/fabula_daily_content_http.py "$ROOT/fabula_daily_content_http.py"
-          python3 -m py_compile             "$ROOT/fabula_daily_content.py"             "$ROOT/fabula_daily_content_http.py"
+          install -m 0644 /tmp/requirements-fabula-daily-content.txt "$ROOT/requirements-fabula-daily-content.txt"
+          python3 -m venv "$ROOT/fabula-content-venv"
+          "$ROOT/fabula-content-venv/bin/pip" install \
+            --require-hashes \
+            -r "$ROOT/requirements-fabula-daily-content.txt"
+          "$ROOT/fabula-content-venv/bin/python" -m py_compile \
+            "$ROOT/fabula_daily_content.py" \
+            "$ROOT/fabula_ephemeris.py" \
+            "$ROOT/fabula_daily_content_http.py"
 
           cat >"$UNIT" <<'UNITFILE'
           [Unit]
@@ -124,7 +142,7 @@ jobs:
           Environment=FABULA_CONTENT_HOST=127.0.0.1
           Environment=FABULA_CONTENT_PORT=8011
           Environment=FABULA_TIMEZONE=Europe/Moscow
-          ExecStart=/usr/bin/python3 /opt/vpn_bot/fabula_daily_content_http.py
+          ExecStart=/opt/vpn_bot/fabula-content-venv/bin/python /opt/vpn_bot/fabula_daily_content_http.py
           Restart=always
           RestartSec=3
           NoNewPrivileges=true

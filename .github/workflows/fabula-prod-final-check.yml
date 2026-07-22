@@ -25,10 +25,8 @@ jobs:
           from pathlib import Path
           root=Path(os.environ["ROOT"])
           text=(root/"site_api.py").read_text(encoding="utf-8")
-          print("billing_marker", "# FABULA_BILLING_V1" in text)
+          print("billing_marker", "# FABULA_BILLING_V3" in text)
           print("monthly_product", '"fabula_monthly"' in text)
-          print("trial_one_day", "days = 1 if is_fabula else free_trial_days()" in text)
-          print("monthly_allowed", '{"smartphone_test", "laptop_test", "fabula_monthly"}' in text)
           db=sqlite3.connect(root/"database.db")
           db.row_factory=sqlite3.Row
           row=db.execute("select id,status,paid_until,monthly_fee,tariff from clients where phone_normalized like ?",("%9262508050",)).fetchone()
