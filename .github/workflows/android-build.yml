@@ -1,7 +1,7 @@
 name: Fabula Android
 
 concurrency:
-  group: fabula-android-${{ github.ref }}
+  group: fabula-android-v2-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
