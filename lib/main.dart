@@ -13,11 +13,12 @@ import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/daily_content_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
-const fabulaVersion = '0.5.2+22';
-const fabulaBuild = 22;
+const fabulaVersion = '0.5.4+24';
+const fabulaBuild = 24;
 const _burgundy = Color(0xFF7A3045);
 const _cream = Color(0xFFF6F2ED);
 const _ink = Color(0xFF171717);
@@ -147,6 +148,7 @@ class _FabulaShellState extends State<FabulaShell> {
       .toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
+  String forecastNotice = '';
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
   Future<Router1ClientLookup>? vpnAccessPreparation;
   Timer? timer;
@@ -256,15 +258,24 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _loadForecast() async {
-    try {
-      final v = await api.dailyHoroscope(sign);
-      if (v.tarotTitle.trim().isEmpty || v.tarotMeaning.trim().isEmpty) {
-        throw const FormatException('incomplete_daily_content');
-      }
-      if (mounted) setState(() => forecast = v);
-    } catch (_) {
-      if (mounted) setState(() => forecast = _demoForecast(sign));
+    final prefs = await SharedPreferences.getInstance();
+    final envelope = await DailyContentService(api).resolve(
+      sign: sign,
+      date: DateTime.now(),
+      preferences: prefs,
+    );
+    if (!mounted) return;
+    setState(() {
+      forecast = envelope.forecast;
+      forecastNotice = envelope.notice;
+    });
+  }
+
+  Future<void> _openCycleFromAssistant() async {
+    if (!enabledModules.contains(cycleModuleId)) {
+      await _setModuleEnabled(cycleModuleId, true);
     }
+    if (mounted) setState(() => section = cycleModuleId);
   }
 
   Future<void> _refreshVpn() async {
@@ -431,7 +442,6 @@ class _FabulaShellState extends State<FabulaShell> {
     sign = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_sign', value);
-    if (mounted) setState(() => forecast = null);
     await _loadForecast();
   }
 
@@ -825,13 +835,17 @@ class _FabulaShellState extends State<FabulaShell> {
         id: 'today',
         page: _TodayPage(
           name: name,
+          assistantName: assistantName,
           dailyLook: dailyLook,
           forecast: forecast,
+          forecastNotice: forecastNotice,
+          cycleConfigured: cycle != null,
           enabledModules: enabledModules,
           journalEntry: journalEntry,
           onSign: _chooseSign,
           onShare: _share,
           onJournal: _editJournal,
+          onCycle: () => unawaited(_openCycleFromAssistant()),
         ),
         destination: const NavigationDestination(
           icon: Icon(Icons.auto_awesome_outlined),
@@ -853,6 +867,8 @@ class _FabulaShellState extends State<FabulaShell> {
             assistantGender: assistantGender,
             birthday: birthday,
             sign: sign,
+            cycleConfigured: cycle != null,
+            journalStarted: journalEntry.isNotEmpty,
             onChooseAssistantName: _editAssistantName,
           ),
           destination: NavigationDestination(
@@ -1190,28 +1206,106 @@ Text _editorial(String text, {double size = 30}) => Text(
   ),
 );
 
+class _AssistantNudgeCard extends StatelessWidget {
+  const _AssistantNudgeCard({
+    required this.assistantName,
+    required this.cycleConfigured,
+    required this.journalEntry,
+    required this.onCycle,
+    required this.onJournal,
+  });
+
+  final String assistantName;
+  final bool cycleConfigured;
+  final String journalEntry;
+  final VoidCallback onCycle;
+  final VoidCallback onJournal;
+
+  @override
+  Widget build(BuildContext context) {
+    final sender = assistantName.isEmpty ? 'Ассистент' : assistantName;
+    final needsCycle = !cycleConfigured;
+    final title = needsCycle ? 'Давайте настроим цикл' : 'Сохраним важное из дня?';
+    final text = needsCycle
+        ? 'Заполните дату начала и обычную длину цикла. Тогда Fabula сможет показывать текущую фазу и давать более уместные бережные подсказки.'
+        : journalEntry.isEmpty
+            ? 'Одна короткая запись поможет заметить состояние и вернуться к нему позже без попытки всё удержать в голове.'
+            : 'В дневнике уже есть запись. Если состояние изменилось, её можно дополнить — так день сохранится честнее.';
+    return _Card(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: const Color(0xFFF3E4E8),
+            child: const Icon(Icons.auto_awesome, color: _burgundy, size: 21),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$sender предлагает',
+                  style: const TextStyle(
+                    color: _burgundy,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .4,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                _editorial(title, size: 21),
+                const SizedBox(height: 7),
+                Text(text, style: const TextStyle(color: _muted, height: 1.4)),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: needsCycle ? onCycle : onJournal,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    foregroundColor: _burgundy,
+                  ),
+                  child: Text(needsCycle ? 'Заполнить цикл' : 'Открыть дневник'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TodayPage extends StatelessWidget {
   const _TodayPage({
     required this.name,
+    required this.assistantName,
     required this.dailyLook,
     required this.forecast,
+    required this.forecastNotice,
+    required this.cycleConfigured,
     required this.enabledModules,
     required this.journalEntry,
     required this.onSign,
     required this.onShare,
     required this.onJournal,
+    required this.onCycle,
   });
   final String name;
+  final String assistantName;
   final DailyLook? dailyLook;
   final Router1DailyHoroscope? forecast;
+  final String forecastNotice;
+  final bool cycleConfigured;
   final Set<String> enabledModules;
   final String journalEntry;
-  final VoidCallback onSign, onShare, onJournal;
+  final VoidCallback onSign, onShare, onJournal, onCycle;
 
   @override
   Widget build(BuildContext context) {
     final f = forecast ?? _demoForecast('libra');
-    final energy = 76 + (f.number * 3) % 19;
+    final energy = f.energy;
     return _Page(
       children: [
         Row(
@@ -1243,6 +1337,14 @@ class _TodayPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
+        _AssistantNudgeCard(
+          assistantName: assistantName,
+          cycleConfigured: cycleConfigured,
+          journalEntry: journalEntry,
+          onCycle: onCycle,
+          onJournal: onJournal,
+        ),
+        const SizedBox(height: 14),
         if (enabledModules.contains('look')) ...[
           dailyLook == null
               ? const _DailyLookUnavailableCard()
@@ -1325,6 +1427,15 @@ class _TodayPage extends StatelessWidget {
                 _AstroDetail(title: 'ОТНОШЕНИЯ', text: f.love),
                 const Divider(height: 26, color: _line),
                 _AstroDetail(title: 'СОВЕТ ДНЯ', text: f.advice),
+                const Divider(height: 26, color: _line),
+                _AstroDetail(title: 'ПОЧЕМУ ТАКАЯ ЭНЕРГИЯ', text: f.energyReason),
+                if (forecastNotice.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    forecastNotice,
+                    style: const TextStyle(color: _muted, fontSize: 11),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1346,7 +1457,12 @@ class _TodayPage extends StatelessWidget {
                     children: [
                       const _SectionLabel('НАСТРОЕНИЕ ДНЯ'),
                       const SizedBox(height: 6),
-                      _editorial(_mood(f.number), size: 22),
+                      _editorial(f.moodTitle, size: 22),
+                      const SizedBox(height: 5),
+                      Text(
+                        f.moodDetail,
+                        style: const TextStyle(color: _muted, height: 1.4),
+                      ),
                     ],
                   ),
                 ),
@@ -1387,6 +1503,12 @@ class _TodayPage extends StatelessWidget {
                           height: 1.5,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      _AstroDetail(title: 'ФОКУС КАРТЫ', text: f.tarotFocus),
+                      const Divider(height: 24, color: _line),
+                      _AstroDetail(title: 'ЧТО СДЕЛАТЬ', text: f.tarotAction),
+                      const Divider(height: 24, color: _line),
+                      _AstroDetail(title: 'ВОПРОС К СЕБЕ', text: f.tarotQuestion),
                     ],
                   ),
                 ),
@@ -1429,6 +1551,11 @@ class _TodayPage extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        f.colorMeaning,
+                        style: const TextStyle(color: _muted, fontSize: 11, height: 1.3),
+                      ),
                     ],
                   ),
                 ),
@@ -1453,10 +1580,10 @@ class _TodayPage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'Внимание\nк деталям',
-                              style: TextStyle(
+                              f.numberMeaning,
+                              style: const TextStyle(
                                 color: _muted,
                                 fontSize: 11,
                                 height: 1.25,
@@ -1503,9 +1630,9 @@ class _TodayPage extends StatelessWidget {
                         size: 21,
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Хороший день, чтобы продолжать начатое и не торопить результат.',
-                        style: TextStyle(
+                      Text(
+                        f.lunarGuidance,
+                        style: const TextStyle(
                           color: _muted,
                           fontSize: 12,
                           height: 1.35,
@@ -1532,7 +1659,7 @@ class _TodayPage extends StatelessWidget {
                         style: TextStyle(color: _burgundy, fontSize: 11),
                       ),
                       const SizedBox(height: 8),
-                      _editorial(_affirmation(f.number), size: 22),
+                      _editorial(f.affirmation, size: 22),
                     ],
                   ),
                 ),
@@ -3015,6 +3142,17 @@ Router1DailyHoroscope _demoForecast(String sign) {
     number: (index * 3 + DateTime.now().day) % 9 + 1,
     tarotTitle: card.$1,
     tarotMeaning: card.$2,
+    tarotFocus: 'внимание к главному',
+    tarotAction: 'Выберите один конкретный шаг, который сделает вечер спокойнее.',
+    tarotQuestion: 'Что сегодня действительно зависит от меня?',
+    energy: 72,
+    energyReason: 'Офлайн-оценка до загрузки сегодняшнего расчёта.',
+    moodTitle: 'Спокойная собранность',
+    moodDetail: 'Не торопитесь и завершите одну важную вещь.',
+    affirmation: 'Я выбираю ясность и двигаюсь в своём темпе.',
+    lunarGuidance: lunarGuidanceFor(DateTime.now()),
+    colorMeaning: 'Добавьте этот цвет небольшой деталью в образ или пространство.',
+    numberMeaning: 'Символический акцент дня.',
     disclaimer: 'Развлекательный персональный прогноз',
   );
 }
