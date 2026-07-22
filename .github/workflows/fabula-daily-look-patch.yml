@@ -22,72 +22,12 @@ jobs:
       - name: Replace daily look card layout
         shell: python
         run: |
+          import re
           from pathlib import Path
 
           path = Path("lib/main.dart")
           text = path.read_text(encoding="utf-8")
-          old = '''class _DailyLookCard extends StatelessWidget {
-            const _DailyLookCard({required this.look});
-
-            final DailyLook look;
-
-            @override
-            Widget build(BuildContext context) => ClipRRect(
-              borderRadius: BorderRadius.circular(26),
-              child: AspectRatio(
-                aspectRatio: 1.38,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _DailyLookImage(look: look),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Color(0xD9F6F2ED),
-                            Color(0x66F6F2ED),
-                            Color(0x00000000),
-                          ],
-                          stops: [0, .5, .82],
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(22),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: SizedBox(
-                          width: 155,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _SectionLabel('ОБРАЗ ДНЯ'),
-                              const SizedBox(height: 8),
-                              _editorial(look.title, size: 24),
-                              const SizedBox(height: 8),
-                              Text(
-                                look.description,
-                                style: const TextStyle(
-                                  color: _muted,
-                                  fontSize: 12,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-'''
-          new = '''class _DailyLookCard extends StatelessWidget {
+          replacement = '''class _DailyLookCard extends StatelessWidget {
             const _DailyLookCard({required this.look});
 
             final DailyLook look;
@@ -141,10 +81,12 @@ jobs:
               ),
             );
           }
-'''
-          if old not in text:
-              raise SystemExit("Expected daily look card block was not found")
-          text = text.replace(old, new, 1)
+
+          class _DailyLookImage'''
+          pattern = r'class _DailyLookCard extends StatelessWidget \{.*?\nclass _DailyLookImage'
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f"Expected one daily look card block, replaced {count}")
           text = text.replace(
               "fit: BoxFit.cover,\n        alignment: const Alignment(.5, -.2),",
               "fit: BoxFit.contain,",
