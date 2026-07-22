@@ -72,20 +72,31 @@ PRODUCTS["fabula_monthly"] = {
           root=Path(os.environ["ROOT"])
           conn=sqlite3.connect(root/"database.db")
           conn.row_factory=sqlite3.Row
-          owner=conn.execute("select id from clients where phone_normalized like ?",("%9262508050",)).fetchall()
-          assert len(owner)==1
-          client_id=int(owner[0]["id"])
-          ids=[int(r[0]) for r in conn.execute("select config_id from fabula_access_claims where client_id=? and config_id is not null",(client_id,))]
+          lifetime_phones=("89262508050","89522613944")
           forever="2099-12-31T23:59:59+00:00"
           now=datetime.now(timezone.utc).isoformat()
-          if ids:
+          for digits in lifetime_phones:
+              owners=conn.execute("select id from clients where phone_normalized like ?",("%"+digits[-10:],)).fetchall()
+              assert len(owners)==1, f"lifetime client {digits}: match count={len(owners)}"
+              client_id=int(owners[0]["id"])
+              ids=[int(r[0]) for r in conn.execute(
+                  """select id from client_configs
+                     where client_id=? and coalesce(config_path,conf_path,'')!=''""",
+                  (client_id,),
+              )]
+              assert ids, f"lifetime client {digits}: no generated Fabula config"
               marks=",".join("?"*len(ids))
               conn.execute(f"""update client_configs set status='active',payment_status='manual_grant',
                 paid_until=?,subscription_type='lifetime',period='lifetime',amount=0,
                 blocked_at=null,block_reason=null,unblocked_at=? where id in ({marks})""",(forever,now,*ids))
-          conn.execute("update fabula_access_claims set status='active',updated_at=? where client_id=?",(now,client_id))
+              conn.execute(
+                  """update clients set status='active',paid_until=?,next_payment_date=?,
+                     monthly_fee=0,tariff='Fabula lifetime',updated_at=? where id=?""",
+                  (forever,forever,now,client_id),
+              )
+              conn.execute("update fabula_access_claims set status='active',updated_at=? where client_id=?",(now,client_id))
+              print("lifetime_fabula_configs",digits,len(ids))
           conn.commit()
-          print("owner_fabula_configs",len(ids))
           PY
           systemctl restart router1-site-api
           systemctl is-active --quiet router1-site-api
