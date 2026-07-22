@@ -114,7 +114,19 @@ class DailyContentService {
         value.number < 1 ||
         value.number > 9 ||
         value.tarotTitle.trim().isEmpty ||
-        value.tarotMeaning.trim().isEmpty) {
+        value.tarotMeaning.trim().isEmpty ||
+        value.tarotFocus.trim().isEmpty ||
+        value.tarotAction.trim().isEmpty ||
+        value.tarotQuestion.trim().isEmpty ||
+        value.energy < 1 ||
+        value.energy > 100 ||
+        value.energyReason.trim().isEmpty ||
+        value.moodTitle.trim().isEmpty ||
+        value.moodDetail.trim().isEmpty ||
+        value.affirmation.trim().isEmpty ||
+        value.lunarGuidance.trim().isEmpty ||
+        value.colorMeaning.trim().isEmpty ||
+        value.numberMeaning.trim().isEmpty) {
       throw const FormatException('stale_or_incomplete_daily_content');
     }
   }
@@ -147,7 +159,18 @@ Map<String, Object?> _toJson(Router1DailyHoroscope value) => {
   'tarot': {
     'title': value.tarotTitle,
     'meaning': value.tarotMeaning,
+    'focus': value.tarotFocus,
+    'action': value.tarotAction,
+    'question': value.tarotQuestion,
   },
+  'energy': value.energy,
+  'energy_reason': value.energyReason,
+  'mood_title': value.moodTitle,
+  'mood_detail': value.moodDetail,
+  'affirmation': value.affirmation,
+  'lunar_guidance': value.lunarGuidance,
+  'color_meaning': value.colorMeaning,
+  'number_meaning': value.numberMeaning,
   'disclaimer': value.disclaimer,
 };
 
@@ -169,6 +192,17 @@ Router1DailyHoroscope withAccurateMoon(
   number: value.number,
   tarotTitle: value.tarotTitle,
   tarotMeaning: value.tarotMeaning,
+  tarotFocus: value.tarotFocus,
+  tarotAction: value.tarotAction,
+  tarotQuestion: value.tarotQuestion,
+  energy: value.energy,
+  energyReason: value.energyReason,
+  moodTitle: value.moodTitle,
+  moodDetail: value.moodDetail,
+  affirmation: value.affirmation,
+  lunarGuidance: lunarGuidanceFor(date),
+  colorMeaning: value.colorMeaning,
+  numberMeaning: value.numberMeaning,
   disclaimer: value.disclaimer,
 );
 
@@ -301,6 +335,20 @@ Router1DailyHoroscope buildEditorialForecast(String sign, DateTime date) {
     number: _stableHash('$key:number') % 9 + 1,
     tarotTitle: pick(cards, 'tarot').$1,
     tarotMeaning: pick(cards, 'tarot').$2,
+    tarotFocus: 'ясный следующий шаг',
+    tarotAction: pick(advice, 'tarot_action'),
+    tarotQuestion: 'Какой небольшой шаг сегодня будет честным по отношению к себе?',
+    energy: 58 + _stableHash('$key:energy') % 29,
+    energyReason:
+        'Офлайн-оценка ритма дня. Точное объяснение по транзитам появится после подключения к серверу.',
+    moodTitle: 'Спокойная собранность',
+    moodDetail:
+        'Снизьте информационный шум и направьте внимание на одно завершённое действие.',
+    affirmation: dailyAffirmationFor(sign, date),
+    lunarGuidance: lunarGuidanceFor(date),
+    colorMeaning:
+        'Добавьте этот цвет небольшой деталью, если хочется поддержать настроение дня.',
+    numberMeaning: 'Используйте число как символический акцент, а не как предсказание.',
     disclaimer:
         'Редакционная офлайн-подборка. Не является научным прогнозом.',
   );
