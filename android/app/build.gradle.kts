@@ -4,6 +4,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val fabulaKeystorePath = System.getenv("FABULA_KEYSTORE_PATH")
+val fabulaKeystorePassword = System.getenv("FABULA_KEYSTORE_PASSWORD")
+val fabulaKeyAlias = System.getenv("FABULA_KEY_ALIAS")
+val fabulaKeyPassword = System.getenv("FABULA_KEY_PASSWORD")
+
+val hasFabulaReleaseSigning = listOf(
+    fabulaKeystorePath,
+    fabulaKeystorePassword,
+    fabulaKeyAlias,
+    fabulaKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "tech.router1.fabula"
     compileSdk = flutter.compileSdkVersion
@@ -25,11 +37,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasFabulaReleaseSigning) {
+            create("fabulaRelease") {
+                storeFile = file(fabulaKeystorePath!!)
+                storePassword = fabulaKeystorePassword
+                keyAlias = fabulaKeyAlias
+                keyPassword = fabulaKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (!hasFabulaReleaseSigning) {
+                throw GradleException(
+                    "Fabula release signing is not configured. " +
+                        "Refusing to publish an APK with an ephemeral debug key.",
+                )
+            }
+            signingConfig = signingConfigs.getByName("fabulaRelease")
         }
     }
 }

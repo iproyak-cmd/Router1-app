@@ -41,12 +41,79 @@ jobs:
             fabula-android-${{ runner.os }}-
       - run: flutter pub get
       - run: flutter test
+      - name: Prepare persistent Fabula release signing
+        env:
+          SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+          FABULA_SIGNING_PASSWORD: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS"
+          test -n "$FABULA_SIGNING_PASSWORD"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+
+          SIGNING_DIR="${RUNNER_TEMP}/fabula-signing"
+          LOCAL_KEYSTORE="${SIGNING_DIR}/fabula-release.p12"
+          REMOTE_KEYSTORE="/opt/vpn_bot/secrets/fabula-release.p12"
+          mkdir -p "$SIGNING_DIR"
+
+          if ! sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            "root@201.51.4.89:${REMOTE_KEYSTORE}" \
+            "$LOCAL_KEYSTORE"; then
+            keytool -genkeypair -noprompt \
+              -storetype PKCS12 \
+              -keystore "$LOCAL_KEYSTORE" \
+              -storepass "$FABULA_SIGNING_PASSWORD" \
+              -keypass "$FABULA_SIGNING_PASSWORD" \
+              -alias fabula \
+              -keyalg RSA \
+              -keysize 4096 \
+              -validity 10000 \
+              -dname "CN=Fabula, OU=Mobile, O=Router1, L=Saint Petersburg, C=RU"
+
+            sshpass -e ssh \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              root@201.51.4.89 \
+              'install -d -m 0700 /opt/vpn_bot/secrets'
+            sshpass -e scp \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              "$LOCAL_KEYSTORE" \
+              root@201.51.4.89:/tmp/fabula-release.p12
+            sshpass -e ssh \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              root@201.51.4.89 \
+              'if [ ! -f /opt/vpn_bot/secrets/fabula-release.p12 ]; then install -m 0600 /tmp/fabula-release.p12 /opt/vpn_bot/secrets/fabula-release.p12; fi; rm -f /tmp/fabula-release.p12'
+
+            # In case two builds raced to initialize the key, always use the
+            # canonical server copy for the APK that is about to be published.
+            sshpass -e scp \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=15 \
+              "root@201.51.4.89:${REMOTE_KEYSTORE}" \
+              "$LOCAL_KEYSTORE"
+          fi
+
+          chmod 0600 "$LOCAL_KEYSTORE"
+          keytool -list -keystore "$LOCAL_KEYSTORE" \
+            -storepass "$FABULA_SIGNING_PASSWORD" \
+            -alias fabula >/dev/null
       - name: Build Android APK
         env:
           ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+          FABULA_KEYSTORE_PATH: ${{ runner.temp }}/fabula-signing/fabula-release.p12
+          FABULA_KEYSTORE_PASSWORD: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
+          FABULA_KEY_ALIAS: fabula
+          FABULA_KEY_PASSWORD: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
         run: |
           test -n "$ROUTER1_APP_TOKEN"
           flutter build apk --release --target-platform android-arm64 --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
+          "${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)/apksigner" \
+            verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
       - name: Prepare Android release
         run: |
           mkdir -p "${RUNNER_TEMP}/fabula-android"
