@@ -83,7 +83,7 @@ void main() {
     );
 
     expect(result.source, DailyContentSource.editorialOffline);
-    expect(result.notice, contains('Офлайн'));
+    expect(result.notice, contains('загрузилась не полностью'));
     expect(result.forecast.date, '2026-07-20');
     expect(result.forecast.disclaimer, contains('офлайн'));
   });
