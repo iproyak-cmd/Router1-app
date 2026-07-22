@@ -13,6 +13,7 @@ import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
 import 'router1_api.dart';
 import 'services/awg_tunnel_service.dart';
+import 'services/daily_content_service.dart';
 import 'services/daily_look_service.dart';
 import 'services/internal_update_service.dart';
 
@@ -147,6 +148,9 @@ class _FabulaShellState extends State<FabulaShell> {
       .toSet();
   CycleSettings? cycle;
   Router1DailyHoroscope? forecast;
+  String? forecastNotice;
+  String? forecastError;
+  var forecastLoading = false;
   AwgTunnelStatus vpn = const AwgTunnelStatus(state: 'down');
   Future<Router1ClientLookup>? vpnAccessPreparation;
   Timer? timer;
@@ -256,14 +260,55 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _loadForecast() async {
+    if (mounted) {
+      setState(() {
+        forecastLoading = true;
+        forecastError = null;
+        forecastNotice = null;
+      });
+    } else {
+      forecastLoading = true;
+      forecastError = null;
+      forecastNotice = null;
+    }
     try {
-      final v = await api.dailyHoroscope(sign);
-      if (v.tarotTitle.trim().isEmpty || v.tarotMeaning.trim().isEmpty) {
-        throw const FormatException('incomplete_daily_content');
+      final prefs = await SharedPreferences.getInstance();
+      final envelope = await DailyContentService(api).resolve(
+        sign: sign,
+        date: DateTime.now(),
+        preferences: prefs,
+      );
+      if (mounted) {
+        setState(() {
+          forecast = envelope.forecast;
+          forecastNotice = envelope.notice;
+          forecastError = null;
+        });
+      } else {
+        forecast = envelope.forecast;
+        forecastNotice = envelope.notice;
+        forecastError = null;
       }
-      if (mounted) setState(() => forecast = v);
     } catch (_) {
-      if (mounted) setState(() => forecast = _demoForecast(sign));
+      const message =
+          'Сервер прогноза сейчас недоступен. Fabula не будет показывать старый или повторяющийся текст как новый прогноз.';
+      if (mounted) {
+        setState(() {
+          forecast = null;
+          forecastNotice = null;
+          forecastError = message;
+        });
+      } else {
+        forecast = null;
+        forecastNotice = null;
+        forecastError = message;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => forecastLoading = false);
+      } else {
+        forecastLoading = false;
+      }
     }
   }
 
@@ -431,7 +476,13 @@ class _FabulaShellState extends State<FabulaShell> {
     sign = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_sign', value);
-    if (mounted) setState(() => forecast = null);
+    if (mounted) {
+      setState(() {
+        forecast = null;
+        forecastNotice = null;
+        forecastError = null;
+      });
+    }
     await _loadForecast();
   }
 
@@ -823,13 +874,16 @@ class _FabulaShellState extends State<FabulaShell> {
     final sections = <({String id, Widget page, NavigationDestination destination})>[
       (
         id: 'today',
-        page: _TodayPage(
-          name: name,
-          dailyLook: dailyLook,
-          forecast: forecast,
-          enabledModules: enabledModules,
-          journalEntry: journalEntry,
-          onSign: _chooseSign,
+            page: _TodayPage(
+              name: name,
+              dailyLook: dailyLook,
+              forecast: forecast,
+              forecastLoading: forecastLoading,
+              forecastNotice: forecastNotice,
+              forecastError: forecastError,
+              enabledModules: enabledModules,
+              journalEntry: journalEntry,
+              onSign: _chooseSign,
           onShare: _share,
           onJournal: _editJournal,
         ),
@@ -1195,6 +1249,9 @@ class _TodayPage extends StatelessWidget {
     required this.name,
     required this.dailyLook,
     required this.forecast,
+    required this.forecastLoading,
+    required this.forecastNotice,
+    required this.forecastError,
     required this.enabledModules,
     required this.journalEntry,
     required this.onSign,
@@ -1204,14 +1261,15 @@ class _TodayPage extends StatelessWidget {
   final String name;
   final DailyLook? dailyLook;
   final Router1DailyHoroscope? forecast;
+  final bool forecastLoading;
+  final String? forecastNotice;
+  final String? forecastError;
   final Set<String> enabledModules;
   final String journalEntry;
   final VoidCallback onSign, onShare, onJournal;
 
   @override
   Widget build(BuildContext context) {
-    final f = forecast ?? _demoForecast('libra');
-    final energy = 76 + (f.number * 3) % 19;
     return _Page(
       children: [
         Row(
@@ -1250,84 +1308,26 @@ class _TodayPage extends StatelessWidget {
           const SizedBox(height: 14),
         ],
         if (enabledModules.contains('horoscope')) ...[
-          _Card(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _SectionLabel('АСТРОЛОГИЧЕСКИЙ ПРОГНОЗ'),
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: onSign,
-                            style: TextButton.styleFrom(
-                              foregroundColor: _burgundy,
-                              padding: EdgeInsets.zero,
-                            ),
-                            icon: Text(
-                              f.symbol,
-                              style: const TextStyle(fontSize: 22),
-                            ),
-                            label: Text(
-                              f.signTitle,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 88,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3E4E8),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '$energy%',
-                            style: const TextStyle(
-                              color: _burgundy,
-                              fontFamily: 'serif',
-                              fontSize: 27,
-                            ),
-                          ),
-                          const Text(
-                            'ЭНЕРГИЯ',
-                            style: TextStyle(
-                              color: _burgundy,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                _editorial(f.overview, size: 25),
-                const SizedBox(height: 18),
-                _AstroDetail(title: 'ДЕЛА', text: f.work),
-                const Divider(height: 26, color: _line),
-                _AstroDetail(title: 'ДЕНЬГИ', text: f.money),
-                const Divider(height: 26, color: _line),
-                _AstroDetail(title: 'ОТНОШЕНИЯ', text: f.love),
-                const Divider(height: 26, color: _line),
-                _AstroDetail(title: 'СОВЕТ ДНЯ', text: f.advice),
-              ],
+          if (forecastLoading)
+            const _ForecastStateCard(
+              title: 'Загружаем прогноз',
+              message: 'Fabula запрашивает свежий прогноз у сервера.',
+              busy: true,
+            )
+          else if (forecast == null)
+            _ForecastStateCard(
+              title: 'Прогноз недоступен',
+              message:
+                  forecastError ?? 'Свежий прогноз пока не удалось получить.',
+              actionLabel: 'Выбрать знак',
+              onAction: onSign,
+            )
+          else
+            _ForecastCard(
+              forecast: forecast!,
+              notice: forecastNotice,
+              onSign: onSign,
             ),
-          ),
           const SizedBox(height: 14),
         ],
         if (enabledModules.contains('mood')) ...[
@@ -1595,6 +1595,156 @@ class _AstroDetail extends StatelessWidget {
       const SizedBox(height: 7),
       Text(text, style: const TextStyle(color: _muted, height: 1.45)),
     ],
+  );
+}
+
+class _ForecastCard extends StatelessWidget {
+  const _ForecastCard({
+    required this.forecast,
+    required this.notice,
+    required this.onSign,
+  });
+
+  final Router1DailyHoroscope forecast;
+  final String? notice;
+  final VoidCallback onSign;
+
+  @override
+  Widget build(BuildContext context) {
+    final energy = 76 + (forecast.number * 3) % 19;
+    return _Card(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _SectionLabel('АСТРОЛОГИЧЕСКИЙ ПРОГНОЗ'),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: onSign,
+                      style: TextButton.styleFrom(
+                        foregroundColor: _burgundy,
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: Text(
+                        forecast.symbol,
+                        style: const TextStyle(fontSize: 22),
+                      ),
+                      label: Text(
+                        forecast.signTitle,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (notice != null && notice!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        notice!,
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Container(
+                width: 88,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3E4E8),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      '$energy%',
+                      style: const TextStyle(
+                        color: _burgundy,
+                        fontFamily: 'serif',
+                        fontSize: 27,
+                      ),
+                    ),
+                    const Text(
+                      'ЭНЕРГИЯ',
+                      style: TextStyle(
+                        color: _burgundy,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _editorial(forecast.overview, size: 25),
+          const SizedBox(height: 18),
+          _AstroDetail(title: 'ДЕЛА', text: forecast.work),
+          const Divider(height: 26, color: _line),
+          _AstroDetail(title: 'ДЕНЬГИ', text: forecast.money),
+          const Divider(height: 26, color: _line),
+          _AstroDetail(title: 'ОТНОШЕНИЯ', text: forecast.love),
+          const Divider(height: 26, color: _line),
+          _AstroDetail(title: 'СОВЕТ ДНЯ', text: forecast.advice),
+        ],
+      ),
+    );
+  }
+}
+
+class _ForecastStateCard extends StatelessWidget {
+  const _ForecastStateCard({
+    required this.title,
+    required this.message,
+    this.busy = false,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String title;
+  final String message;
+  final bool busy;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => _Card(
+    padding: const EdgeInsets.all(22),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('АСТРОЛОГИЧЕСКИЙ ПРОГНОЗ'),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (busy) ...[
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(child: _editorial(title, size: 25)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(message, style: const TextStyle(color: _muted, height: 1.45)),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(height: 12),
+          TextButton(onPressed: onAction, child: Text(actionLabel!)),
+        ],
+      ],
+    ),
   );
 }
 
@@ -2902,67 +3052,6 @@ String _affirmation(int number) => <String>[
   'Я выбираю ясность, спокойствие и бережное отношение к себе.',
   'Мне не нужно спешить, чтобы быть сильной и заметной.',
 ][number.abs() % 4];
-
-Router1DailyHoroscope _demoForecast(String sign) {
-  final z = zodiacSigns.firstWhere(
-    (item) => item.$1 == sign,
-    orElse: () => zodiacSigns[6],
-  );
-  final index = zodiacSigns.indexOf(z);
-  const cards = <(String, String)>[
-    (
-      'Звезда',
-      'Сегодня особенно важно помнить о большой цели. Маленький шаг вернёт ощущение направления и внутренней опоры.',
-    ),
-    (
-      'Императрица',
-      'День раскрывается через заботу, красоту и умение принимать хорошее без чувства вины.',
-    ),
-    (
-      'Луна',
-      'Не торопитесь с выводами. Интуиция уже подсказывает верное направление, но деталям нужно проявиться.',
-    ),
-    (
-      'Шут',
-      'Разрешите себе попробовать новый путь без требования сразу знать весь маршрут.',
-    ),
-    (
-      'Башня',
-      'Освободите место от того, что давно держится только по привычке. Честность сегодня даёт облегчение.',
-    ),
-  ];
-  final card = cards[index % cards.length];
-  const colors = [
-    'Бордовый',
-    'Золотой',
-    'Зелёный',
-    'Синий',
-    'Бирюзовый',
-    'Фиолетовый',
-  ];
-  return Router1DailyHoroscope(
-    date: DateTime.now().toIso8601String().substring(0, 10),
-    sign: z.$1,
-    signTitle: z.$2,
-    symbol: z.$3,
-    lunarPhase: 'Растущая Луна',
-    overview:
-        'Сегодня лучше выбирать не самое громкое решение, а то, после которого внутри становится спокойнее. Один точный шаг даст больше, чем несколько поспешных.',
-    work:
-        'Сосредоточьтесь на одной задаче, которая действительно меняет результат. Разговор во второй половине дня может открыть полезную возможность.',
-    money:
-        'Хороший день для расчётов и взвешенных решений. Не соглашайтесь на условия, которые приходится оправдывать самой себе.',
-    love:
-        'Тёплый прямой разговор окажется важнее догадок. Говорите о своих желаниях мягко, но без лишних намёков.',
-    advice:
-        'Оставьте в расписании немного воздуха — лучшая идея дня может появиться в паузе.',
-    color: colors[index % colors.length],
-    number: (index * 3 + DateTime.now().day) % 9 + 1,
-    tarotTitle: card.$1,
-    tarotMeaning: card.$2,
-    disclaimer: 'Развлекательный персональный прогноз',
-  );
-}
 
 typedef _CompatibilityResult = ({
   int score,
