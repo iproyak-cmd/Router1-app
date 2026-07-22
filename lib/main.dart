@@ -527,55 +527,31 @@ class _FabulaShellState extends State<FabulaShell> {
     var selectedGender = assistantGender.isEmpty ? 'male' : assistantGender;
     final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Ваш собеседник'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'male',
-                    label: Text('Мужчина'),
-                    icon: Icon(Icons.male),
-                  ),
-                  ButtonSegment(
-                    value: 'female',
-                    label: Text('Женщина'),
-                    icon: Icon(Icons.female),
-                  ),
-                ],
-                selected: {selectedGender},
-                onSelectionChanged: (value) =>
-                    setDialogState(() => selectedGender = value.first),
-              ),
-              const SizedBox(height: 18),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                maxLength: 24,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  hintText: selectedGender == 'female'
-                      ? 'Например, Анна'
-                      : 'Например, Марк',
-                ),
-              ),
+      builder: (context) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Ваш собеседник'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'male', label: Text('Мужчина'), icon: Icon(Icons.male)),
+              ButtonSegment(value: 'female', label: Text('Женщина'), icon: Icon(Icons.female)),
             ],
+            selected: {selectedGender},
+            onSelectionChanged: (value) => setDialogState(() => selectedGender = value.first),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Сохранить'),
-            ),
-          ],
-        ),
-      ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 24,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(hintText: selectedGender == 'female' ? 'Например, Анна' : 'Например, Марк'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Сохранить')),
+        ],
+      )),
     );
     final value = controller.text.trim();
     controller.dispose();
@@ -583,11 +559,7 @@ class _FabulaShellState extends State<FabulaShell> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fabula_assistant_name', value);
     await prefs.setString('fabula_assistant_gender', selectedGender);
-    if (mounted)
-      setState(() {
-        assistantName = value;
-        assistantGender = selectedGender;
-      });
+    if (mounted) setState(() { assistantName = value; assistantGender = selectedGender; });
   }
 
   Future<void> _saveCycle(CycleSettings value) async {
@@ -661,8 +633,7 @@ class _FabulaShellState extends State<FabulaShell> {
     final current = prefs.getString('fabula_installation_id');
     if (current != null && current.isNotEmpty) return current;
     final random = Random.secure().nextInt(0x7fffffff).toRadixString(16);
-    final created =
-        '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}-$random';
+    final created = '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}-$random';
     await prefs.setString('fabula_installation_id', created);
     return created;
   }
@@ -773,26 +744,13 @@ class _FabulaShellState extends State<FabulaShell> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '30 дней',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
+                            Text('30 дней', style: TextStyle(fontWeight: FontWeight.w700)),
                             SizedBox(height: 4),
-                            Text(
-                              'Продление только после вашего решения',
-                              style: TextStyle(color: _muted, fontSize: 12),
-                            ),
+                            Text('Продление только после вашего решения', style: TextStyle(color: _muted, fontSize: 12)),
                           ],
                         ),
                       ),
-                      Text(
-                        '390 ₽',
-                        style: TextStyle(
-                          color: _burgundy,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      Text('390 ₽', style: TextStyle(color: _burgundy, fontSize: 22, fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
@@ -801,11 +759,7 @@ class _FabulaShellState extends State<FabulaShell> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: Text(
-                      pendingOrder.isEmpty
-                          ? 'Перейти к оплате'
-                          : 'Оплатить или проверить снова',
-                    ),
+                    child: Text(pendingOrder.isEmpty ? 'Перейти к оплате' : 'Оплатить или проверить снова'),
                   ),
                 ),
               ],
@@ -835,20 +789,14 @@ class _FabulaShellState extends State<FabulaShell> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'После оплаты вернитесь сюда и снова включите модуль — Fabula проверит платёж.',
-            ),
+            content: Text('После оплаты вернитесь сюда и снова включите модуль — Fabula проверит платёж.'),
           ),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Не удалось проверить доступ. Повторите через минуту.',
-            ),
-          ),
+          const SnackBar(content: Text('Не удалось проверить доступ. Повторите через минуту.')),
         );
       }
     } finally {
@@ -870,107 +818,97 @@ class _FabulaShellState extends State<FabulaShell> {
 
   @override
   Widget build(BuildContext context) {
-    final ready =
-        !loading && name.isNotEmpty && phone.isNotEmpty && birthday.isNotEmpty;
+    final ready = !loading && name.isNotEmpty && phone.isNotEmpty && birthday.isNotEmpty;
     final visibleNavigation = fabulaNavigationSectionIds(enabledModules);
-    final sections =
-        <({String id, Widget page, NavigationDestination destination})>[
-          (
-            id: 'today',
-            page: _TodayPage(
-              name: name,
-              dailyLook: dailyLook,
-              forecast: forecast,
-              enabledModules: enabledModules,
-              journalEntry: journalEntry,
-              onSign: _chooseSign,
-              onShare: _share,
-              onJournal: _editJournal,
+    final sections = <({String id, Widget page, NavigationDestination destination})>[
+      (
+        id: 'today',
+        page: _TodayPage(
+          name: name,
+          dailyLook: dailyLook,
+          forecast: forecast,
+          enabledModules: enabledModules,
+          journalEntry: journalEntry,
+          onSign: _chooseSign,
+          onShare: _share,
+          onJournal: _editJournal,
+        ),
+        destination: const NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined),
+          selectedIcon: Icon(Icons.auto_awesome),
+          label: 'Сегодня',
+        ),
+      ),
+      if (visibleNavigation.contains(companionModuleId))
+        (
+          id: 'companion',
+          page: FabulaCompanionPage(
+            api: FabulaCompanionApi(
+              baseUrl: 'https://router1.tech/api',
+              token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
             ),
-            destination: const NavigationDestination(
-              icon: Icon(Icons.auto_awesome_outlined),
-              selectedIcon: Icon(Icons.auto_awesome),
-              label: 'Сегодня',
-            ),
+            installationId: installationId,
+            name: name,
+            assistantName: assistantName,
+            assistantGender: assistantGender,
+            birthday: birthday,
+            sign: sign,
+            onChooseAssistantName: _editAssistantName,
           ),
-          if (visibleNavigation.contains(companionModuleId))
-            (
-              id: 'companion',
-              page: FabulaCompanionPage(
-                api: FabulaCompanionApi(
-                  baseUrl: 'https://router1.tech/api',
-                  token: const String.fromEnvironment('ROUTER1_APP_TOKEN'),
-                ),
-                installationId: installationId,
-                name: name,
-                assistantName: assistantName,
-                assistantGender: assistantGender,
-                birthday: birthday,
-                sign: sign,
-                onChooseAssistantName: _editAssistantName,
-              ),
-              destination: NavigationDestination(
-                icon: const Icon(Icons.chat_bubble_outline),
-                selectedIcon: const Icon(Icons.chat_bubble),
-                label: assistantName.isEmpty ? 'Ассистент' : assistantName,
-              ),
-            ),
-          if (visibleNavigation.contains(cycleModuleId))
-            (
-              id: 'cycle',
-              page: _CyclePage(
-                initial: cycle,
-                onSave: _saveCycle,
-                embedded: true,
-              ),
-              destination: const NavigationDestination(
-                icon: Icon(Icons.water_drop_outlined),
-                selectedIcon: Icon(Icons.water_drop),
-                label: 'Цикл',
-              ),
-            ),
-          if (visibleNavigation.contains(connectionModuleId))
-            (
-              id: 'connection',
-              page: _ConnectionPage(
-                vpn: vpn,
-                busy: vpnBusy,
-                onToggle: _toggleVpn,
-              ),
-              destination: const NavigationDestination(
-                icon: Icon(Icons.shield_outlined),
-                selectedIcon: Icon(Icons.shield),
-                label: 'Связь',
-              ),
-            ),
-          if (visibleNavigation.contains(compatibilityModuleId))
-            (
-              id: 'compatibility',
-              page: const _CompatibilityPage(),
-              destination: const NavigationDestination(
-                icon: Icon(Icons.favorite_border),
-                label: 'Пара',
-              ),
-            ),
-          (
-            id: 'profile',
-            page: _ProfilePage(
-              name: name,
-              phone: phone,
-              sign: sign,
-              assistantName: assistantName,
-              assistantGender: assistantGender,
-              onEditAssistantName: _editAssistantName,
-              onEdit: _editProfile,
-              enabledModules: enabledModules,
-              onModuleChanged: _toggleModule,
-            ),
-            destination: const NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              label: 'Профиль',
-            ),
+          destination: NavigationDestination(
+            icon: const Icon(Icons.chat_bubble_outline),
+            selectedIcon: const Icon(Icons.chat_bubble),
+            label: assistantName.isEmpty ? 'Ассистент' : assistantName,
           ),
-        ];
+        ),
+      if (visibleNavigation.contains(cycleModuleId))
+        (
+          id: 'cycle',
+          page: _CyclePage(initial: cycle, onSave: _saveCycle, embedded: true),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.water_drop_outlined),
+            selectedIcon: Icon(Icons.water_drop),
+            label: 'Цикл',
+          ),
+        ),
+      if (visibleNavigation.contains(connectionModuleId))
+        (
+          id: 'connection',
+          page: _ConnectionPage(vpn: vpn, busy: vpnBusy, onToggle: _toggleVpn),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.shield_outlined),
+            selectedIcon: Icon(Icons.shield),
+            label: 'Связь',
+          ),
+        ),
+      if (visibleNavigation.contains(compatibilityModuleId))
+        (
+          id: 'compatibility',
+          page: const _CompatibilityPage(),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.favorite_border),
+            label: 'Пара',
+          ),
+        ),
+      (
+        id: 'profile',
+        page: _ProfilePage(
+          name: name,
+          phone: phone,
+          sign: sign,
+          assistantName: assistantName,
+          assistantGender: assistantGender,
+          onEditAssistantName: _editAssistantName,
+          onEdit: _editProfile,
+          enabledModules: enabledModules,
+          onModuleChanged: _toggleModule,
+        ),
+        destination: const NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          label: 'Профиль',
+        ),
+      ),
+    ];
     final currentIndex = sections.indexWhere((item) => item.id == section);
     final selectedIndex = currentIndex < 0 ? 0 : currentIndex;
 
@@ -1006,11 +944,8 @@ class _FabulaShellState extends State<FabulaShell> {
           ? null
           : NavigationBar(
               selectedIndex: selectedIndex,
-              onDestinationSelected: (value) =>
-                  setState(() => section = sections[value].id),
-              destinations: sections
-                  .map((item) => item.destination)
-                  .toList(growable: false),
+              onDestinationSelected: (value) => setState(() => section = sections[value].id),
+              destinations: sections.map((item) => item.destination).toList(growable: false),
             ),
     );
   }
@@ -1098,8 +1033,7 @@ class _Page extends StatelessWidget {
 
 class _OnboardingPage extends StatefulWidget {
   const _OnboardingPage({required this.onComplete});
-  final Future<void> Function(String, String, DateTime, String, String)
-  onComplete;
+  final Future<void> Function(String, String, DateTime, String, String) onComplete;
   @override
   State<_OnboardingPage> createState() => _OnboardingPageState();
 }
@@ -1115,24 +1049,14 @@ class _OnboardingPageState extends State<_OnboardingPage> {
   Future<void> _save() async {
     if (name.text.trim().isEmpty ||
         phone.text.trim().isEmpty ||
-        birthday == null ||
-        assistantGender == null ||
-        assistantName.text.trim().isEmpty) {
+        birthday == null || assistantGender == null || assistantName.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Заполните данные и выберите имя ассистента'),
-        ),
+        const SnackBar(content: Text('Заполните данные и выберите имя ассистента')),
       );
       return;
     }
     setState(() => saving = true);
-    await widget.onComplete(
-      name.text,
-      phone.text,
-      birthday!,
-      assistantGender!,
-      assistantName.text,
-    );
+    await widget.onComplete(name.text, phone.text, birthday!, assistantGender!, assistantName.text);
     if (mounted) setState(() => saving = false);
   }
 
@@ -1155,33 +1079,16 @@ class _OnboardingPageState extends State<_OnboardingPage> {
       _Card(
         child: Column(
           children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Кто будет вашим собеседником?',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
+            const Align(alignment: Alignment.centerLeft, child: Text('Кто будет вашим собеседником?', style: TextStyle(fontWeight: FontWeight.w700))),
             const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(
-                  value: 'male',
-                  label: Text('Мужчина'),
-                  icon: Icon(Icons.male),
-                ),
-                ButtonSegment(
-                  value: 'female',
-                  label: Text('Женщина'),
-                  icon: Icon(Icons.female),
-                ),
+                ButtonSegment(value: 'male', label: Text('Мужчина'), icon: Icon(Icons.male)),
+                ButtonSegment(value: 'female', label: Text('Женщина'), icon: Icon(Icons.female)),
               ],
-              selected: assistantGender == null
-                  ? <String>{}
-                  : {assistantGender!},
+              selected: assistantGender == null ? <String>{} : {assistantGender!},
               emptySelectionAllowed: true,
-              onSelectionChanged: (value) =>
-                  setState(() => assistantGender = value.first),
+              onSelectionChanged: (value) => setState(() => assistantGender = value.first),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -1190,9 +1097,7 @@ class _OnboardingPageState extends State<_OnboardingPage> {
               textCapitalization: TextCapitalization.words,
               decoration: InputDecoration(
                 labelText: 'Как его или её зовут?',
-                hintText: assistantGender == 'female'
-                    ? 'Например, Анна'
-                    : 'Например, Марк',
+                hintText: assistantGender == 'female' ? 'Например, Анна' : 'Например, Марк',
               ),
             ),
             const Divider(height: 32),
@@ -1663,9 +1568,7 @@ class _TodayPage extends StatelessWidget {
                       const SizedBox(height: 10),
                       TextButton(
                         onPressed: onJournal,
-                        child: Text(
-                          journalEntry.isEmpty ? 'Добавить запись' : 'Изменить',
-                        ),
+                        child: Text(journalEntry.isEmpty ? 'Добавить запись' : 'Изменить'),
                       ),
                     ],
                   ),
@@ -2466,19 +2369,20 @@ class _TarotArtwork extends StatelessWidget {
     final asset = switch (title.trim().toLowerCase()) {
       'шут' || 'дурак' => 'assets/fabula/tarot/fool.webp',
       'маг' => 'assets/fabula/tarot/magician.webp',
-      'верховная жрица' || 'жрица' => 'assets/fabula/tarot/high_priestess.webp',
+      'верховная жрица' || 'жрица' =>
+        'assets/fabula/tarot/high_priestess.webp',
       'императрица' => 'assets/fabula/tarot/empress.webp',
       'император' => 'assets/fabula/tarot/emperor.webp',
-      'иерофант' ||
-      'верховный жрец' ||
-      'жрец' => 'assets/fabula/tarot/hierophant.webp',
+      'иерофант' || 'верховный жрец' || 'жрец' =>
+        'assets/fabula/tarot/hierophant.webp',
       'влюблённые' || 'влюбленные' => 'assets/fabula/tarot/lovers.webp',
       'колесница' => 'assets/fabula/tarot/chariot.webp',
       'сила' => 'assets/fabula/tarot/strength.webp',
       'отшельник' => 'assets/fabula/tarot/hermit.webp',
-      'колесо фортуны' ||
-      'колесо судьбы' => 'assets/fabula/tarot/wheel_of_fortune.webp',
-      'справедливость' || 'правосудие' => 'assets/fabula/tarot/justice.webp',
+      'колесо фортуны' || 'колесо судьбы' =>
+        'assets/fabula/tarot/wheel_of_fortune.webp',
+      'справедливость' || 'правосудие' =>
+        'assets/fabula/tarot/justice.webp',
       'повешенный' => 'assets/fabula/tarot/hanged_man.webp',
       'смерть' => 'assets/fabula/tarot/death.webp',
       'умеренность' => 'assets/fabula/tarot/temperance.webp',
@@ -2773,11 +2677,9 @@ class _ProfilePage extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.chat_bubble_outline, color: _burgundy),
             title: const Text('Ассистент'),
-            subtitle: Text(
-              assistantName.isEmpty
-                  ? 'Собеседник ещё не выбран'
-                  : '$assistantName · ${assistantGender == 'female' ? 'женщина' : 'мужчина'}',
-            ),
+            subtitle: Text(assistantName.isEmpty
+                ? 'Собеседник ещё не выбран'
+                : '$assistantName · ${assistantGender == 'female' ? 'женщина' : 'мужчина'}'),
             trailing: const Icon(Icons.edit_outlined),
             onTap: onEditAssistantName,
           ),
