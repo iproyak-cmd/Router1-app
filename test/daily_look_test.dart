@@ -65,6 +65,10 @@ void main() {
       expect(look.assetPath!, endsWith('.webp'));
       expect(look.title.trim(), isNotEmpty);
       expect(look.description.trim(), isNotEmpty);
+      expect(look.items, hasLength(greaterThanOrEqualTo(3)));
+      expect(look.items.every((item) => item.trim().isNotEmpty), isTrue);
+      expect(look.stylingTip.trim(), isNotEmpty);
+      expect(look.occasion.trim(), isNotEmpty);
     }
   });
 }
