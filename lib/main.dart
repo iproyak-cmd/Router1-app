@@ -1604,57 +1604,51 @@ class _DailyLookCard extends StatelessWidget {
   final DailyLook look;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(26),
-    child: AspectRatio(
-      aspectRatio: 1.38,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _DailyLookImage(look: look),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color(0xD9F6F2ED),
-                  Color(0x66F6F2ED),
-                  Color(0x00000000),
-                ],
-                stops: [0, .5, .82],
-              ),
-            ),
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(26),
+      border: Border.all(color: _line),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0D000000),
+          blurRadius: 18,
+          offset: Offset(0, 6),
+        ),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AspectRatio(
+          aspectRatio: 4 / 5,
+          child: ColoredBox(
+            color: const Color(0xFFE8E0D9),
+            child: _DailyLookImage(look: look),
           ),
-          Padding(
-            padding: const EdgeInsets.all(22),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                width: 155,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _SectionLabel('ОБРАЗ ДНЯ'),
-                    const SizedBox(height: 8),
-                    _editorial(look.title, size: 24),
-                    const SizedBox(height: 8),
-                    Text(
-                      look.description,
-                      style: const TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SectionLabel('ОБРАЗ ДНЯ'),
+              const SizedBox(height: 9),
+              _editorial(look.title, size: 27),
+              const SizedBox(height: 12),
+              Text(
+                look.description,
+                style: const TextStyle(
+                  color: _muted,
+                  fontSize: 14,
+                  height: 1.55,
                 ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }
@@ -1671,8 +1665,7 @@ class _DailyLookImage extends StatelessWidget {
       return Image.network(
         imageUrl,
         key: ValueKey(look.id),
-        fit: BoxFit.cover,
-        alignment: const Alignment(.5, -.2),
+        fit: BoxFit.contain,
         errorBuilder: (context, error, stackTrace) => _assetFallback(),
       );
     }
@@ -1684,8 +1677,7 @@ class _DailyLookImage extends StatelessWidget {
     if (assetPath != null) {
       return Image.asset(
         assetPath,
-        fit: BoxFit.cover,
-        alignment: const Alignment(.5, -.2),
+        fit: BoxFit.contain,
       );
     }
     return const ColoredBox(color: Color(0xFFE8E0D9));
