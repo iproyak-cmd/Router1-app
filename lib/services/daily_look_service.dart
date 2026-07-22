@@ -103,6 +103,12 @@ List<DailyLook> _parseManifest(String? raw) {
         imageUrl: imageUrl,
         title: json['title']?.toString().trim() ?? '',
         description: json['description']?.toString().trim() ?? '',
+        items: (json['items'] as List? ?? const [])
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false),
+        stylingTip: json['styling_tip']?.toString().trim() ?? '',
+        occasion: json['occasion']?.toString().trim() ?? '',
       );
     }).whereType<DailyLook>().where((look) {
       return look.title.isNotEmpty && look.description.isNotEmpty;
@@ -125,6 +131,9 @@ List<DailyLook> _mergeWithBundledReserve(List<DailyLook> remote) {
         assetPath: bundled[look.id]?.assetPath,
         title: look.title,
         description: look.description,
+        items: look.items,
+        stylingTip: look.stylingTip,
+        occasion: look.occasion,
       ),
     );
   }
