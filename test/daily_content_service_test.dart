@@ -56,8 +56,7 @@ void main() {
     expect(result.forecast.lunarPhase, lunarPhaseFor(day));
   });
 
-  test('stale server content is visibly replaced by editorial offline content',
-      () async {
+  test('stale server content is rejected without an offline forecast', () async {
     final day = DateTime(2026, 7, 20);
     final stale = DateTime(2026, 7, 19);
     final service = DailyContentService(
@@ -65,16 +64,10 @@ void main() {
     );
     final prefs = await SharedPreferences.getInstance();
 
-    final result = await service.resolve(
-      sign: 'libra',
-      date: day,
-      preferences: prefs,
+    expect(
+      service.resolve(sign: 'libra', date: day, preferences: prefs),
+      throwsA(isA<DailyContentUnavailable>()),
     );
-
-    expect(result.source, DailyContentSource.editorialOffline);
-    expect(result.notice, contains('Офлайн'));
-    expect(result.forecast.date, '2026-07-20');
-    expect(result.forecast.disclaimer, contains('офлайн'));
   });
 
   test('uses only same-day same-sign cache when the server is unavailable',
@@ -94,14 +87,11 @@ void main() {
       date: day,
       preferences: prefs,
     );
-    final otherSign = await offline.resolve(
-      sign: 'leo',
-      date: day,
-      preferences: prefs,
-    );
-
     expect(cached.source, DailyContentSource.cached);
-    expect(otherSign.source, DailyContentSource.editorialOffline);
+    expect(
+      offline.resolve(sign: 'leo', date: day, preferences: prefs),
+      throwsA(isA<DailyContentUnavailable>()),
+    );
   });
 
   test('moon phase uses the astronomical synodic cycle reference', () {
@@ -109,15 +99,8 @@ void main() {
     expect(lunarGuidanceFor(DateTime(2026, 7, 20)), isNotEmpty);
   });
 
-  test('editorial fallback is deterministic per date and sign', () {
+  test('affirmation fallback is deterministic per date and sign', () {
     final day = DateTime(2026, 7, 20);
-    final first = buildEditorialForecast('leo', day);
-    final second = buildEditorialForecast('leo', day);
-
-    expect(first.date, '2026-07-20');
-    expect(first.sign, 'leo');
-    expect(first.overview, second.overview);
-    expect(first.tarotTitle, second.tarotTitle);
     expect(dailyAffirmationFor('leo', day), dailyAffirmationFor('leo', day));
   });
 }
