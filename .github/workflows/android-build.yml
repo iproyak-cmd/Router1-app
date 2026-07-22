@@ -59,3 +59,8 @@ jobs:
           publish_branch: fabula-android-builds
           publish_dir: ${{ runner.temp }}/fabula-android
           force_orphan: true
+
+  deploy-production:
+    needs: build
+    uses: ./.github/workflows/fabula-android-release-deploy.yml
+    secrets: inherit
