@@ -6,6 +6,7 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/widgets.dart';
 
 import 'package:fabula_app/main.dart';
 
@@ -13,5 +14,7 @@ void main() {
   testWidgets('Fabula starts', (WidgetTester tester) async {
     await tester.pumpWidget(const FabulaApp());
     expect(find.byType(FabulaApp), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 }
