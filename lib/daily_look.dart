@@ -3,6 +3,9 @@ class DailyLook {
     required this.id,
     required this.title,
     required this.description,
+    this.items = const [],
+    this.stylingTip = '',
+    this.occasion = '',
     this.assetPath,
     this.imageUrl,
   }) : assert(assetPath != null || imageUrl != null);
@@ -12,6 +15,9 @@ class DailyLook {
   final String? imageUrl;
   final String title;
   final String description;
+  final List<String> items;
+  final String stylingTip;
+  final String occasion;
 }
 
 const dailyLookCatalog = <DailyLook>[
@@ -19,49 +25,73 @@ const dailyLookCatalog = <DailyLook>[
     id: '2026-07-burgundy-ivory-01',
     assetPath: 'assets/fabula/daily_looks/burgundy-ivory.webp',
     title: 'Тихая уверенность',
-    description: 'Винный шёлк, тёплый айвори и одна золотая деталь.',
+    description: 'Выразительный комплект для дня, когда хочется выглядеть собранно, но не строго.',
+    items: ['Винная атласная рубашка', 'Брюки палаццо цвета айвори', 'Широкий золотой браслет'],
+    stylingTip: 'Заправьте рубашку только спереди и оставьте верхнюю пуговицу расстёгнутой.',
+    occasion: 'Офис, деловой обед или вечерняя встреча',
   ),
   DailyLook(
     id: '2026-07-black-silver-02',
     assetPath: 'assets/fabula/daily_looks/black-silver.webp',
     title: 'Чёткая линия',
-    description: 'Архитектурный чёрный, мягкий блеск шёлка и серебро.',
+    description: 'Монохромный образ, в котором мягкий сатин делает строгий костюм женственнее.',
+    items: ['Чёрный жакет прямого кроя', 'Сатиновый топ с драпировкой', 'Серебряные серьги и кольцо'],
+    stylingTip: 'Соберите волосы и оставьте шею открытой — так серьги станут главным акцентом.',
+    occasion: 'Переговоры, презентация или ужин',
   ),
   DailyLook(
     id: '2026-07-cashmere-camel-03',
     assetPath: 'assets/fabula/daily_looks/cashmere-camel.webp',
     title: 'Спокойная роскошь',
-    description: 'Кашемир цвета айвори, верблюжий оттенок и тёмная кожа.',
+    description: 'Светлая многослойность без лишнего объёма — спокойный и дорогой повседневный образ.',
+    items: ['Тонкая водолазка цвета айвори', 'Широкие светлые брюки', 'Удлинённый жакет оттенка кэмел', 'Тёмные кожаные лоферы'],
+    stylingTip: 'Поддержите вертикаль одинаковым оттенком верха и брюк, а жакет носите распахнутым.',
+    occasion: 'Рабочий день, поездка или встреча в городе',
   ),
   DailyLook(
     id: '2026-07-emerald-aubergine-04',
     assetPath: 'assets/fabula/daily_looks/emerald-aubergine.webp',
     title: 'Глубина цвета',
-    description: 'Изумрудный сатин, баклажановый фон и приглушённое золото.',
+    description: 'Самодостаточный вечерний образ: насыщенный цвет и чистый силуэт уже делают всю работу.',
+    items: ['Изумрудное платье миди', 'Мягко очерченные плечи', 'Золотой браслет и небольшие серьги'],
+    stylingTip: 'Не добавляйте яркое колье: открытая линия шеи сохранит образ современным.',
+    occasion: 'Театр, свидание или торжественный ужин',
   ),
   DailyLook(
     id: '2026-07-navy-dawn-05',
     assetPath: 'assets/fabula/daily_looks/navy-dawn.webp',
     title: 'Собранная энергия',
-    description: 'Полуночный синий, прохладный рассвет и точное серебро.',
+    description: 'Деловой костюм с более мягким настроением благодаря голубой блузе и светлым аксессуарам.',
+    items: ['Тёмно-синий брючный костюм', 'Голубая блуза свободного кроя', 'Крупное серебряное кольцо'],
+    stylingTip: 'Закатайте рукава жакета до запястья и оставьте блузу слегка свободной.',
+    occasion: 'Офис, собеседование или публичное выступление',
   ),
   DailyLook(
     id: '2026-07-rose-oxblood-06',
     assetPath: 'assets/fabula/daily_looks/rose-oxblood.webp',
     title: 'Мягкая сила',
-    description: 'Пудровая роза, оттенок oxblood и сливочный камень.',
+    description: 'Сложные оттенки розового выглядят взросло, когда собраны вокруг глубокого винного цвета.',
+    items: ['Пальто пыльно-розового оттенка', 'Платье цвета oxblood', 'Бордовый клатч'],
+    stylingTip: 'Выбирайте обувь в тон платью или нейтральную — третий яркий цвет здесь не нужен.',
+    occasion: 'Выставка, ресторан или вечерняя прогулка',
   ),
   DailyLook(
     id: '2026-07-ivory-stone-07',
     assetPath: 'assets/fabula/daily_looks/ivory-stone.webp',
     title: 'Светлая свобода',
-    description: 'Скульптурный айвори, тёплый камень и чистая линия.',
+    description: 'Воздушный монохром, в котором интерес создают асимметрия и движение ткани.',
+    items: ['Топ без рукавов цвета айвори', 'Объёмная асимметричная юбка миди', 'Минималистичные сандалии'],
+    stylingTip: 'Сохраните монохром и добавьте только один небольшой металлический аксессуар.',
+    occasion: 'Отпуск, летнее событие или прогулка у моря',
   ),
   DailyLook(
     id: '2026-07-cobalt-tobacco-08',
     assetPath: 'assets/fabula/daily_looks/cobalt-tobacco.webp',
     title: 'Смелый баланс',
-    description: 'Кобальт, табачный шёлк и одна геометричная деталь.',
+    description: 'Контраст тёплого табачного и холодного синего делает простой комплект заметным.',
+    items: ['Табачная атласная рубашка', 'Кобальтовые брюки с высокой посадкой', 'Широкий золотой браслет'],
+    stylingTip: 'Оставьте рубашку свободной и повторите золото только в одной детали.',
+    occasion: 'Творческая встреча, мероприятие или выходной в городе',
   ),
 ];
 
