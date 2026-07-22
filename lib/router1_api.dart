@@ -150,6 +150,17 @@ class Router1DailyHoroscope {
     required this.number,
     required this.tarotTitle,
     required this.tarotMeaning,
+    required this.tarotFocus,
+    required this.tarotAction,
+    required this.tarotQuestion,
+    required this.energy,
+    required this.energyReason,
+    required this.moodTitle,
+    required this.moodDetail,
+    required this.affirmation,
+    required this.lunarGuidance,
+    required this.colorMeaning,
+    required this.numberMeaning,
     required this.disclaimer,
   });
 
@@ -167,6 +178,17 @@ class Router1DailyHoroscope {
   final int number;
   final String tarotTitle;
   final String tarotMeaning;
+  final String tarotFocus;
+  final String tarotAction;
+  final String tarotQuestion;
+  final int energy;
+  final String energyReason;
+  final String moodTitle;
+  final String moodDetail;
+  final String affirmation;
+  final String lunarGuidance;
+  final String colorMeaning;
+  final String numberMeaning;
   final String disclaimer;
 
   factory Router1DailyHoroscope.fromJson(Map<String, dynamic> json) {
@@ -188,6 +210,17 @@ class Router1DailyHoroscope {
       number: (json['number'] as num?)?.toInt() ?? 1,
       tarotTitle: tarot['title']?.toString() ?? '',
       tarotMeaning: tarot['meaning']?.toString() ?? '',
+      tarotFocus: tarot['focus']?.toString() ?? '',
+      tarotAction: tarot['action']?.toString() ?? '',
+      tarotQuestion: tarot['question']?.toString() ?? '',
+      energy: (json['energy'] as num?)?.toInt() ?? 0,
+      energyReason: json['energy_reason']?.toString() ?? '',
+      moodTitle: json['mood_title']?.toString() ?? '',
+      moodDetail: json['mood_detail']?.toString() ?? '',
+      affirmation: json['affirmation']?.toString() ?? '',
+      lunarGuidance: json['lunar_guidance']?.toString() ?? '',
+      colorMeaning: json['color_meaning']?.toString() ?? '',
+      numberMeaning: json['number_meaning']?.toString() ?? '',
       disclaimer: json['disclaimer']?.toString() ?? 'Развлекательный прогноз',
     );
   }
