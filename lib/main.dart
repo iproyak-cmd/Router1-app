@@ -272,9 +272,7 @@ class _FabulaShellState extends State<FabulaShell> {
   }
 
   Future<void> _openCycleFromAssistant() async {
-    if (!enabledModules.contains(cycleModuleId)) {
-      await _setModuleEnabled(cycleModuleId, true);
-    }
+    if (!enabledModules.contains(cycleModuleId)) return;
     if (mounted) setState(() => section = cycleModuleId);
   }
 
@@ -846,6 +844,7 @@ class _FabulaShellState extends State<FabulaShell> {
           onShare: _share,
           onJournal: _editJournal,
           onCycle: () => unawaited(_openCycleFromAssistant()),
+          onForecastRetry: () => unawaited(_loadForecast()),
         ),
         destination: const NavigationDestination(
           icon: Icon(Icons.auto_awesome_outlined),
@@ -867,7 +866,9 @@ class _FabulaShellState extends State<FabulaShell> {
             assistantGender: assistantGender,
             birthday: birthday,
             sign: sign,
+            cycleEnabled: enabledModules.contains(cycleModuleId),
             cycleConfigured: cycle != null,
+            journalEnabled: enabledModules.contains(journalModuleId),
             journalStarted: journalEntry.isNotEmpty,
             onChooseAssistantName: _editAssistantName,
           ),
@@ -1209,14 +1210,14 @@ Text _editorial(String text, {double size = 30}) => Text(
 class _AssistantNudgeCard extends StatelessWidget {
   const _AssistantNudgeCard({
     required this.assistantName,
-    required this.cycleConfigured,
+    required this.nudgeModuleId,
     required this.journalEntry,
     required this.onCycle,
     required this.onJournal,
   });
 
   final String assistantName;
-  final bool cycleConfigured;
+  final String nudgeModuleId;
   final String journalEntry;
   final VoidCallback onCycle;
   final VoidCallback onJournal;
@@ -1224,7 +1225,7 @@ class _AssistantNudgeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sender = assistantName.isEmpty ? 'Ассистент' : assistantName;
-    final needsCycle = !cycleConfigured;
+    final needsCycle = nudgeModuleId == cycleModuleId;
     final title = needsCycle ? 'Давайте настроим цикл' : 'Сохраним важное из дня?';
     final text = needsCycle
         ? 'Заполните дату начала и обычную длину цикла. Тогда Fabula сможет показывать текущую фазу и давать более уместные бережные подсказки.'
@@ -1291,6 +1292,7 @@ class _TodayPage extends StatelessWidget {
     required this.onShare,
     required this.onJournal,
     required this.onCycle,
+    required this.onForecastRetry,
   });
   final String name;
   final String assistantName;
@@ -1301,6 +1303,7 @@ class _TodayPage extends StatelessWidget {
   final Set<String> enabledModules;
   final String journalEntry;
   final VoidCallback onSign, onShare, onJournal, onCycle;
+  final VoidCallback onForecastRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -1314,10 +1317,7 @@ class _TodayPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _editorial(
-                    name.isEmpty ? 'Доброе утро' : 'Доброе утро, $name',
-                    size: 28,
-                  ),
+                  _editorial(_greeting(name), size: 28),
                   const SizedBox(height: 4),
                   Text(
                     _date(),
@@ -1337,14 +1337,24 @@ class _TodayPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
-        _AssistantNudgeCard(
-          assistantName: assistantName,
-          cycleConfigured: cycleConfigured,
-          journalEntry: journalEntry,
-          onCycle: onCycle,
-          onJournal: onJournal,
-        ),
-        const SizedBox(height: 14),
+        if (enabledModules.contains(companionModuleId) &&
+            fabulaAssistantNudgeModuleId(
+                  enabledModules,
+                  cycleConfigured: cycleConfigured,
+                ) !=
+                null) ...[
+          _AssistantNudgeCard(
+            assistantName: assistantName,
+            nudgeModuleId: fabulaAssistantNudgeModuleId(
+              enabledModules,
+              cycleConfigured: cycleConfigured,
+            )!,
+            journalEntry: journalEntry,
+            onCycle: onCycle,
+            onJournal: onJournal,
+          ),
+          const SizedBox(height: 14),
+        ],
         if (enabledModules.contains('look')) ...[
           dailyLook == null
               ? const _DailyLookUnavailableCard()
@@ -1429,11 +1439,12 @@ class _TodayPage extends StatelessWidget {
                 _AstroDetail(title: 'СОВЕТ ДНЯ', text: f.advice),
                 const Divider(height: 26, color: _line),
                 _AstroDetail(title: 'ПОЧЕМУ ТАКАЯ ЭНЕРГИЯ', text: f.energyReason),
-                if (forecastNotice.isNotEmpty) ...[
+                if (forecastNotice.isNotEmpty &&
+                    forecastNotice != 'Прогноз обновлён сегодня') ...[
                   const SizedBox(height: 14),
-                  Text(
-                    forecastNotice,
-                    style: const TextStyle(color: _muted, fontSize: 11),
+                  _ForecastStatus(
+                    message: forecastNotice,
+                    onRetry: onForecastRetry,
                   ),
                 ],
               ],
@@ -1648,25 +1659,22 @@ class _TodayPage extends StatelessWidget {
         ],
         if (enabledModules.contains('affirmation'))
           _Card(
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'АФФИРМАЦИЯ ДНЯ',
-                        style: TextStyle(color: _burgundy, fontSize: 11),
-                      ),
-                      const SizedBox(height: 8),
-                      _editorial(f.affirmation, size: 22),
-                    ],
-                  ),
+                Row(
+                  children: [
+                    const Expanded(child: _SectionLabel('АФФИРМАЦИЯ ДНЯ')),
+                    IconButton(
+                      onPressed: onShare,
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Поделиться',
+                      icon: const Icon(Icons.ios_share, color: _burgundy),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  onPressed: onShare,
-                  icon: const Icon(Icons.ios_share, color: _burgundy),
-                ),
+                const SizedBox(height: 8),
+                _editorial(f.affirmation, size: 22),
               ],
             ),
           ),
@@ -1722,6 +1730,38 @@ class _AstroDetail extends StatelessWidget {
       const SizedBox(height: 7),
       Text(text, style: const TextStyle(color: _muted, height: 1.45)),
     ],
+  );
+}
+
+class _ForecastStatus extends StatelessWidget {
+  const _ForecastStatus({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF7F1F2),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(color: _muted, fontSize: 11, height: 1.3),
+          ),
+        ),
+        IconButton(
+          onPressed: onRetry,
+          visualDensity: VisualDensity.compact,
+          tooltip: 'Обновить',
+          icon: const Icon(Icons.refresh, color: _burgundy, size: 20),
+        ),
+      ],
+    ),
   );
 }
 
@@ -3045,6 +3085,17 @@ String _date() {
   ];
   final d = DateTime.now();
   return '${weekdays[d.weekday - 1]}, ${d.day} ${months[d.month - 1]}';
+}
+
+String _greeting(String name, {DateTime? now}) {
+  final hour = (now ?? DateTime.now()).hour;
+  final greeting = switch (hour) {
+    >= 5 && < 12 => 'Доброе утро',
+    >= 12 && < 18 => 'Добрый день',
+    >= 18 && < 23 => 'Добрый вечер',
+    _ => 'Доброй ночи',
+  };
+  return name.isEmpty ? greeting : '$greeting, $name';
 }
 
 Color _colorForName(String name) => switch (name.toLowerCase()) {

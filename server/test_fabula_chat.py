@@ -123,7 +123,9 @@ class FabulaChatTests(unittest.TestCase):
             "name": "Анна",
             "birthday": "1990-04-12",
             "sign": "Овен",
+            "cycle_enabled": True,
             "cycle_configured": False,
+            "journal_enabled": True,
             "journal_started": True,
             "messages": [
                 {"role": "user", "content": f"Сообщение {index}"}
@@ -136,6 +138,20 @@ class FabulaChatTests(unittest.TestCase):
         self.assertIn("Овен", result["messages"][0]["content"])
         self.assertIn("цикла ещё не заполнен", result["messages"][0]["content"])
         self.assertIn("дневнике уже есть запись", result["messages"][0]["content"])
+
+    def test_disabled_modules_are_never_suggested(self):
+        payload = FabulaChatPayload.from_dict({
+            "installation_id": "installation-123",
+            "messages": [{"role": "user", "content": "Что мне сделать сегодня?"}],
+            "cycle_enabled": False,
+            "cycle_configured": False,
+            "journal_enabled": False,
+            "journal_started": False,
+        })
+        prompt = build_openrouter_payload(payload)["messages"][0]["content"]
+        self.assertIn("Модуль цикла выключен", prompt)
+        self.assertIn("не предлагай его", prompt)
+        self.assertIn("Личный дневник выключен", prompt)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,9 @@ class FabulaCompanionApi {
     required String assistantGender,
     required String birthday,
     required String sign,
+    required bool cycleEnabled,
     required bool cycleConfigured,
+    required bool journalEnabled,
     required bool journalStarted,
     required List<FabulaChatMessage> messages,
   }) async {
@@ -58,7 +60,9 @@ class FabulaCompanionApi {
           'assistant_gender': assistantGender,
           'birthday': birthday,
           'sign': sign,
+          'cycle_enabled': cycleEnabled,
           'cycle_configured': cycleConfigured,
+          'journal_enabled': journalEnabled,
           'journal_started': journalStarted,
           'messages': messages.takeLast(24).map((item) => item.toJson()).toList(),
         }),
@@ -95,7 +99,9 @@ class FabulaCompanionPage extends StatefulWidget {
     required this.assistantGender,
     required this.birthday,
     required this.sign,
+    required this.cycleEnabled,
     required this.cycleConfigured,
+    required this.journalEnabled,
     required this.journalStarted,
     required this.onChooseAssistantName,
   });
@@ -107,7 +113,9 @@ class FabulaCompanionPage extends StatefulWidget {
   final String assistantGender;
   final String birthday;
   final String sign;
+  final bool cycleEnabled;
   final bool cycleConfigured;
+  final bool journalEnabled;
   final bool journalStarted;
   final Future<void> Function() onChooseAssistantName;
 
@@ -191,7 +199,9 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
         assistantGender: widget.assistantGender,
         birthday: widget.birthday,
         sign: widget.sign,
+        cycleEnabled: widget.cycleEnabled,
         cycleConfigured: widget.cycleConfigured,
+        journalEnabled: widget.journalEnabled,
         journalStarted: widget.journalStarted,
         messages: _messages,
       );

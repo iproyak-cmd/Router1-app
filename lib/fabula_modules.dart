@@ -1,4 +1,5 @@
 const cycleModuleId = 'cycle';
+const journalModuleId = 'journal';
 const connectionModuleId = 'connection';
 const compatibilityModuleId = 'compatibility';
 const companionModuleId = 'companion';
@@ -11,3 +12,14 @@ List<String> fabulaNavigationSectionIds(Set<String> enabledModules) => [
   if (enabledModules.contains(compatibilityModuleId)) compatibilityModuleId,
   'profile',
 ];
+
+String? fabulaAssistantNudgeModuleId(
+  Set<String> enabledModules, {
+  required bool cycleConfigured,
+}) {
+  if (enabledModules.contains(cycleModuleId) && !cycleConfigured) {
+    return cycleModuleId;
+  }
+  if (enabledModules.contains(journalModuleId)) return journalModuleId;
+  return null;
+}

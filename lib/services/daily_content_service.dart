@@ -59,14 +59,14 @@ class DailyContentService {
           forecast: withAccurateMoon(cached.$1, day),
           source: DailyContentSource.cached,
           updatedAt: cached.$2,
-          notice: 'Сохранённый прогноз за сегодня',
+          notice: 'Показываем сохранённую подборку за сегодня',
         );
       }
       return DailyContentEnvelope(
         forecast: buildEditorialForecast(sign, day),
         source: DailyContentSource.editorialOffline,
         updatedAt: DateTime.now(),
-        notice: 'Офлайн-подборка — серверный прогноз пока недоступен',
+        notice: 'Сегодняшняя подборка загрузилась не полностью. Нажмите, чтобы обновить.',
       );
     }
   }
@@ -340,7 +340,7 @@ Router1DailyHoroscope buildEditorialForecast(String sign, DateTime date) {
     tarotQuestion: 'Какой небольшой шаг сегодня будет честным по отношению к себе?',
     energy: 58 + _stableHash('$key:energy') % 29,
     energyReason:
-        'Офлайн-оценка ритма дня. Точное объяснение по транзитам появится после подключения к серверу.',
+        'Сейчас это общая оценка ритма дня. Персональный расчёт обновится вместе с сегодняшней подборкой.',
     moodTitle: 'Спокойная собранность',
     moodDetail:
         'Снизьте информационный шум и направьте внимание на одно завершённое действие.',

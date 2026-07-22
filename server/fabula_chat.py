@@ -53,7 +53,9 @@ class FabulaChatPayload:
     messages: list[ChatMessage]
     birthday: str = ""
     sign: str = ""
+    cycle_enabled: bool = False
     cycle_configured: bool = False
+    journal_enabled: bool = False
     journal_started: bool = False
 
     @classmethod
@@ -96,7 +98,9 @@ class FabulaChatPayload:
             messages=messages,
             birthday=birthday,
             sign=sign,
+            cycle_enabled=value.get("cycle_enabled") is True,
             cycle_configured=value.get("cycle_configured") is True,
+            journal_enabled=value.get("journal_enabled") is True,
             journal_started=value.get("journal_started") is True,
         )
 
@@ -141,8 +145,16 @@ def build_openrouter_payload(payload: FabulaChatPayload) -> dict[str, Any]:
         part for part in (
             f"Дата рождения пользовательницы: {payload.birthday}." if payload.birthday else "",
             f"Знак: {payload.sign}." if payload.sign else "",
-            "Модуль цикла заполнен." if payload.cycle_configured else "Модуль цикла ещё не заполнен; если это уместно по теме разговора, мягко предложи его настроить.",
-            "В личном дневнике уже есть запись." if payload.journal_started else "Личный дневник пока пуст; предлагай запись только когда она действительно поможет сохранить важную мысль.",
+            (
+                "Модуль цикла заполнен."
+                if payload.cycle_configured
+                else "Модуль цикла ещё не заполнен; если это уместно по теме разговора, мягко предложи его настроить."
+            ) if payload.cycle_enabled else "Модуль цикла выключен; не предлагай его настраивать или включать.",
+            (
+                "В личном дневнике уже есть запись."
+                if payload.journal_started
+                else "Личный дневник пока пуст; предлагай запись только когда она действительно поможет сохранить важную мысль."
+            ) if payload.journal_enabled else "Личный дневник выключен; не предлагай делать в нём запись.",
         ) if part
     )
     messages: list[dict[str, str]] = [
