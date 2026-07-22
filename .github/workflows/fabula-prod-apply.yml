@@ -1,4 +1,5 @@
 name: Apply Fabula billing atomically
+# Run lifetime grants for approved Fabula accounts.
 on:
   push:
     branches: [fabula]
