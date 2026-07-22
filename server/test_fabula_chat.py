@@ -123,6 +123,8 @@ class FabulaChatTests(unittest.TestCase):
             "name": "Анна",
             "birthday": "1990-04-12",
             "sign": "Овен",
+            "cycle_configured": False,
+            "journal_started": True,
             "messages": [
                 {"role": "user", "content": f"Сообщение {index}"}
                 for index in range(24)
@@ -132,6 +134,8 @@ class FabulaChatTests(unittest.TestCase):
         self.assertEqual(len(result["messages"]), 25)
         self.assertIn("1990-04-12", result["messages"][0]["content"])
         self.assertIn("Овен", result["messages"][0]["content"])
+        self.assertIn("цикла ещё не заполнен", result["messages"][0]["content"])
+        self.assertIn("дневнике уже есть запись", result["messages"][0]["content"])
 
 
 if __name__ == "__main__":
