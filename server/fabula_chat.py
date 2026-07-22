@@ -53,6 +53,8 @@ class FabulaChatPayload:
     messages: list[ChatMessage]
     birthday: str = ""
     sign: str = ""
+    cycle_configured: bool = False
+    journal_started: bool = False
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "FabulaChatPayload":
@@ -94,6 +96,8 @@ class FabulaChatPayload:
             messages=messages,
             birthday=birthday,
             sign=sign,
+            cycle_configured=value.get("cycle_configured") is True,
+            journal_started=value.get("journal_started") is True,
         )
 
 
@@ -137,6 +141,8 @@ def build_openrouter_payload(payload: FabulaChatPayload) -> dict[str, Any]:
         part for part in (
             f"Дата рождения пользовательницы: {payload.birthday}." if payload.birthday else "",
             f"Знак: {payload.sign}." if payload.sign else "",
+            "Модуль цикла заполнен." if payload.cycle_configured else "Модуль цикла ещё не заполнен; если это уместно по теме разговора, мягко предложи его настроить.",
+            "В личном дневнике уже есть запись." if payload.journal_started else "Личный дневник пока пуст; предлагай запись только когда она действительно поможет сохранить важную мысль.",
         ) if part
     )
     messages: list[dict[str, str]] = [
