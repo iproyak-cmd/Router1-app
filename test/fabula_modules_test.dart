@@ -2,7 +2,7 @@ import 'package:fabula_app/fabula_modules.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('paid connection never appears in bottom navigation', () {
+  test('paid connection appears only when its module is enabled', () {
     expect(
       fabulaNavigationSectionIds({
         companionModuleId,
@@ -10,12 +10,12 @@ void main() {
         connectionModuleId,
         compatibilityModuleId,
       }),
-      ['today', 'companion', 'cycle', 'compatibility', 'profile'],
+      ['today', 'companion', 'cycle', 'connection', 'compatibility', 'profile'],
     );
 
     expect(
       fabulaNavigationSectionIds({companionModuleId, connectionModuleId}),
-      ['today', 'companion', 'profile'],
+      ['today', 'companion', 'connection', 'profile'],
     );
 
     expect(fabulaNavigationSectionIds({}), ['today', 'profile']);
