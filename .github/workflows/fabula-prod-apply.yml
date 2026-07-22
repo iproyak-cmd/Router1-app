@@ -1,6 +1,7 @@
 name: Apply Fabula billing atomically
 # Run lifetime grants for approved Fabula accounts.
 on:
+  workflow_dispatch:
   push:
     branches: [fabula]
     paths: [".github/workflows/fabula-prod-apply.yml"]
