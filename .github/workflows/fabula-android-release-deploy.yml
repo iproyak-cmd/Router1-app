@@ -1,3 +1,4 @@
+# Deployment revision 2: publish the latest verified Android artifact.
 name: Deploy Fabula Android release
 
 on:
