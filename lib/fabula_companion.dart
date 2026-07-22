@@ -181,8 +181,8 @@ class _FabulaCompanionPageState extends State<FabulaCompanionPage> {
     } on HttpException catch (error) {
       if (mounted) {
         final message = switch (error.message) {
-          'chat_429' => 'Бесплатный дневной лимит OpenRouter закончился.',
-          'chat_503' => 'Бесплатная модель OpenRouter сейчас недоступна.',
+          'chat_429' => 'Дневной лимит сообщений на сегодня исчерпан.',
+          'chat_503' => 'Ассистент временно недоступен. Попробуйте позже.',
           'chat_401' => 'Версия Fabula устарела. Установите обновление.',
           'chat_404' => 'Сервер чата ещё не подключён к приложению.',
           _ => 'Ошибка сервера (${error.message}). Попробуйте ещё раз.',
