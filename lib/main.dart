@@ -1606,56 +1606,100 @@ class _DailyLookCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(26),
-    child: AspectRatio(
-      aspectRatio: 1.38,
-      child: Stack(
-        fit: StackFit.expand,
+    child: ColoredBox(
+      color: const Color(0xFFF6F2ED),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _DailyLookImage(look: look),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color(0xD9F6F2ED),
-                  Color(0x66F6F2ED),
-                  Color(0x00000000),
-                ],
-                stops: [0, .5, .82],
-              ),
-            ),
+          AspectRatio(
+            aspectRatio: 1.5,
+            child: _DailyLookImage(look: look),
           ),
           Padding(
-            padding: const EdgeInsets.all(22),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                width: 155,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _SectionLabel('ОБРАЗ ДНЯ'),
-                    const SizedBox(height: 8),
-                    _editorial(look.title, size: 24),
-                    const SizedBox(height: 8),
-                    Text(
-                      look.description,
-                      style: const TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _SectionLabel('ОБРАЗ ДНЯ'),
+                const SizedBox(height: 8),
+                _editorial(look.title, size: 24),
+                const SizedBox(height: 8),
+                Text(
+                  look.description,
+                  style: const TextStyle(color: _muted, fontSize: 13, height: 1.45),
                 ),
-              ),
+                if (look.items.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const _LookDetailLabel('ЧТО НАДЕТО'),
+                  const SizedBox(height: 7),
+                  for (final item in look.items) _LookItem(item),
+                ],
+                if (look.stylingTip.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _LookDetail('КАК СОБРАТЬ', look.stylingTip),
+                ],
+                if (look.occasion.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _LookDetail('КУДА', look.occasion),
+                ],
+              ],
             ),
           ),
         ],
       ),
     ),
+  );
+}
+
+class _LookDetailLabel extends StatelessWidget {
+  const _LookDetailLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: const TextStyle(
+      color: _ink,
+      fontSize: 10,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 1.2,
+    ),
+  );
+}
+
+class _LookItem extends StatelessWidget {
+  const _LookItem(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Text(
+      '• $text',
+      style: const TextStyle(color: _muted, fontSize: 13, height: 1.35),
+    ),
+  );
+}
+
+class _LookDetail extends StatelessWidget {
+  const _LookDetail(this.label, this.text);
+
+  final String label;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _LookDetailLabel(label),
+      const SizedBox(height: 4),
+      Text(
+        text,
+        style: const TextStyle(color: _muted, fontSize: 13, height: 1.4),
+      ),
+    ],
   );
 }
 
@@ -1672,7 +1716,7 @@ class _DailyLookImage extends StatelessWidget {
         imageUrl,
         key: ValueKey(look.id),
         fit: BoxFit.cover,
-        alignment: const Alignment(.5, -.2),
+        alignment: Alignment.center,
         errorBuilder: (context, error, stackTrace) => _assetFallback(),
       );
     }
@@ -1685,7 +1729,7 @@ class _DailyLookImage extends StatelessWidget {
       return Image.asset(
         assetPath,
         fit: BoxFit.cover,
-        alignment: const Alignment(.5, -.2),
+        alignment: Alignment.center,
       );
     }
     return const ColoredBox(color: Color(0xFFE8E0D9));
