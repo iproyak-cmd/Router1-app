@@ -10,7 +10,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [fabula, agent/fabula-daily-look-editorial]
+    branches: [fabula]
     paths:
       - ".github/workflows/android-build.yml"
       - "lib/**"
@@ -26,88 +26,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-
-      - name: Apply daily look layout fix
-        if: github.ref_name == 'agent/fabula-daily-look-editorial'
-        shell: python
-        run: |
-          from pathlib import Path
-
-          path = Path('lib/main.dart')
-          text = path.read_text(encoding='utf-8')
-          start = text.index('class _DailyLookCard extends StatelessWidget {')
-          end = text.index('class _DailyLookImage extends StatelessWidget {')
-          replacement = '''class _DailyLookCard extends StatelessWidget {
-            const _DailyLookCard({required this.look});
-
-            final DailyLook look;
-
-            @override
-            Widget build(BuildContext context) => Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(color: _line),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0D000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AspectRatio(
-                    aspectRatio: 4 / 5,
-                    child: ColoredBox(
-                      color: const Color(0xFFE8E0D9),
-                      child: _DailyLookImage(look: look),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _SectionLabel('ОБРАЗ ДНЯ'),
-                        const SizedBox(height: 9),
-                        _editorial(look.title, size: 27),
-                        const SizedBox(height: 12),
-                        Text(
-                          look.description,
-                          style: const TextStyle(
-                            color: _muted,
-                            fontSize: 14,
-                            height: 1.55,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          '''
-          text = text[:start] + replacement + text[end:]
-          text = text.replace(
-              "fit: BoxFit.cover,\n        alignment: const Alignment(.5, -.2),",
-              "fit: BoxFit.contain,",
-          )
-          path.write_text(text, encoding='utf-8')
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - name: Cache Android and native build dependencies
         uses: actions/cache@v4
         with:
@@ -117,39 +39,20 @@ jobs:
           key: fabula-android-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'android/libs/tunnel-release.aar') }}
           restore-keys: |
             fabula-android-${{ runner.os }}-
-
-      - run: dart format lib/main.dart lib/daily_look.dart
       - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos
       - run: flutter test
-
-      - name: Commit validated daily look fix
-        if: github.ref_name == 'agent/fabula-daily-look-editorial'
-        run: |
-          if git diff --quiet; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/main.dart lib/daily_look.dart
-          git commit -m "Show full daily look without overlay"
-          git push origin HEAD:${{ github.ref_name }}
-
       - name: Build Android APK
         env:
           ROUTER1_APP_TOKEN: ${{ secrets.ROUTER1_APP_TOKEN || secrets.APP_API_TOKEN }}
         run: |
           test -n "$ROUTER1_APP_TOKEN"
           flutter build apk --release --target-platform android-arm64 --dart-define=ROUTER1_APP_TOKEN="$ROUTER1_APP_TOKEN"
-
       - name: Prepare Android release
         run: |
           mkdir -p "${RUNNER_TEMP}/fabula-android"
           cp build/app/outputs/flutter-apk/app-release.apk "${RUNNER_TEMP}/fabula-android/Fabula.apk"
           sha256sum "${RUNNER_TEMP}/fabula-android/Fabula.apk" > "${RUNNER_TEMP}/fabula-android/Fabula.apk.sha256"
-
       - name: Publish Android release
-        if: github.ref_name == 'fabula'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
