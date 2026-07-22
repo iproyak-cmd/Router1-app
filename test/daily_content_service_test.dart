@@ -32,6 +32,17 @@ Router1DailyHoroscope _forecast(DateTime date, {String sign = 'libra'}) =>
       number: 4,
       tarotTitle: 'Звезда',
       tarotMeaning: 'Смысл',
+      tarotFocus: 'надежда',
+      tarotAction: 'Сделайте один шаг.',
+      tarotQuestion: 'Что поддерживает меня?',
+      energy: 74,
+      energyReason: 'Два поддерживающих аспекта.',
+      moodTitle: 'Спокойная собранность',
+      moodDetail: 'Сосредоточьтесь на главном.',
+      affirmation: 'Я двигаюсь в своём темпе.',
+      lunarGuidance: 'Продолжайте начатое.',
+      colorMeaning: 'Добавьте цвет небольшим акцентом.',
+      numberMeaning: 'Один ясный шаг.',
       disclaimer: 'Развлекательный прогноз',
     );
 
