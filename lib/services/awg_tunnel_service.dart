@@ -17,7 +17,11 @@ class AwgTunnelStatus {
   final int rxBytes;
   final int txBytes;
   final String serverCode;
-  bool get connected => state == 'up';
+
+  /// A tunnel is usable only after real payload traffic has travelled in both
+  /// directions. Android can report the interface as UP after a WireGuard
+  /// handshake even when DNS, forwarding or the return route is broken.
+  bool get connected => state == 'up' && rxBytes > 0 && txBytes > 0;
 }
 
 class AwgTunnelService {
