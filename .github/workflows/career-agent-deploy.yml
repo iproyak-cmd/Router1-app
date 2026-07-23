@@ -1,0 +1,235 @@
+name: Deploy Career Agent callback
+
+on:
+  push:
+    branches: [fabula]
+    paths:
+      - ".github/workflows/career-agent-deploy.yml"
+      - "server/career_agent_http.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: career-agent-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source
+        run: python3 -m py_compile server/career_agent_http.py
+      - name: Install SSH helper
+        run: |
+          set -euo pipefail
+          test -n "${SSHPASS:-}"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+      - name: Upload service
+        run: |
+          set -euo pipefail
+          sshpass -e scp \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            server/career_agent_http.py \
+            root@201.51.4.89:/tmp/career_agent_http.py
+      - name: Deploy with backup and rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          sshpass -e ssh \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            root@201.51.4.89 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          ROOT=/opt/vpn_bot
+          UNIT=/etc/systemd/system/fabula-career-agent.service
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          BACKUP="$ROOT/backups/career_agent_$STAMP"
+          mkdir -p "$BACKUP"
+
+          CONFIG=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          def blocks(text):
+              for match in re.finditer(r"server\s*\{", text):
+                  start = match.start()
+                  depth = 0
+                  for index in range(text.find("{", start), len(text)):
+                      if text[index] == "{":
+                          depth += 1
+                      elif text[index] == "}":
+                          depth -= 1
+                          if depth == 0:
+                              yield start, index, text[start:index + 1]
+                              break
+
+          seen = set()
+          for directory in ("/etc/nginx/sites-enabled", "/etc/nginx/conf.d"):
+              root = pathlib.Path(directory)
+              if not root.exists():
+                  continue
+              for candidate in root.glob("*"):
+                  try:
+                      path = candidate.resolve()
+                      if path in seen or not path.is_file():
+                          continue
+                      seen.add(path)
+                      text = path.read_text(encoding="utf-8")
+                  except (OSError, UnicodeError):
+                      continue
+                  for _, _, block in blocks(text):
+                      if (
+                          re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
+                          and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
+                      ):
+                          print(path)
+                          raise SystemExit
+          raise SystemExit("router1.tech TLS nginx config not found")
+          PY
+          )
+
+          cp -a "$CONFIG" "$BACKUP/nginx.conf"
+          [ ! -f "$UNIT" ] || cp -a "$UNIT" "$BACKUP/service.unit"
+          [ -f "$UNIT" ] || touch "$BACKUP/service.unit.missing"
+          [ ! -f "$ROOT/career_agent_http.py" ] || cp -a "$ROOT/career_agent_http.py" "$BACKUP/career_agent_http.py"
+          [ -f "$ROOT/career_agent_http.py" ] || touch "$BACKUP/career_agent_http.py.missing"
+
+          rollback() {
+            set +e
+            cp -a "$BACKUP/nginx.conf" "$CONFIG"
+            nginx -t && systemctl reload nginx
+            if [ -f "$BACKUP/career_agent_http.py.missing" ]; then
+              rm -f "$ROOT/career_agent_http.py"
+            else
+              cp -a "$BACKUP/career_agent_http.py" "$ROOT/career_agent_http.py"
+            fi
+            if [ -f "$BACKUP/service.unit.missing" ]; then
+              systemctl disable --now fabula-career-agent.service 2>/dev/null || true
+              rm -f "$UNIT"
+            else
+              cp -a "$BACKUP/service.unit" "$UNIT"
+              systemctl daemon-reload
+              systemctl restart fabula-career-agent.service
+            fi
+            echo "ROLLBACK_OK backup=$BACKUP"
+          }
+          trap rollback ERR
+
+          install -m 0644 /tmp/career_agent_http.py "$ROOT/career_agent_http.py"
+          python3 -m py_compile "$ROOT/career_agent_http.py"
+          cat > "$UNIT" <<'UNITFILE'
+          [Unit]
+          Description=Fabula Career Agent OAuth callback
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/vpn_bot
+          Environment=CAREER_AGENT_HOST=127.0.0.1
+          Environment=CAREER_AGENT_PORT=8013
+          ExecStart=/usr/bin/python3 /opt/vpn_bot/career_agent_http.py
+          Restart=always
+          RestartSec=3
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=full
+          ProtectHome=true
+
+          [Install]
+          WantedBy=multi-user.target
+          UNITFILE
+          systemctl daemon-reload
+          systemctl enable --now fabula-career-agent.service
+
+          CONFIG="$CONFIG" python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path(os.environ["CONFIG"])
+          text = path.read_text(encoding="utf-8")
+          marker = "# FABULA_CAREER_AGENT_HH"
+
+          while marker in text:
+              marker_start = text.index(marker)
+              location_start = text.find("location", marker_start)
+              brace_start = text.find("{", location_start)
+              if location_start < 0 or brace_start < 0:
+                  raise SystemExit("malformed career agent nginx block")
+              depth = 0
+              end = None
+              for index in range(brace_start, len(text)):
+                  if text[index] == "{":
+                      depth += 1
+                  elif text[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = index + 1
+                          break
+              if end is None:
+                  raise SystemExit("unterminated career agent nginx block")
+              line_start = text.rfind("\n", 0, marker_start) + 1
+              text = text[:line_start] + text[end:]
+
+          target = None
+          for match in re.finditer(r"server\s*\{", text):
+              start = match.start()
+              depth = 0
+              end = None
+              for index in range(text.find("{", start), len(text)):
+                  if text[index] == "{":
+                      depth += 1
+                  elif text[index] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = index
+                          break
+              if end is None:
+                  continue
+              block = text[start:end + 1]
+              if (
+                  re.search(r"server_name[^;]*router1\.tech[^;]*;", block)
+                  and re.search(r"listen\s+(?:\[[^]]+\]:)?443(?:\s|;)", block)
+              ):
+                  target = (start, end)
+                  break
+          if target is None:
+              raise SystemExit("router1.tech TLS server block not found")
+          _, end = target
+          location = r'''
+              # FABULA_CAREER_AGENT_HH
+              location = /api/auth/hh/callback {
+                  limit_except GET { deny all; }
+                  proxy_pass http://127.0.0.1:8013;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_connect_timeout 3s;
+                  proxy_read_timeout 10s;
+              }
+          '''
+          path.write_text(text[:end] + location + text[end:], encoding="utf-8")
+          PY
+
+          nginx -t
+          systemctl reload nginx
+          curl -fsS --max-time 8 http://127.0.0.1:8013/health | grep -qx ok
+          body=$(curl -fsS --max-time 15 'https://router1.tech/api/auth/hh/callback?code=redacted-test&state=bootstrap')
+          printf '%s' "$body" | grep -Fq 'Fabula Career Agent connected successfully'
+          test "$(systemctl is-active fabula-career-agent.service)" = active
+          trap - ERR
+          rm -f /tmp/career_agent_http.py
+          echo "DEPLOY_OK callback=https://router1.tech/api/auth/hh/callback backup=$BACKUP"
+          REMOTE
