@@ -40,5 +40,22 @@ if old_prepare not in text:
 
 text = text.replace(old_lookup, new_lookup, 1)
 text = text.replace(old_prepare, new_prepare, 1)
+
+method_marker = "  Future<void> _toggleVpn() async {\n"
+disabled_guard = """  Future<void> _toggleVpn() async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'VPN временно отключён до завершения проверки подключения. Интернет останется работать напрямую.',
+        ),
+      ),
+    );
+    return;
+"""
+if method_marker not in text:
+    raise SystemExit('VPN toggle method not found; refusing an unsafe patch')
+text = text.replace(method_marker, disabled_guard, 1)
+
 path.write_text(text, encoding='utf-8')
-print('FABULA_VPN_PREPARE_HOTFIX_OK')
+print('FABULA_VPN_DISABLED_SAFELY')
