@@ -1,0 +1,7 @@
+﻿pubget=success
+analyze=failure
+test=success
+windows=success
+engine=success
+installer=success
+run=https://github.com/iproyak-cmd/Router1-app/actions/runs/30095258745
