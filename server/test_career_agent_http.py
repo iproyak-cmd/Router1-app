@@ -81,6 +81,30 @@ class CareerAgentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             career._create_hh_state("../../etc/passwd")
 
+    def test_application_draft_uses_only_supplied_experience(self) -> None:
+        draft = career._application_draft(
+            {
+                "installation_id": "installation-123",
+                "vacancy_title": "Project Manager",
+                "company": "Example",
+                "experience": "Управлял командой из 12 человек.",
+            }
+        )
+        self.assertEqual(draft["status"], "draft")
+        self.assertTrue(draft["requires_approval"])
+        self.assertFalse(draft["sent"])
+        self.assertIn("Управлял командой из 12 человек.", draft["cover_letter"])
+
+    def test_application_draft_requires_real_experience(self) -> None:
+        with self.assertRaises(ValueError):
+            career._application_draft(
+                {
+                    "installation_id": "installation-123",
+                    "vacancy_title": "Project Manager",
+                    "experience": "",
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
