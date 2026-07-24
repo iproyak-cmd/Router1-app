@@ -2,11 +2,26 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const _burgundy = Color(0xFF7A3045);
 const _muted = Color(0xFF6F6B67);
 const _line = Color(0xFFE5DED7);
+
+class CareerProfileStore {
+  static const _experienceKey = 'career_profile_experience';
+
+  Future<String> loadExperience() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString(_experienceKey)?.trim() ?? '';
+  }
+
+  Future<void> saveExperience(String experience) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_experienceKey, experience.trim());
+  }
+}
 
 class CareerVacancy {
   const CareerVacancy({
@@ -175,10 +190,12 @@ class CareerPage extends StatefulWidget {
     super.key,
     required this.installationId,
     this.api,
+    this.profileStore,
   });
 
   final String installationId;
   final CareerApi? api;
+  final CareerProfileStore? profileStore;
 
   @override
   State<CareerPage> createState() => _CareerPageState();
@@ -187,17 +204,21 @@ class CareerPage extends StatefulWidget {
 class _CareerPageState extends State<CareerPage>
     with WidgetsBindingObserver {
   late final CareerApi api;
+  late final CareerProfileStore profileStore;
   final query = TextEditingController(text: 'Project Manager');
   bool loading = true;
   bool connected = false;
   String error = '';
+  String experience = '';
   List<CareerVacancy> vacancies = const [];
 
   @override
   void initState() {
     super.initState();
     api = widget.api ?? CareerApi();
+    profileStore = widget.profileStore ?? CareerProfileStore();
     WidgetsBinding.instance.addObserver(this);
+    _loadProfile();
     _refreshStatus();
   }
 
@@ -238,6 +259,25 @@ class _CareerPageState extends State<CareerPage>
     if (!opened && mounted) {
       setState(() => error = 'Не удалось открыть авторизацию HH.');
     }
+  }
+
+  Future<void> _loadProfile() async {
+    final saved = await profileStore.loadExperience();
+    if (mounted) setState(() => experience = saved);
+  }
+
+  Future<void> _editProfile() async {
+    final updated = await showDialog<String>(
+      context: context,
+      builder: (context) => _ExperienceDialog(
+        initialValue: experience,
+        title: 'Профессиональный профиль',
+        actionLabel: 'Сохранить',
+      ),
+    );
+    if (!mounted || updated == null || updated.trim().isEmpty) return;
+    await profileStore.saveExperience(updated);
+    if (mounted) setState(() => experience = updated.trim());
   }
 
   Future<void> _search() async {
@@ -327,6 +367,38 @@ class _CareerPageState extends State<CareerPage>
               ],
               if (connected) ...[
                 const SizedBox(height: 16),
+                _panel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Профессиональный профиль',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        experience.isEmpty
+                            ? 'Заполните опыт один раз — Fabula будет подставлять его в каждый новый отклик.'
+                            : experience,
+                        maxLines: 5,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: _muted, height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: _editProfile,
+                        icon: Icon(experience.isEmpty ? Icons.add : Icons.edit),
+                        label: Text(
+                          experience.isEmpty ? 'Заполнить профиль' : 'Изменить',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: query,
                   textInputAction: TextInputAction.search,
@@ -364,17 +436,28 @@ class _CareerPageState extends State<CareerPage>
       );
 
   Future<void> _prepare(CareerVacancy vacancy) async {
-    final experience = await showDialog<String>(
+    final selectedExperience = await showDialog<String>(
       context: context,
-      builder: (context) => const _ExperienceDialog(),
+      builder: (context) => _ExperienceDialog(
+        initialValue: experience,
+        title: experience.isEmpty ? 'Релевантный опыт' : 'Проверьте опыт',
+        actionLabel: 'Подготовить',
+      ),
     );
-    if (!mounted || experience == null || experience.trim().isEmpty) return;
+    if (!mounted ||
+        selectedExperience == null ||
+        selectedExperience.trim().isEmpty) {
+      return;
+    }
+    final normalizedExperience = selectedExperience.trim();
+    await profileStore.saveExperience(normalizedExperience);
+    if (mounted) setState(() => experience = normalizedExperience);
     setState(() => loading = true);
     try {
       final draft = await api.prepareApplication(
         installationId: widget.installationId,
         vacancy: vacancy,
-        experience: experience.trim(),
+        experience: normalizedExperience,
       );
       if (!mounted) return;
       await showDialog<void>(
@@ -455,14 +538,28 @@ class _VacancyCard extends StatelessWidget {
 }
 
 class _ExperienceDialog extends StatefulWidget {
-  const _ExperienceDialog();
+  const _ExperienceDialog({
+    required this.initialValue,
+    required this.title,
+    required this.actionLabel,
+  });
+
+  final String initialValue;
+  final String title;
+  final String actionLabel;
 
   @override
   State<_ExperienceDialog> createState() => _ExperienceDialogState();
 }
 
 class _ExperienceDialogState extends State<_ExperienceDialog> {
-  final controller = TextEditingController();
+  late final TextEditingController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialValue);
+  }
 
   @override
   void dispose() {
@@ -472,7 +569,7 @@ class _ExperienceDialogState extends State<_ExperienceDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Релевантный опыт'),
+        title: Text(widget.title),
         content: SizedBox(
           width: 520,
           child: TextField(
@@ -497,7 +594,7 @@ class _ExperienceDialogState extends State<_ExperienceDialog> {
               final value = controller.text.trim();
               if (value.isNotEmpty) Navigator.pop(context, value);
             },
-            child: const Text('Подготовить'),
+            child: Text(widget.actionLabel),
           ),
         ],
       );
