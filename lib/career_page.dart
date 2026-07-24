@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 const _burgundy = Color(0xFF7A3045);
 const _muted = Color(0xFF6F6B67);
 const _line = Color(0xFFE5DED7);
+const _cream = Color(0xFFF7F1EB);
 
 class CareerProfileStore {
   static const _profileKey = 'career_profile_v2';
@@ -202,10 +203,12 @@ class TrackedVacancy {
   const TrackedVacancy({
     required this.vacancy,
     required this.stage,
+    this.followUpAt,
   });
 
   final CareerVacancy vacancy;
   final VacancyStage stage;
+  final DateTime? followUpAt;
 
   factory TrackedVacancy.fromJson(Map<String, dynamic> json) {
     final vacancy = json['vacancy'];
@@ -219,12 +222,15 @@ class TrackedVacancy {
         (value) => value.name == rawStage,
         orElse: () => VacancyStage.favorite,
       ),
+      followUpAt: DateTime.tryParse((json['follow_up_at'] ?? '').toString()),
     );
   }
 
   Map<String, dynamic> toJson() => {
         'vacancy': vacancy.toJson(),
         'stage': stage.name,
+        if (followUpAt != null)
+          'follow_up_at': followUpAt!.toIso8601String(),
       };
 }
 
@@ -562,8 +568,25 @@ class _CareerPageState extends State<CareerPage>
       updated[vacancy.id] = TrackedVacancy(
         vacancy: vacancy,
         stage: stage,
+        followUpAt: trackedVacancies[vacancy.id]?.followUpAt,
       );
     }
+    await pipelineStore.save(updated);
+    if (mounted) {
+      setState(() => trackedVacancies = Map.unmodifiable(updated));
+    }
+  }
+
+  Future<void> _setFollowUp(
+    TrackedVacancy tracked,
+    DateTime? followUpAt,
+  ) async {
+    final updated = Map<String, TrackedVacancy>.from(trackedVacancies);
+    updated[tracked.vacancy.id] = TrackedVacancy(
+      vacancy: tracked.vacancy,
+      stage: tracked.stage,
+      followUpAt: followUpAt,
+    );
     await pipelineStore.save(updated);
     if (mounted) {
       setState(() => trackedVacancies = Map.unmodifiable(updated));
@@ -724,6 +747,7 @@ class _CareerPageState extends State<CareerPage>
                   _PipelinePanel(
                     vacancies: trackedVacancies.values.toList(growable: false),
                     onStageChanged: _setStage,
+                    onFollowUpChanged: _setFollowUp,
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -910,16 +934,48 @@ class _PipelinePanel extends StatelessWidget {
   const _PipelinePanel({
     required this.vacancies,
     required this.onStageChanged,
+    required this.onFollowUpChanged,
   });
 
   final List<TrackedVacancy> vacancies;
   final Future<void> Function(CareerVacancy, VacancyStage?) onStageChanged;
+  final Future<void> Function(TrackedVacancy, DateTime?) onFollowUpChanged;
 
   @override
   Widget build(BuildContext context) {
+    final today = DateUtils.dateOnly(DateTime.now());
     final ordered = [...vacancies]
-      ..sort((left, right) =>
-          left.stage.index.compareTo(right.stage.index));
+      ..sort((left, right) {
+        final leftDate = left.followUpAt;
+        final rightDate = right.followUpAt;
+        if (leftDate != null && rightDate != null) {
+          return leftDate.compareTo(rightDate);
+        }
+        if (leftDate != null) return -1;
+        if (rightDate != null) return 1;
+        return left.stage.index.compareTo(right.stage.index);
+      });
+    final applied = vacancies
+        .where((item) => item.stage != VacancyStage.favorite)
+        .length;
+    final interviews = vacancies
+        .where((item) => item.stage == VacancyStage.interview)
+        .length;
+    final rejected = vacancies
+        .where((item) => item.stage == VacancyStage.rejected)
+        .length;
+    final conversion = applied == 0 ? 0 : (interviews * 100 / applied).round();
+    final due = vacancies.where((item) {
+      final date = item.followUpAt;
+      return date != null && !DateUtils.dateOnly(date).isAfter(today);
+    }).length;
+    final insight = applied == 0
+        ? 'Следующий шаг: переведите подходящие вакансии в «Откликнулся».'
+        : interviews == 0
+            ? 'Узкое место: есть отклики, но пока нет собеседований. Проверьте резюме и письма.'
+            : rejected > interviews
+                ? 'Отказов больше, чем собеседований. Усильте отбор вакансий с высоким совпадением.'
+                : 'Воронка движется: продолжайте отклики и фиксируйте следующие действия.';
     return _panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -935,6 +991,35 @@ class _PipelinePanel extends StatelessWidget {
                     '${stage.label}: ${vacancies.where((item) => item.stage == stage).length}')
                 .join(' · '),
             style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _cream,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Конверсия в собеседование: $conversion%',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  due == 0
+                      ? insight
+                      : 'Требуют внимания сегодня: $due. $insight',
+                  style: const TextStyle(
+                    color: _muted,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           for (final item in ordered) ...[
@@ -959,8 +1044,27 @@ class _PipelinePanel extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: _muted, fontSize: 12),
                       ),
+                      if (item.followUpAt != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          _followUpLabel(item.followUpAt!, today),
+                          style: TextStyle(
+                            color: !DateUtils.dateOnly(item.followUpAt!)
+                                    .isAfter(today)
+                                ? _burgundy
+                                : _muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Следующее действие',
+                  icon: const Icon(Icons.notifications_outlined),
+                  onPressed: () => _pickFollowUp(context, item),
                 ),
                 _StageMenu(
                   stage: item.stage,
@@ -979,6 +1083,35 @@ class _PipelinePanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _pickFollowUp(
+    BuildContext context,
+    TrackedVacancy item,
+  ) async {
+    final now = DateUtils.dateOnly(DateTime.now());
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: item.followUpAt ?? now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: 'Когда вернуться к вакансии?',
+      cancelText: 'Отмена',
+      confirmText: 'Сохранить',
+    );
+    if (!context.mounted) return;
+    if (selected != null) {
+      await onFollowUpChanged(item, selected);
+    }
+  }
+
+  static String _followUpLabel(DateTime date, DateTime today) {
+    final value = DateUtils.dateOnly(date);
+    if (value == today) return 'Следующее действие: сегодня';
+    if (value.isBefore(today)) return 'Следующее действие просрочено';
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    return 'Следующее действие: $day.$month.${value.year}';
   }
 }
 
