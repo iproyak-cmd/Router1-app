@@ -227,6 +227,36 @@ def _hh_vacancies(
     }
 
 
+def _application_draft(payload: dict[str, Any]) -> dict[str, Any]:
+    installation_id = _installation_id(str(payload.get("installation_id", "")))
+    title = str(payload.get("vacancy_title", "")).strip()[:200]
+    company = str(payload.get("company", "")).strip()[:200]
+    experience = str(payload.get("experience", "")).strip()[:4000]
+    if not title or not experience:
+        raise ValueError("vacancy_title and experience are required")
+
+    greeting = f"Здравствуйте, команда {company}!" if company else "Здравствуйте!"
+    cover_letter = (
+        f"{greeting}\n\n"
+        f"Меня заинтересовала вакансия «{title}». "
+        "Мой релевантный опыт:\n"
+        f"{experience}\n\n"
+        "Буду рад обсудить задачи позиции и подробнее рассказать о результатах, "
+        "которые могут быть полезны вашей команде."
+    )
+    return {
+        "draft_id": secrets.token_urlsafe(18),
+        "installation_key": _user_key(installation_id),
+        "status": "draft",
+        "vacancy_title": title,
+        "company": company,
+        "resume_focus": experience,
+        "cover_letter": cover_letter,
+        "requires_approval": True,
+        "sent": False,
+    }
+
+
 def _habr_state_signature(nonce: str, issued_at: int) -> str:
     payload = f"{nonce}.{issued_at}".encode("utf-8")
     return hmac.new(
@@ -303,6 +333,24 @@ class Handler(BaseHTTPRequestHandler):
             self._habr_callback(parsed.query)
         else:
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/career/applications/draft":
+            self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 16_384:
+                raise ValueError("invalid body length")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid payload")
+            draft = _application_draft(payload)
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_request"})
+            return
+        self._json(HTTPStatus.CREATED, draft)
 
     def _hh_login(self, raw_query: str) -> None:
         query = parse_qs(raw_query, keep_blank_values=True)
