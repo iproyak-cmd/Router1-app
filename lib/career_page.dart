@@ -356,6 +356,7 @@ class _CareerPageState extends State<CareerPage>
                       onPrepare: () => _prepare(vacancy),
                     ),
                     const SizedBox(height: 12),
+                  ],
               ],
             ],
           ),
