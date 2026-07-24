@@ -203,15 +203,7 @@ jobs:
           curl -fsS --max-time 8 http://127.0.0.1:8013/health | grep -qx ok
           body=$(curl -fsS --max-time 15 'https://router1.tech/api/auth/hh/callback?code=redacted-test&state=deploy-check')
           printf '%s' "$body" | grep -Fq 'Fabula Career Agent connected successfully'
-          if grep -Eq '^HABR_CLIENT_ID=.+          trap - ERR
-          rm -f /tmp/career_agent_http.py /tmp/career_agent.env
-          echo "DEPLOY_OK login=https://router1.tech/api/auth/habr/login backup=$BACKUP"
-          REMOTE
- "$ENVFILE" && grep -Eq '^HABR_CLIENT_SECRET=.+          trap - ERR
-          rm -f /tmp/career_agent_http.py /tmp/career_agent.env
-          echo "DEPLOY_OK login=https://router1.tech/api/auth/habr/login backup=$BACKUP"
-          REMOTE
- "$ENVFILE"; then
+          if grep -Eq '^HABR_CLIENT_ID=.+' "$ENVFILE" && grep -Eq '^HABR_CLIENT_SECRET=.+' "$ENVFILE"; then
             headers=$(curl -fsSI --max-time 15 https://router1.tech/api/auth/habr/login)
             printf '%s' "$headers" | grep -qi '^location: https://career.habr.com/integrations/oauth/authorize?'
           else
