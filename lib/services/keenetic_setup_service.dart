@@ -463,7 +463,6 @@ class KeeneticSetupService {
       }
     }
 
-    var consecutiveReachableChecks = 0;
     const attempts = 36;
     for (var attempt = 0; attempt < attempts; attempt++) {
       final elapsed = (attempt + 1) * 5;
@@ -482,21 +481,8 @@ class KeeneticSetupService {
             message: 'Компонент WireGuard установлен.',
           );
         }
-        consecutiveReachableChecks++;
-        if (attempt >= 2 && consecutiveReachableChecks >= 2) {
-          onProgress?.call(
-              'Keenetic вернулся после применения компонентов. Продолжаем и проверим WireGuard созданием интерфейса...');
-          return const WireGuardComponentStatus(
-            available: true,
-            installed: true,
-            canInstall: false,
-            message:
-                'Набор компонентов применён. WireGuard будет окончательно проверен при создании подключения.',
-          );
-        }
       } catch (_) {
         // During component commit Keenetic can briefly restart management API.
-        consecutiveReachableChecks = 0;
       }
     }
 

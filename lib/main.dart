@@ -20,7 +20,7 @@ import 'services/awg_failover_service.dart';
 import 'services/internal_update_service.dart';
 import 'services/router_credentials_service.dart';
 
-const router1AppVersion = '0.2.0-internal.21+125';
+const router1AppVersion = '0.2.0-internal.22+126';
 final router1SupportUri = Uri.parse('https://t.me/Easy_Router1');
 String get router1VersionCheckUrl => Platform.isWindows
     ? 'https://router1.tech/app/windows/version.json'
@@ -598,6 +598,8 @@ class _FirstRunShellState extends State<FirstRunShell> {
       7 => WireGuardComponentPage(
           access: routerAccess,
           service: setupService,
+          api: appApi,
+          clientPhone: clientPhone,
           demoMode: demoMode,
           onInstallStarted: () =>
               unawaited(saveRouterSetupStage('installing_component')),
@@ -3173,7 +3175,7 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   String? error;
   String? status;
   var loading = false;
-  final _isTestPurchase = true;
+  bool get _isTestPurchase => widget.testMode;
   var _trialMode = Router1RouteProfileKind.goldStandard;
   Timer? pollTimer;
 
@@ -3271,13 +3273,14 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
         // Новый клиент или временно недоступный lookup: продолжаем создание.
       }
       if (mounted) {
-        setState(
-            () => status = 'Конфиг не найден. Создаём бесплатный доступ...');
+        setState(() => status = _isTestPurchase
+            ? 'Конфиг не найден. Создаём тестовый доступ...'
+            : 'Конфиг не найден. Создаём заказ...');
       }
       final created = await widget.api.createRouterOrder(
         name: name.isEmpty ? 'Клиент Router1' : name,
         phone: phone,
-        testMode: widget.testMode || _isTestPurchase,
+        testMode: _isTestPurchase,
         trialMode: _trialMode,
         refCode: promoController.text,
       );
@@ -3390,9 +3393,10 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return FlowScaffold(
-      title: 'Бесплатный доступ до 20 июля',
-      subtitle:
-          'Введите телефон: Router1 установит ранее оформленный конфиг или создаст новый без оплаты.',
+      title: _isTestPurchase ? 'Тестовый доступ' : 'Router1 для роутера',
+      subtitle: _isTestPurchase
+          ? 'Введите телефон: Router1 проверит существующий конфиг или создаст тестовый.'
+          : 'Введите телефон: Router1 проверит существующий конфиг или оформит доступ на месяц.',
       onBack: widget.onBack,
       primaryText: loading
           ? order == null
@@ -3407,9 +3411,11 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
               ? pay
               : () => unawaited(checkPayment(manual: true)),
       children: [
-        const PricePanel(
-          title: 'Router1 для роутера — до 20 июля',
-          price: 'Бесплатно',
+        PricePanel(
+          title: _isTestPurchase
+              ? 'Router1 для роутера — тест'
+              : 'Router1 для роутера',
+          price: _isTestPurchase ? 'Бесплатно' : '1300 ₽ / месяц',
         ),
         const SizedBox(height: 4),
         if (_isTestPurchase)
@@ -3447,11 +3453,12 @@ class _PaymentPageState extends State<PaymentPage> with WidgetsBindingObserver {
             ),
           ),
         ],
-        const BenefitTile(
+        BenefitTile(
             icon: Icons.install_mobile,
             title: 'Сначала проверим существующий конфиг',
-            text:
-                'Если конфиг уже оформлен — сразу установим его. Если нет — бесплатно создадим новый.'),
+            text: _isTestPurchase
+                ? 'Если конфиг уже оформлен — сразу установим его. Если нет — создадим тестовый.'
+                : 'Если конфиг уже оформлен — сразу установим его. Если нет — откроем безопасную оплату.'),
         Router1Card(
           child: Column(
             children: [
@@ -3857,6 +3864,8 @@ class WireGuardComponentPage extends StatefulWidget {
   const WireGuardComponentPage({
     required this.access,
     required this.service,
+    required this.api,
+    required this.clientPhone,
     required this.demoMode,
     required this.onInstallStarted,
     required this.onReady,
@@ -3867,6 +3876,8 @@ class WireGuardComponentPage extends StatefulWidget {
 
   final KeeneticAccess? access;
   final KeeneticSetupService service;
+  final Router1Api api;
+  final String clientPhone;
   final bool demoMode;
   final VoidCallback onInstallStarted;
   final VoidCallback onReady;
@@ -3882,6 +3893,38 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
   var loading = true;
   String? error;
   String progressMessage = 'Подключаемся к Keenetic...';
+
+  Future<void> reportFailure(
+    KeeneticAccess access,
+    String message,
+    String stage,
+  ) async {
+    try {
+      final payload = await widget.service.collectDiagnostics(
+        access,
+        routingProfile: RouterRoutingProfile.selective,
+        appVersion: router1AppVersion,
+        stage: stage,
+        error: message,
+      );
+      payload['client_phone'] = widget.clientPhone;
+      payload['progress_message'] = progressMessage;
+      final id = await widget.api.submitRouterDiagnostics(payload);
+      widget.onLog(SetupLogEntry(
+        title: 'Диагностика',
+        message: 'Ошибка автоматически отправлена: $id.',
+        level: SetupLogLevel.info,
+        time: DateTime.now(),
+      ));
+    } catch (diagnosticError) {
+      widget.onLog(SetupLogEntry(
+        title: 'Диагностика',
+        message: 'Автоотправка не удалась: $diagnosticError.',
+        level: SetupLogLevel.warning,
+        time: DateTime.now(),
+      ));
+    }
+  }
 
   @override
   void initState() {
@@ -3913,7 +3956,8 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
           message: message,
           level: SetupLogLevel.error,
           time: DateTime.now()));
-      setState(() => error = message);
+      await reportFailure(access, message, 'wireguard_component_check');
+      if (mounted) setState(() => error = message);
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -3957,7 +4001,8 @@ class _WireGuardComponentPageState extends State<WireGuardComponentPage> {
           message: message,
           level: SetupLogLevel.warning,
           time: DateTime.now()));
-      setState(() => error = message);
+      await reportFailure(access, message, 'wireguard_component_install');
+      if (mounted) setState(() => error = message);
     } finally {
       if (mounted) setState(() => loading = false);
     }
