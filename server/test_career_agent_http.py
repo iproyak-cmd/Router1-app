@@ -71,11 +71,12 @@ class CareerAgentTests(unittest.TestCase):
         }
         with patch.object(career, "_json_request", return_value=upstream) as request:
             payload = career._hh_vacancies(
-                "installation-123", "Project Manager", "113", 0, 20
+                "installation-123", "Project Manager", "113", 0, 20, 150000
             )
         self.assertEqual(payload["source"], "hh")
         self.assertEqual(payload["items"][0]["id"], "42")
         self.assertIn("Authorization", request.call_args.kwargs["headers"])
+        self.assertIn("salary=150000", request.call_args.args[0])
 
     def test_invalid_installation_id_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
