@@ -21,12 +21,16 @@ jobs:
     timeout-minutes: 15
     env:
       SSHPASS: ${{ secrets.MSK_SSH_PASSWORD }}
+      HH_CLIENT_ID: ${{ secrets.HH_CLIENT_ID }}
+      HH_CLIENT_SECRET: ${{ secrets.HH_CLIENT_SECRET }}
       HABR_CLIENT_ID: ${{ secrets.HABR_CLIENT_ID }}
       HABR_CLIENT_SECRET: ${{ secrets.HABR_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate source
-        run: python3 -m py_compile server/career_agent_http.py
+        run: |
+          python3 -m py_compile server/career_agent_http.py
+          PYTHONPATH=server python3 -m unittest -v server/test_career_agent_http.py
       - name: Install SSH helper
         run: |
           set -euo pipefail
@@ -38,6 +42,10 @@ jobs:
           set -euo pipefail
           umask 077
           {
+            printf 'HH_CLIENT_ID=%s\n' "$HH_CLIENT_ID"
+            printf 'HH_CLIENT_SECRET=%s\n' "$HH_CLIENT_SECRET"
+            printf 'HH_REDIRECT_URI=%s\n' 'https://router1.tech/api/auth/hh/callback'
+            printf 'HH_USER_AGENT=%s\n' 'Fabula-Career-Agent/1.0 (support@router1.tech)'
             printf 'HABR_CLIENT_ID=%s\n' "$HABR_CLIENT_ID"
             printf 'HABR_CLIENT_SECRET=%s\n' "$HABR_CLIENT_SECRET"
             printf 'HABR_REDIRECT_URI=%s\n' 'https://router1.tech/api/auth/habr/callback'
@@ -183,7 +191,7 @@ jobs:
           _, end = target
           location = r'''
               # FABULA_CAREER_AGENT_OAUTH
-              location ~ ^/api/auth/(?:hh/callback|habr/(?:login|callback))$ {
+              location ~ ^/api/(?:auth/(?:hh|habr)/(?:login|callback)|career/hh/(?:status|vacancies))$ {
                   limit_except GET { deny all; }
                   proxy_pass http://127.0.0.1:8013;
                   proxy_http_version 1.1;
@@ -201,8 +209,23 @@ jobs:
           nginx -t
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8013/health | grep -qx ok
-          body=$(curl -fsS --max-time 15 'https://router1.tech/api/auth/hh/callback?code=redacted-test&state=deploy-check')
-          printf '%s' "$body" | grep -Fq 'Fabula Career Agent connected successfully'
+          status=$(curl -sS -o /tmp/hh_invalid_callback.html -w '%{http_code}' --max-time 15 'https://router1.tech/api/auth/hh/callback?code=redacted-test&state=deploy-check')
+          test "$status" = 400
+          grep -Fq 'invalid or expired' /tmp/hh_invalid_callback.html
+          rm -f /tmp/hh_invalid_callback.html
+          status=$(curl -sS -o /tmp/hh_status.json -w '%{http_code}' --max-time 15 'https://router1.tech/api/career/hh/status?installation_id=deployment-check')
+          test "$status" = 200
+          grep -Fq '"connected":false' /tmp/hh_status.json
+          rm -f /tmp/hh_status.json
+          if grep -Eq '^HH_CLIENT_ID=.+' "$ENVFILE" && grep -Eq '^HH_CLIENT_SECRET=.+' "$ENVFILE"; then
+            headers=$(curl -fsSI --max-time 15 'https://router1.tech/api/auth/hh/login?installation_id=deployment-check')
+            printf '%s' "$headers" | grep -qi '^location: https://hh.ru/oauth/authorize?'
+          else
+            status=$(curl -sS -o /tmp/hh_not_configured.json -w '%{http_code}' --max-time 15 'https://router1.tech/api/auth/hh/login?installation_id=deployment-check')
+            test "$status" = 503
+            grep -Fq '"error":"hh_not_configured"' /tmp/hh_not_configured.json
+            rm -f /tmp/hh_not_configured.json
+          fi
           if grep -Eq '^HABR_CLIENT_ID=.+' "$ENVFILE" && grep -Eq '^HABR_CLIENT_SECRET=.+' "$ENVFILE"; then
             headers=$(curl -fsSI --max-time 15 https://router1.tech/api/auth/habr/login)
             printf '%s' "$headers" | grep -qi '^location: https://career.habr.com/integrations/oauth/authorize?'
