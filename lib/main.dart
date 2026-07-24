@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'daily_look.dart';
+import 'career_page.dart';
 import 'fabula_companion.dart';
 import 'fabula_modules.dart';
 import 'models/menstrual_cycle.dart';
@@ -46,6 +47,11 @@ const _moduleCatalog = <({String id, String title, String subtitle})>[
     id: 'companion',
     title: 'Собеседник',
     subtitle: 'Выслушает и поможет разобраться в чувствах',
+  ),
+  (
+    id: 'career',
+    title: 'Карьера',
+    subtitle: 'Подходящие вакансии и подготовка отклика',
   ),
   (id: 'day', title: 'Ваш день', subtitle: 'Цвет, число и энергия дня'),
   (id: 'tarot', title: 'Таро', subtitle: 'Карта дня и полное толкование'),
@@ -193,6 +199,9 @@ class _FabulaShellState extends State<FabulaShell> {
       if (moduleSchema < 6) {
         enabledModules.remove(connectionModuleId);
       }
+      if (moduleSchema < 7) {
+        enabledModules.add(careerModuleId);
+      }
     }
     await prefs.setStringList(
       'fabula_enabled_modules',
@@ -201,7 +210,7 @@ class _FabulaShellState extends State<FabulaShell> {
           .map((item) => item.id)
           .toList(growable: false),
     );
-    await prefs.setInt('fabula_modules_schema', 6);
+    await prefs.setInt('fabula_modules_schema', 7);
     final cycleStart = prefs.getString('fabula_cycle_start');
     final parsedCycleStart = cycleStart == null
         ? null
@@ -876,6 +885,16 @@ class _FabulaShellState extends State<FabulaShell> {
             icon: const Icon(Icons.chat_bubble_outline),
             selectedIcon: const Icon(Icons.chat_bubble),
             label: assistantName.isEmpty ? 'Ассистент' : assistantName,
+          ),
+        ),
+      if (visibleNavigation.contains(careerModuleId))
+        (
+          id: 'career',
+          page: CareerPage(installationId: installationId),
+          destination: const NavigationDestination(
+            icon: Icon(Icons.work_outline),
+            selectedIcon: Icon(Icons.work),
+            label: 'Карьера',
           ),
         ),
       if (visibleNavigation.contains(cycleModuleId))
@@ -2975,6 +2994,7 @@ IconData _moduleIcon(String id) => switch (id) {
   'journal' => Icons.menu_book_outlined,
   'connection' => Icons.shield_outlined,
   'cycle' => Icons.water_drop_outlined,
+  'career' => Icons.work_outline,
   _ => Icons.circle_outlined,
 };
 

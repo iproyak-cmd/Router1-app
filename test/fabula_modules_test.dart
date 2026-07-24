@@ -41,4 +41,11 @@ void main() {
       isNull,
     );
   });
+
+  test('career has its own optional navigation section', () {
+    expect(
+      fabulaNavigationSectionIds({careerModuleId}),
+      ['today', 'career', 'profile'],
+    );
+  });
 }
