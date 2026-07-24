@@ -25,6 +25,7 @@ void main() {
       vacancy.id: const TrackedVacancy(
         vacancy: vacancy,
         stage: VacancyStage.interview,
+        followUpAt: null,
       ),
     });
 
@@ -34,6 +35,33 @@ void main() {
     expect(restored['123']?.vacancy.title, 'Project Manager');
     expect(restored['123']?.vacancy.company, 'Fabula');
     expect(restored['123']?.vacancy.salaryFrom, 180000);
+  });
+
+  test('vacancy pipeline persists follow-up date', () async {
+    final store = VacancyPipelineStore();
+    const vacancy = CareerVacancy(
+      id: '456',
+      title: 'Product Manager',
+      company: 'Daha',
+      url: 'https://hh.ru/vacancy/456',
+      salary: '200000 RUR',
+      area: 'Москва',
+      requirement: 'Запуск продукта',
+      responsibility: 'Управление командой',
+    );
+    final followUpAt = DateTime(2026, 7, 28);
+
+    await store.save({
+      vacancy.id: TrackedVacancy(
+        vacancy: vacancy,
+        stage: VacancyStage.applied,
+        followUpAt: followUpAt,
+      ),
+    });
+
+    final restored = await store.load();
+    expect(restored['456']?.followUpAt, followUpAt);
+    expect(restored['456']?.stage, VacancyStage.applied);
   });
 
   test('vacancy pipeline ignores corrupted local data', () async {
