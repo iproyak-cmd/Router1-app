@@ -102,6 +102,10 @@ class CareerVacancy {
     required this.url,
     required this.salary,
     required this.area,
+    this.requirement = '',
+    this.responsibility = '',
+    this.salaryFrom,
+    this.salaryTo,
   });
 
   final String id;
@@ -110,15 +114,27 @@ class CareerVacancy {
   final String url;
   final String salary;
   final String area;
+  final String requirement;
+  final String responsibility;
+  final int? salaryFrom;
+  final int? salaryTo;
+
+  String get searchableText =>
+      '$title $company $requirement $responsibility'.toLowerCase();
 
   factory CareerVacancy.fromJson(Map<String, dynamic> json) {
     final employer = json['employer'];
     final area = json['area'];
     final salary = json['salary'];
+    final snippet = json['snippet'];
     String salaryText = 'Зарплата не указана';
+    int? salaryFrom;
+    int? salaryTo;
     if (salary is Map<String, dynamic>) {
       final from = salary['from'];
       final to = salary['to'];
+      salaryFrom = from is num ? from.round() : int.tryParse('$from');
+      salaryTo = to is num ? to.round() : int.tryParse('$to');
       final currency = (salary['currency'] ?? '').toString();
       if (from != null && to != null) {
         salaryText = '$from–$to $currency';
@@ -135,8 +151,91 @@ class CareerVacancy {
       url: (json['alternate_url'] ?? '').toString(),
       salary: salaryText,
       area: area is Map ? (area['name'] ?? '').toString() : '',
+      requirement: snippet is Map
+          ? (snippet['requirement'] ?? '').toString().replaceAll(RegExp('<[^>]*>'), '')
+          : '',
+      responsibility: snippet is Map
+          ? (snippet['responsibility'] ?? '')
+              .toString()
+              .replaceAll(RegExp('<[^>]*>'), '')
+          : '',
+      salaryFrom: salaryFrom,
+      salaryTo: salaryTo,
     );
   }
+}
+
+class CareerMatch {
+  const CareerMatch({
+    required this.vacancy,
+    required this.score,
+    required this.reasons,
+  });
+
+  final CareerVacancy vacancy;
+  final int score;
+  final List<String> reasons;
+
+  static CareerMatch evaluate(CareerVacancy vacancy, CareerProfile profile) {
+    final text = vacancy.searchableText;
+    final roleTokens = _tokens(profile.targetRole);
+    final matchedRole = roleTokens.where(text.contains).length;
+    final roleScore = roleTokens.isEmpty
+        ? 0
+        : (45 * matchedRole / roleTokens.length).round();
+
+    final skills = profile.skills
+        .split(RegExp(r'[,;\n]'))
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.length > 1)
+        .toSet();
+    final matchedSkills = skills.where(text.contains).toList(growable: false);
+    final skillScore =
+        skills.isEmpty ? 0 : (40 * matchedSkills.length / skills.length).round();
+
+    var salaryScore = 0;
+    String salaryReason;
+    if (profile.minimumSalary <= 0) {
+      salaryReason = 'зарплатный порог не задан';
+    } else if (vacancy.salaryFrom == null && vacancy.salaryTo == null) {
+      salaryScore = 5;
+      salaryReason = 'зарплата не указана';
+    } else {
+      final upperBound = vacancy.salaryTo ?? vacancy.salaryFrom ?? 0;
+      if (upperBound >= profile.minimumSalary) {
+        salaryScore = 15;
+        salaryReason = 'зарплата соответствует';
+      } else {
+        salaryReason = 'зарплата ниже ожиданий';
+      }
+    }
+
+    final reasons = <String>[
+      roleTokens.isEmpty
+          ? 'целевая должность не задана'
+          : matchedRole == 0
+              ? 'название должности не совпало'
+              : 'совпадение по должности: $matchedRole из ${roleTokens.length}',
+      skills.isEmpty
+          ? 'навыки не заданы'
+          : matchedSkills.isEmpty
+              ? 'совпадений по навыкам не найдено'
+              : 'навыки: ${matchedSkills.take(3).join(', ')}',
+      salaryReason,
+    ];
+
+    return CareerMatch(
+      vacancy: vacancy,
+      score: (roleScore + skillScore + salaryScore).clamp(0, 100).toInt(),
+      reasons: reasons,
+    );
+  }
+
+  static Set<String> _tokens(String value) => value
+      .toLowerCase()
+      .split(RegExp(r'[^a-zа-яё0-9+#]+', caseSensitive: false))
+      .where((token) => token.length > 2)
+      .toSet();
 }
 
 class ApplicationDraft {
@@ -283,7 +382,7 @@ class _CareerPageState extends State<CareerPage>
   bool connected = false;
   String error = '';
   CareerProfile profile = const CareerProfile();
-  List<CareerVacancy> vacancies = const [];
+  List<CareerMatch> vacancies = const [];
 
   @override
   void initState() {
@@ -372,11 +471,14 @@ class _CareerPageState extends State<CareerPage>
       );
       if (!mounted) return;
       final excluded = profile.excludedTerms;
+      final ranked = result
+          .where((vacancy) =>
+              !excluded.any((term) => vacancy.searchableText.contains(term)))
+          .map((vacancy) => CareerMatch.evaluate(vacancy, profile))
+          .toList();
+      ranked.sort((left, right) => right.score.compareTo(left.score));
       setState(
-        () => vacancies = result.where((vacancy) {
-          final searchable = '${vacancy.title} ${vacancy.company}'.toLowerCase();
-          return !excluded.any(searchable.contains);
-        }).toList(growable: false),
+        () => vacancies = List<CareerMatch>.unmodifiable(ranked),
       );
     } catch (_) {
       if (!mounted) return;
@@ -513,10 +615,10 @@ class _CareerPageState extends State<CareerPage>
                     style: TextStyle(color: _muted),
                   )
                 else
-                  for (final vacancy in vacancies) ...[
+                  for (final match in vacancies) ...[
                     _VacancyCard(
-                      vacancy: vacancy,
-                      onPrepare: () => _prepare(vacancy),
+                      match: match,
+                      onPrepare: () => _prepare(match.vacancy),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -576,16 +678,37 @@ Widget _panel({required Widget child}) => Container(
     );
 
 class _VacancyCard extends StatelessWidget {
-  const _VacancyCard({required this.vacancy, required this.onPrepare});
+  const _VacancyCard({required this.match, required this.onPrepare});
 
-  final CareerVacancy vacancy;
+  final CareerMatch match;
   final VoidCallback onPrepare;
 
   @override
-  Widget build(BuildContext context) => _panel(
+  Widget build(BuildContext context) {
+    final vacancy = match.vacancy;
+    final matchColor = match.score >= 70
+        ? Colors.green.shade700
+        : match.score >= 45
+            ? Colors.orange.shade800
+            : _muted;
+    return _panel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Icon(Icons.auto_awesome, size: 17, color: matchColor),
+                const SizedBox(width: 6),
+                Text(
+                  'Совпадение ${match.score}%',
+                  style: TextStyle(
+                    color: matchColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
             Text(
               vacancy.title,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
@@ -602,6 +725,11 @@ class _VacancyCard extends StatelessWidget {
                 color: _burgundy,
                 fontWeight: FontWeight.w700,
               ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              match.reasons.join(' · '),
+              style: const TextStyle(color: _muted, fontSize: 12, height: 1.35),
             ),
             const SizedBox(height: 14),
             Wrap(
@@ -626,6 +754,7 @@ class _VacancyCard extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class _ExperienceDialog extends StatefulWidget {

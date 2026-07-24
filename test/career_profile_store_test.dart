@@ -34,4 +34,56 @@ void main() {
 
     expect(profile.experience, 'Управлял командой из 12 человек.');
   });
+
+  test('vacancies are scored from role, skills and salary facts', () {
+    const profile = CareerProfile(
+      targetRole: 'Project Manager',
+      skills: 'Agile, управление командой, продажи',
+      minimumSalary: 150000,
+    );
+    final strong = CareerMatch.evaluate(
+      const CareerVacancy(
+        id: '1',
+        title: 'Project Manager',
+        company: 'Example',
+        url: '',
+        salary: 'от 180000 RUR',
+        area: 'Москва',
+        requirement: 'Agile, управление командой и продажи',
+        salaryFrom: 180000,
+      ),
+      profile,
+    );
+    final weak = CareerMatch.evaluate(
+      const CareerVacancy(
+        id: '2',
+        title: 'Стажёр аналитик',
+        company: 'Example',
+        url: '',
+        salary: 'до 90000 RUR',
+        area: 'Москва',
+        requirement: 'Excel',
+        salaryTo: 90000,
+      ),
+      profile,
+    );
+
+    expect(strong.score, 100);
+    expect(weak.score, 0);
+    expect(strong.reasons.join(' '), contains('зарплата соответствует'));
+  });
+
+  test('stop factors inspect vacancy snippets, not only the title', () {
+    const vacancy = CareerVacancy(
+      id: '1',
+      title: 'Менеджер проекта',
+      company: 'Example',
+      url: '',
+      salary: 'Зарплата не указана',
+      area: 'Москва',
+      responsibility: 'В обязанности входят холодные звонки.',
+    );
+
+    expect(vacancy.searchableText, contains('холодные звонки'));
+  });
 }
