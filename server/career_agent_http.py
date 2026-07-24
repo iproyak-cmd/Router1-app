@@ -197,7 +197,12 @@ def _hh_token(installation_id: str) -> str | None:
 
 
 def _hh_vacancies(
-    installation_id: str, text: str, area: str, page: int, per_page: int
+    installation_id: str,
+    text: str,
+    area: str,
+    page: int,
+    per_page: int,
+    salary: int = 0,
 ) -> dict[str, Any]:
     token = _hh_token(installation_id)
     if not token:
@@ -209,6 +214,7 @@ def _hh_vacancies(
             "page": min(max(page, 0), 20),
             "per_page": min(max(per_page, 1), 50),
             "order_by": "publication_time",
+            **({"salary": min(max(salary, 0), 10_000_000)} if salary else {}),
         }
     )
     payload = _json_request(
@@ -431,6 +437,7 @@ class Handler(BaseHTTPRequestHandler):
                 (query.get("area") or ["113"])[0],
                 int((query.get("page") or ["0"])[0]),
                 int((query.get("per_page") or ["20"])[0]),
+                int((query.get("salary") or ["0"])[0]),
             )
         except (ValueError, TypeError):
             self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_request"})

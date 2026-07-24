@@ -10,17 +10,88 @@ const _muted = Color(0xFF6F6B67);
 const _line = Color(0xFFE5DED7);
 
 class CareerProfileStore {
+  static const _profileKey = 'career_profile_v2';
   static const _experienceKey = 'career_profile_experience';
 
-  Future<String> loadExperience() async {
+  Future<CareerProfile> load() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getString(_experienceKey)?.trim() ?? '';
+    final encoded = preferences.getString(_profileKey);
+    if (encoded != null) {
+      try {
+        final decoded = jsonDecode(encoded);
+        if (decoded is Map<String, dynamic>) {
+          return CareerProfile.fromJson(decoded);
+        }
+      } on FormatException {
+        // Fall back to the legacy value if local preferences were corrupted.
+      }
+    }
+    return CareerProfile(
+      experience: preferences.getString(_experienceKey)?.trim() ?? '',
+    );
   }
 
-  Future<void> saveExperience(String experience) async {
+  Future<void> save(CareerProfile profile) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(_experienceKey, experience.trim());
+    await preferences.setString(_profileKey, jsonEncode(profile.toJson()));
+    await preferences.remove(_experienceKey);
   }
+}
+
+class CareerProfile {
+  const CareerProfile({
+    this.targetRole = '',
+    this.experience = '',
+    this.skills = '',
+    this.achievements = '',
+    this.minimumSalary = 0,
+    this.stopFactors = '',
+  });
+
+  final String targetRole;
+  final String experience;
+  final String skills;
+  final String achievements;
+  final int minimumSalary;
+  final String stopFactors;
+
+  bool get isEmpty =>
+      targetRole.isEmpty &&
+      experience.isEmpty &&
+      skills.isEmpty &&
+      achievements.isEmpty &&
+      minimumSalary == 0 &&
+      stopFactors.isEmpty;
+
+  String get applicationContext => [
+        if (experience.isNotEmpty) 'Опыт:\n$experience',
+        if (skills.isNotEmpty) 'Ключевые навыки:\n$skills',
+        if (achievements.isNotEmpty) 'Измеримые достижения:\n$achievements',
+      ].join('\n\n');
+
+  List<String> get excludedTerms => stopFactors
+      .split(RegExp(r'[,;\n]'))
+      .map((value) => value.trim().toLowerCase())
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+
+  factory CareerProfile.fromJson(Map<String, dynamic> json) => CareerProfile(
+        targetRole: (json['target_role'] ?? '').toString().trim(),
+        experience: (json['experience'] ?? '').toString().trim(),
+        skills: (json['skills'] ?? '').toString().trim(),
+        achievements: (json['achievements'] ?? '').toString().trim(),
+        minimumSalary: int.tryParse('${json['minimum_salary'] ?? 0}') ?? 0,
+        stopFactors: (json['stop_factors'] ?? '').toString().trim(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'target_role': targetRole.trim(),
+        'experience': experience.trim(),
+        'skills': skills.trim(),
+        'achievements': achievements.trim(),
+        'minimum_salary': minimumSalary,
+        'stop_factors': stopFactors.trim(),
+      };
 }
 
 class CareerVacancy {
@@ -104,10 +175,12 @@ class CareerApi {
   Future<List<CareerVacancy>> vacancies(
     String installationId,
     String text,
+    int minimumSalary,
   ) async {
     final payload = await _get('/career/hh/vacancies', {
       'installation_id': installationId,
       'text': text,
+      if (minimumSalary > 0) 'salary': '$minimumSalary',
       'area': '113',
       'page': '0',
       'per_page': '20',
@@ -209,7 +282,7 @@ class _CareerPageState extends State<CareerPage>
   bool loading = true;
   bool connected = false;
   String error = '';
-  String experience = '';
+  CareerProfile profile = const CareerProfile();
   List<CareerVacancy> vacancies = const [];
 
   @override
@@ -262,22 +335,27 @@ class _CareerPageState extends State<CareerPage>
   }
 
   Future<void> _loadProfile() async {
-    final saved = await profileStore.loadExperience();
-    if (mounted) setState(() => experience = saved);
+    final saved = await profileStore.load();
+    if (!mounted) return;
+    setState(() {
+      profile = saved;
+      if (saved.targetRole.isNotEmpty) query.text = saved.targetRole;
+    });
   }
 
   Future<void> _editProfile() async {
-    final updated = await showDialog<String>(
+    final updated = await showDialog<CareerProfile>(
       context: context,
-      builder: (context) => _ExperienceDialog(
-        initialValue: experience,
-        title: 'Профессиональный профиль',
-        actionLabel: 'Сохранить',
-      ),
+      builder: (context) => _ProfileDialog(initialValue: profile),
     );
-    if (!mounted || updated == null || updated.trim().isEmpty) return;
-    await profileStore.saveExperience(updated);
-    if (mounted) setState(() => experience = updated.trim());
+    if (!mounted || updated == null) return;
+    await profileStore.save(updated);
+    if (mounted) {
+      setState(() {
+        profile = updated;
+        if (updated.targetRole.isNotEmpty) query.text = updated.targetRole;
+      });
+    }
   }
 
   Future<void> _search() async {
@@ -290,9 +368,16 @@ class _CareerPageState extends State<CareerPage>
       final result = await api.vacancies(
         widget.installationId,
         query.text.trim(),
+        profile.minimumSalary,
       );
       if (!mounted) return;
-      setState(() => vacancies = result);
+      final excluded = profile.excludedTerms;
+      setState(
+        () => vacancies = result.where((vacancy) {
+          final searchable = '${vacancy.title} ${vacancy.company}'.toLowerCase();
+          return !excluded.any(searchable.contains);
+        }).toList(growable: false),
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => error = 'Не удалось загрузить вакансии. Попробуйте ещё раз.');
@@ -380,9 +465,15 @@ class _CareerPageState extends State<CareerPage>
                       ),
                       const SizedBox(height: 7),
                       Text(
-                        experience.isEmpty
-                            ? 'Заполните опыт один раз — Fabula будет подставлять его в каждый новый отклик.'
-                            : experience,
+                        profile.isEmpty
+                            ? 'Заполните профиль один раз — Fabula настроит поиск и будет подставлять факты в отклики.'
+                            : [
+                                if (profile.targetRole.isNotEmpty)
+                                  profile.targetRole,
+                                if (profile.skills.isNotEmpty) profile.skills,
+                                if (profile.minimumSalary > 0)
+                                  'от ${profile.minimumSalary} ₽',
+                              ].join(' · '),
                         maxLines: 5,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: _muted, height: 1.4),
@@ -390,9 +481,9 @@ class _CareerPageState extends State<CareerPage>
                       const SizedBox(height: 14),
                       OutlinedButton.icon(
                         onPressed: _editProfile,
-                        icon: Icon(experience.isEmpty ? Icons.add : Icons.edit),
+                        icon: Icon(profile.isEmpty ? Icons.add : Icons.edit),
                         label: Text(
-                          experience.isEmpty ? 'Заполнить профиль' : 'Изменить',
+                          profile.isEmpty ? 'Заполнить профиль' : 'Изменить',
                         ),
                       ),
                     ],
@@ -439,8 +530,10 @@ class _CareerPageState extends State<CareerPage>
     final selectedExperience = await showDialog<String>(
       context: context,
       builder: (context) => _ExperienceDialog(
-        initialValue: experience,
-        title: experience.isEmpty ? 'Релевантный опыт' : 'Проверьте опыт',
+        initialValue: profile.applicationContext,
+        title: profile.applicationContext.isEmpty
+            ? 'Релевантный опыт'
+            : 'Проверьте факты',
         actionLabel: 'Подготовить',
       ),
     );
@@ -450,8 +543,6 @@ class _CareerPageState extends State<CareerPage>
       return;
     }
     final normalizedExperience = selectedExperience.trim();
-    await profileStore.saveExperience(normalizedExperience);
-    if (mounted) setState(() => experience = normalizedExperience);
     setState(() => loading = true);
     try {
       final draft = await api.prepareApplication(
@@ -597,6 +688,138 @@ class _ExperienceDialogState extends State<_ExperienceDialog> {
             child: Text(widget.actionLabel),
           ),
         ],
+      );
+}
+
+class _ProfileDialog extends StatefulWidget {
+  const _ProfileDialog({required this.initialValue});
+
+  final CareerProfile initialValue;
+
+  @override
+  State<_ProfileDialog> createState() => _ProfileDialogState();
+}
+
+class _ProfileDialogState extends State<_ProfileDialog> {
+  late final TextEditingController role;
+  late final TextEditingController experience;
+  late final TextEditingController skills;
+  late final TextEditingController achievements;
+  late final TextEditingController salary;
+  late final TextEditingController stopFactors;
+
+  @override
+  void initState() {
+    super.initState();
+    final value = widget.initialValue;
+    role = TextEditingController(text: value.targetRole);
+    experience = TextEditingController(text: value.experience);
+    skills = TextEditingController(text: value.skills);
+    achievements = TextEditingController(text: value.achievements);
+    salary = TextEditingController(
+      text: value.minimumSalary == 0 ? '' : '${value.minimumSalary}',
+    );
+    stopFactors = TextEditingController(text: value.stopFactors);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      role,
+      experience,
+      skills,
+      achievements,
+      salary,
+      stopFactors,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Профессиональный профиль'),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                _field(role, 'Целевая должность', 'Project Manager'),
+                _field(
+                  experience,
+                  'Опыт',
+                  'Компании, роли и реальные задачи',
+                  lines: 4,
+                ),
+                _field(skills, 'Навыки', 'Управление командой, продажи, Agile'),
+                _field(
+                  achievements,
+                  'Измеримые достижения',
+                  'Например: увеличил выручку с 2 до 12 млн ₽/мес',
+                  lines: 3,
+                ),
+                _field(
+                  salary,
+                  'Минимальная зарплата, ₽',
+                  '150000',
+                  keyboardType: TextInputType.number,
+                ),
+                _field(
+                  stopFactors,
+                  'Стоп-факторы',
+                  'Стажировка, холодные звонки, конкретная компания',
+                  lines: 2,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              CareerProfile(
+                targetRole: role.text.trim(),
+                experience: experience.text.trim(),
+                skills: skills.text.trim(),
+                achievements: achievements.text.trim(),
+                minimumSalary: int.tryParse(
+                      salary.text.replaceAll(RegExp(r'\D'), ''),
+                    ) ??
+                    0,
+                stopFactors: stopFactors.text.trim(),
+              ),
+            ),
+            child: const Text('Сохранить'),
+          ),
+        ],
+      );
+
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    String hint, {
+    int lines = 1,
+    TextInputType? keyboardType,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextField(
+          controller: controller,
+          minLines: lines,
+          maxLines: lines,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: hint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
       );
 }
 
