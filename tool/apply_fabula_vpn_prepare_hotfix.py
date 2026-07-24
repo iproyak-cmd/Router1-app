@@ -75,99 +75,33 @@ old_toggle = """  Future<void> _toggleVpn() async {
   }
 """
 
-new_toggle = """  Future<void> _toggleVpn() async {
+safe_toggle = """  Future<void> _toggleVpn() async {
     if (vpnBusy) return;
-    if (phone.trim().isEmpty) {
-      await _editProfile(requirePhone: true);
-      return;
-    }
     setState(() => vpnBusy = true);
-    var tunnelStarted = false;
     try {
       final current = await tunnel.status();
       if (current.state == 'up') {
         vpn = await tunnel.disconnect();
-        if (mounted) setState(() {});
-        return;
+      } else {
+        vpn = current;
       }
-
-      final lookup = await _ensureVpnAccess();
-      final available = _fabulaConfigs(lookup);
-      final candidates = available.where((c) {
-        final text = '${c.productType} ${c.deviceName}'.toLowerCase();
-        return Platform.isWindows
-            ? text.contains('windows') || text.contains('pc') || text.contains('пк')
-            : text.contains('android') || text.contains('smartphone') || text.contains('смартфон');
-      }).toList();
-      final config = candidates.isNotEmpty
-          ? candidates.first
-          : (available.isNotEmpty ? available.first : null);
-      if (config == null) throw const FormatException('no_config');
-
-      final configText = await _fetchVpnConfigWithRetry(config.id);
-      final prepared = await tunnel.prepare();
-      if (!prepared) throw const FormatException('vpn_permission_denied');
-
-      vpn = await tunnel.connect(configText, serverCode: config.serverCode);
-      tunnelStarted = true;
-
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    } catch (_) {
       try {
-        final request = await client.getUrl(
-          Uri.parse('https://www.cloudflare.com/cdn-cgi/trace?fabula=${DateTime.now().millisecondsSinceEpoch}'),
-        );
-        request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-        final response = await request.close().timeout(const Duration(seconds: 8));
-        await response.drain<void>().timeout(const Duration(seconds: 8));
-      } finally {
-        client.close(force: true);
+        vpn = await tunnel.disconnect();
+      } catch (_) {
+        vpn = const AwgTunnelStatus(state: 'down');
       }
-
-      AwgTunnelStatus verified = vpn;
-      for (var attempt = 0; attempt < 8; attempt++) {
-        verified = await tunnel.status();
-        if (verified.connected) break;
-        await Future<void>.delayed(const Duration(milliseconds: 750));
-      }
-      if (!verified.connected) {
-        throw const FormatException('vpn_no_payload_traffic');
-      }
-
-      vpn = verified;
-      unawaited(
-        _trackEvent(
-          'vpn_connected',
-          details: {
-            'server_code': config.serverCode,
-            'rx': verified.rxBytes,
-            'tx': verified.txBytes,
-          },
-        ),
-      );
-    } catch (error) {
-      if (tunnelStarted) {
-        try {
-          vpn = await tunnel.disconnect();
-        } catch (_) {
-          vpn = const AwgTunnelStatus(state: 'down');
-        }
-      }
-      unawaited(_trackEvent('vpn_connect_failed', details: {'error': error.toString()}));
+    } finally {
       if (mounted) {
-        setState(() {});
+        setState(() => vpnBusy = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text(
-              error.toString().contains('vpn_no_payload_traffic')
-                  ? 'VPN не передаёт трафик и был автоматически отключён.'
-                  : 'Не удалось подключить VPN. Соединение безопасно отключено.',
+              'VPN временно отключён до завершения проверки. Интернет работает напрямую.',
             ),
-            action: SnackBarAction(label: 'Повторить', onPressed: _toggleVpn),
           ),
         );
       }
-    } finally {
-      if (mounted) setState(() => vpnBusy = false);
     }
   }
 """
@@ -178,6 +112,6 @@ if old_toggle not in text:
     raise SystemExit('VPN toggle block not found; refusing an unsafe patch')
 
 text = text.replace(old_lookup, new_lookup, 1)
-text = text.replace(old_toggle, new_toggle, 1)
+text = text.replace(old_toggle, safe_toggle, 1)
 path.write_text(text, encoding='utf-8')
-print('FABULA_VPN_TRAFFIC_VERIFICATION_HOTFIX_OK')
+print('FABULA_VPN_DISABLED_SAFELY')
