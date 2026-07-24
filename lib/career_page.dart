@@ -10,6 +10,7 @@ const _line = Color(0xFFE5DED7);
 
 class CareerVacancy {
   const CareerVacancy({
+    required this.id,
     required this.title,
     required this.company,
     required this.url,
@@ -17,6 +18,7 @@ class CareerVacancy {
     required this.area,
   });
 
+  final String id;
   final String title;
   final String company;
   final String url;
@@ -41,6 +43,7 @@ class CareerVacancy {
       }
     }
     return CareerVacancy(
+      id: (json['id'] ?? '').toString(),
       title: (json['name'] ?? 'Вакансия').toString(),
       company: employer is Map ? (employer['name'] ?? '').toString() : '',
       url: (json['alternate_url'] ?? '').toString(),
@@ -48,6 +51,22 @@ class CareerVacancy {
       area: area is Map ? (area['name'] ?? '').toString() : '',
     );
   }
+}
+
+class ApplicationDraft {
+  const ApplicationDraft({
+    required this.resumeFocus,
+    required this.coverLetter,
+  });
+
+  final String resumeFocus;
+  final String coverLetter;
+
+  factory ApplicationDraft.fromJson(Map<String, dynamic> json) =>
+      ApplicationDraft(
+        resumeFocus: (json['resume_focus'] ?? '').toString(),
+        coverLetter: (json['cover_letter'] ?? '').toString(),
+      );
 }
 
 class CareerApi {
@@ -86,6 +105,21 @@ class CareerApi {
         .toList(growable: false);
   }
 
+  Future<ApplicationDraft> prepareApplication({
+    required String installationId,
+    required CareerVacancy vacancy,
+    required String experience,
+  }) async {
+    final payload = await _post('/career/applications/draft', {
+      'installation_id': installationId,
+      'vacancy_id': vacancy.id,
+      'vacancy_title': vacancy.title,
+      'company': vacancy.company,
+      'experience': experience,
+    });
+    return ApplicationDraft.fromJson(payload);
+  }
+
   Future<Map<String, dynamic>> _get(
     String path,
     Map<String, String> query,
@@ -105,6 +139,31 @@ class CareerApi {
         throw const FormatException('Career API returned invalid JSON');
       }
       return payload;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+    try {
+      final request = await client.postUrl(Uri.parse('$baseUrl$path'));
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.write(jsonEncode(payload));
+      final response = await request.close();
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('Career API returned ${response.statusCode}');
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Career API returned invalid JSON');
+      }
+      return decoded;
     } finally {
       client.close(force: true);
     }
@@ -292,7 +351,10 @@ class _CareerPageState extends State<CareerPage>
                   )
                 else
                   for (final vacancy in vacancies) ...[
-                    _VacancyCard(vacancy: vacancy),
+                    _VacancyCard(
+                      vacancy: vacancy,
+                      onPrepare: () => _prepare(vacancy),
+                    ),
                     const SizedBox(height: 12),
                   ],
               ],
@@ -300,6 +362,33 @@ class _CareerPageState extends State<CareerPage>
           ),
         ),
       );
+
+  Future<void> _prepare(CareerVacancy vacancy) async {
+    final experience = await showDialog<String>(
+      context: context,
+      builder: (context) => const _ExperienceDialog(),
+    );
+    if (!mounted || experience == null || experience.trim().isEmpty) return;
+    setState(() => loading = true);
+    try {
+      final draft = await api.prepareApplication(
+        installationId: widget.installationId,
+        vacancy: vacancy,
+        experience: experience.trim(),
+      );
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _DraftDialog(draft: draft, vacancy: vacancy),
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Не удалось подготовить отклик. Попробуйте ещё раз.');
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
 }
 
 Widget _panel({required Widget child}) => Container(
@@ -313,9 +402,10 @@ Widget _panel({required Widget child}) => Container(
     );
 
 class _VacancyCard extends StatelessWidget {
-  const _VacancyCard({required this.vacancy});
+  const _VacancyCard({required this.vacancy, required this.onPrepare});
 
   final CareerVacancy vacancy;
+  final VoidCallback onPrepare;
 
   @override
   Widget build(BuildContext context) => _panel(
@@ -354,18 +444,116 @@ class _VacancyCard extends StatelessWidget {
                   child: const Text('Открыть на HH'),
                 ),
                 FilledButton.tonal(
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Подготовка персонального отклика появится следующим обновлением.',
-                      ),
-                    ),
-                  ),
+                  onPressed: onPrepare,
                   child: const Text('Подготовить отклик'),
                 ),
               ],
             ),
           ],
         ),
+      );
+}
+
+class _ExperienceDialog extends StatefulWidget {
+  const _ExperienceDialog();
+
+  @override
+  State<_ExperienceDialog> createState() => _ExperienceDialogState();
+}
+
+class _ExperienceDialogState extends State<_ExperienceDialog> {
+  final controller = TextEditingController();
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Релевантный опыт'),
+        content: SizedBox(
+          width: 520,
+          child: TextField(
+            controller: controller,
+            minLines: 5,
+            maxLines: 10,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText:
+                  'Напишите только реальные должности, задачи и измеримые результаты.',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) Navigator.pop(context, value);
+            },
+            child: const Text('Подготовить'),
+          ),
+        ],
+      );
+}
+
+class _DraftDialog extends StatelessWidget {
+  const _DraftDialog({required this.draft, required this.vacancy});
+
+  final ApplicationDraft draft;
+  final CareerVacancy vacancy;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Отклик подготовлен'),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Акцент резюме',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                SelectableText(draft.resumeFocus),
+                const SizedBox(height: 18),
+                const Text(
+                  'Сопроводительное письмо',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                SelectableText(draft.coverLetter),
+                const SizedBox(height: 14),
+                const Text(
+                  'Ничего не отправлено. Проверьте факты перед переходом на HH.',
+                  style: TextStyle(color: _muted),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Закрыть'),
+          ),
+          FilledButton(
+            onPressed: vacancy.url.isEmpty
+                ? null
+                : () => launchUrl(
+                      Uri.parse(vacancy.url),
+                      mode: LaunchMode.externalApplication,
+                    ),
+            child: const Text('Одобрить и открыть HH'),
+          ),
+        ],
       );
 }
