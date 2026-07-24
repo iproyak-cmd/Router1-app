@@ -25,12 +25,8 @@ jobs:
       HABR_CLIENT_SECRET: ${{ secrets.HABR_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate source and secrets
-        run: |
-          set -euo pipefail
-          python3 -m py_compile server/career_agent_http.py
-          test -n "${HABR_CLIENT_ID:-}"
-          test -n "${HABR_CLIENT_SECRET:-}"
+      - name: Validate source
+        run: python3 -m py_compile server/career_agent_http.py
       - name: Install SSH helper
         run: |
           set -euo pipefail
@@ -205,8 +201,25 @@ jobs:
           nginx -t
           systemctl reload nginx
           curl -fsS --max-time 8 http://127.0.0.1:8013/health | grep -qx ok
-          headers=$(curl -fsSI --max-time 15 https://router1.tech/api/auth/habr/login)
-          printf '%s' "$headers" | grep -qi '^location: https://career.habr.com/integrations/oauth/authorize?'
+          body=$(curl -fsS --max-time 15 'https://router1.tech/api/auth/hh/callback?code=redacted-test&state=deploy-check')
+          printf '%s' "$body" | grep -Fq 'Fabula Career Agent connected successfully'
+          if grep -Eq '^HABR_CLIENT_ID=.+          trap - ERR
+          rm -f /tmp/career_agent_http.py /tmp/career_agent.env
+          echo "DEPLOY_OK login=https://router1.tech/api/auth/habr/login backup=$BACKUP"
+          REMOTE
+ "$ENVFILE" && grep -Eq '^HABR_CLIENT_SECRET=.+          trap - ERR
+          rm -f /tmp/career_agent_http.py /tmp/career_agent.env
+          echo "DEPLOY_OK login=https://router1.tech/api/auth/habr/login backup=$BACKUP"
+          REMOTE
+ "$ENVFILE"; then
+            headers=$(curl -fsSI --max-time 15 https://router1.tech/api/auth/habr/login)
+            printf '%s' "$headers" | grep -qi '^location: https://career.habr.com/integrations/oauth/authorize?'
+          else
+            status=$(curl -sS -o /tmp/habr_not_configured.html -w '%{http_code}' --max-time 15 https://router1.tech/api/auth/habr/login)
+            test "$status" = 503
+            grep -Fq 'Habr OAuth is not configured on the server.' /tmp/habr_not_configured.html
+            rm -f /tmp/habr_not_configured.html
+          fi
           test "$(systemctl is-active fabula-career-agent.service)" = active
           trap - ERR
           rm -f /tmp/career_agent_http.py /tmp/career_agent.env
