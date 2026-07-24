@@ -122,6 +122,25 @@ class CareerVacancy {
   String get searchableText =>
       '$title $company $requirement $responsibility'.toLowerCase();
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': title,
+        'employer': {'name': company},
+        'alternate_url': url,
+        'area': {'name': area},
+        'snippet': {
+          'requirement': requirement,
+          'responsibility': responsibility,
+        },
+        'salary_label': salary,
+        if (salaryFrom != null || salaryTo != null)
+          'salary': {
+            'from': salaryFrom,
+            'to': salaryTo,
+            'currency': 'RUR',
+          },
+      };
+
   factory CareerVacancy.fromJson(Map<String, dynamic> json) {
     final employer = json['employer'];
     final area = json['area'];
@@ -143,6 +162,8 @@ class CareerVacancy {
       } else if (to != null) {
         salaryText = 'до $to $currency';
       }
+    } else if ((json['salary_label'] ?? '').toString().isNotEmpty) {
+      salaryText = json['salary_label'].toString();
     }
     return CareerVacancy(
       id: (json['id'] ?? '').toString(),
@@ -161,6 +182,82 @@ class CareerVacancy {
           : '',
       salaryFrom: salaryFrom,
       salaryTo: salaryTo,
+    );
+  }
+}
+
+enum VacancyStage {
+  favorite('Избранное', Icons.bookmark_outline),
+  applied('Откликнулся', Icons.send_outlined),
+  interview('Собеседование', Icons.forum_outlined),
+  rejected('Отказ', Icons.close);
+
+  const VacancyStage(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
+}
+
+class TrackedVacancy {
+  const TrackedVacancy({
+    required this.vacancy,
+    required this.stage,
+  });
+
+  final CareerVacancy vacancy;
+  final VacancyStage stage;
+
+  factory TrackedVacancy.fromJson(Map<String, dynamic> json) {
+    final vacancy = json['vacancy'];
+    if (vacancy is! Map) {
+      throw const FormatException('Tracked vacancy is missing');
+    }
+    final rawStage = (json['stage'] ?? '').toString();
+    return TrackedVacancy(
+      vacancy: CareerVacancy.fromJson(vacancy.cast<String, dynamic>()),
+      stage: VacancyStage.values.firstWhere(
+        (value) => value.name == rawStage,
+        orElse: () => VacancyStage.favorite,
+      ),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'vacancy': vacancy.toJson(),
+        'stage': stage.name,
+      };
+}
+
+class VacancyPipelineStore {
+  static const _key = 'career_vacancy_pipeline_v1';
+
+  Future<Map<String, TrackedVacancy>> load() async {
+    final preferences = await SharedPreferences.getInstance();
+    final encoded = preferences.getString(_key);
+    if (encoded == null) return const {};
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map) return const {};
+      return {
+        for (final entry in decoded.entries)
+          if (entry.value is Map)
+            entry.key.toString(): TrackedVacancy.fromJson(
+              (entry.value as Map).cast<String, dynamic>(),
+            ),
+      };
+    } on FormatException {
+      return const {};
+    }
+  }
+
+  Future<void> save(Map<String, TrackedVacancy> vacancies) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _key,
+      jsonEncode({
+        for (final entry in vacancies.entries)
+          entry.key: entry.value.toJson(),
+      }),
     );
   }
 }
@@ -363,11 +460,13 @@ class CareerPage extends StatefulWidget {
     required this.installationId,
     this.api,
     this.profileStore,
+    this.pipelineStore,
   });
 
   final String installationId;
   final CareerApi? api;
   final CareerProfileStore? profileStore;
+  final VacancyPipelineStore? pipelineStore;
 
   @override
   State<CareerPage> createState() => _CareerPageState();
@@ -377,20 +476,24 @@ class _CareerPageState extends State<CareerPage>
     with WidgetsBindingObserver {
   late final CareerApi api;
   late final CareerProfileStore profileStore;
+  late final VacancyPipelineStore pipelineStore;
   final query = TextEditingController(text: 'Project Manager');
   bool loading = true;
   bool connected = false;
   String error = '';
   CareerProfile profile = const CareerProfile();
   List<CareerMatch> vacancies = const [];
+  Map<String, TrackedVacancy> trackedVacancies = const {};
 
   @override
   void initState() {
     super.initState();
     api = widget.api ?? CareerApi();
     profileStore = widget.profileStore ?? CareerProfileStore();
+    pipelineStore = widget.pipelineStore ?? VacancyPipelineStore();
     WidgetsBinding.instance.addObserver(this);
     _loadProfile();
+    _loadPipeline();
     _refreshStatus();
   }
 
@@ -440,6 +543,31 @@ class _CareerPageState extends State<CareerPage>
       profile = saved;
       if (saved.targetRole.isNotEmpty) query.text = saved.targetRole;
     });
+  }
+
+  Future<void> _loadPipeline() async {
+    final saved = await pipelineStore.load();
+    if (!mounted) return;
+    setState(() => trackedVacancies = Map.unmodifiable(saved));
+  }
+
+  Future<void> _setStage(
+    CareerVacancy vacancy,
+    VacancyStage? stage,
+  ) async {
+    final updated = Map<String, TrackedVacancy>.from(trackedVacancies);
+    if (stage == null) {
+      updated.remove(vacancy.id);
+    } else {
+      updated[vacancy.id] = TrackedVacancy(
+        vacancy: vacancy,
+        stage: stage,
+      );
+    }
+    await pipelineStore.save(updated);
+    if (mounted) {
+      setState(() => trackedVacancies = Map.unmodifiable(updated));
+    }
   }
 
   Future<void> _editProfile() async {
@@ -592,6 +720,13 @@ class _CareerPageState extends State<CareerPage>
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (trackedVacancies.isNotEmpty) ...[
+                  _PipelinePanel(
+                    vacancies: trackedVacancies.values.toList(growable: false),
+                    onStageChanged: _setStage,
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 TextField(
                   controller: query,
                   textInputAction: TextInputAction.search,
@@ -618,6 +753,9 @@ class _CareerPageState extends State<CareerPage>
                   for (final match in vacancies) ...[
                     _VacancyCard(
                       match: match,
+                      stage: trackedVacancies[match.vacancy.id]?.stage,
+                      onStageChanged: (stage) =>
+                          _setStage(match.vacancy, stage),
                       onPrepare: () => _prepare(match.vacancy),
                     ),
                     const SizedBox(height: 12),
@@ -678,10 +816,17 @@ Widget _panel({required Widget child}) => Container(
     );
 
 class _VacancyCard extends StatelessWidget {
-  const _VacancyCard({required this.match, required this.onPrepare});
+  const _VacancyCard({
+    required this.match,
+    required this.onPrepare,
+    required this.stage,
+    required this.onStageChanged,
+  });
 
   final CareerMatch match;
   final VoidCallback onPrepare;
+  final VacancyStage? stage;
+  final ValueChanged<VacancyStage?> onStageChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -749,6 +894,10 @@ class _VacancyCard extends StatelessWidget {
                   onPressed: onPrepare,
                   child: const Text('Подготовить отклик'),
                 ),
+                _StageMenu(
+                  stage: stage,
+                  onChanged: onStageChanged,
+                ),
               ],
             ),
           ],
@@ -756,6 +905,140 @@ class _VacancyCard extends StatelessWidget {
       );
   }
 }
+
+class _PipelinePanel extends StatelessWidget {
+  const _PipelinePanel({
+    required this.vacancies,
+    required this.onStageChanged,
+  });
+
+  final List<TrackedVacancy> vacancies;
+  final Future<void> Function(CareerVacancy, VacancyStage?) onStageChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ordered = [...vacancies]
+      ..sort((left, right) =>
+          left.stage.index.compareTo(right.stage.index));
+    return _panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Моя воронка',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            VacancyStage.values
+                .map((stage) =>
+                    '${stage.label}: ${vacancies.where((item) => item.stage == stage).length}')
+                .join(' · '),
+            style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          for (final item in ordered) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(item.stage.icon, size: 18, color: _burgundy),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.vacancy.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        item.vacancy.company,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                _StageMenu(
+                  stage: item.stage,
+                  compact: true,
+                  onChanged: (stage) =>
+                      onStageChanged(item.vacancy, stage),
+                ),
+              ],
+            ),
+            if (item != ordered.last)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(height: 1),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StageMenu extends StatelessWidget {
+  const _StageMenu({
+    required this.stage,
+    required this.onChanged,
+    this.compact = false,
+  });
+
+  final VacancyStage? stage;
+  final ValueChanged<VacancyStage?> onChanged;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<Object>(
+        tooltip: 'Изменить статус',
+        initialValue: stage,
+        onSelected: (value) => onChanged(
+          value == _removeFromPipeline ? null : value as VacancyStage,
+        ),
+        itemBuilder: (context) => [
+          for (final value in VacancyStage.values)
+            PopupMenuItem(
+              value: value,
+              child: Row(
+                children: [
+                  Icon(value.icon, size: 18),
+                  const SizedBox(width: 8),
+                  Text(value.label),
+                ],
+              ),
+            ),
+          if (stage != null)
+            const PopupMenuItem<Object>(
+              value: _removeFromPipeline,
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, size: 18),
+                  SizedBox(width: 8),
+                  Text('Убрать из воронки'),
+                ],
+              ),
+            ),
+        ],
+        child: Chip(
+          avatar: Icon(
+            stage?.icon ?? Icons.bookmark_add_outlined,
+            size: 16,
+          ),
+          label: Text(stage?.label ?? 'Сохранить'),
+          visualDensity:
+              compact ? VisualDensity.compact : VisualDensity.standard,
+          side: const BorderSide(color: _line),
+          backgroundColor: Colors.transparent,
+        ),
+      );
+}
+
+const _removeFromPipeline = 'remove';
 
 class _ExperienceDialog extends StatefulWidget {
   const _ExperienceDialog({
